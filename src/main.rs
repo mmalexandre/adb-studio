@@ -45,11 +45,28 @@ struct AudioResult {
     peaks: Vec<f32>,
 }
 
-#[derive(Clone, Default, Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 struct AppSettings {
     last_folder: Option<String>,
     last_selected_path: Option<String>,
     light_theme: bool,
+    #[serde(default = "default_left_pane_width")]
+    left_pane_width: f32,
+}
+
+fn default_left_pane_width() -> f32 {
+    280.0
+}
+
+impl Default for AppSettings {
+    fn default() -> Self {
+        Self {
+            last_folder: None,
+            last_selected_path: None,
+            light_theme: false,
+            left_pane_width: default_left_pane_width(),
+        }
+    }
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -79,6 +96,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }));
     window.set_build_number(BUILD_NUMBER.into());
     window.set_light_theme(settings.borrow().light_theme);
+    window.set_left_pane_width(settings.borrow().left_pane_width.into());
+
+    {
+        let settings = Rc::clone(&settings);
+        window.on_left_pane_width_changed(move |width| {
+            settings.borrow_mut().left_pane_width = width;
+            let settings_snapshot = settings.borrow().clone();
+            save_settings(&settings_snapshot);
+        });
+    }
 
     let last_folder = settings.borrow().last_folder.clone();
     if let Some(last_folder) = last_folder {
