@@ -1,6 +1,6 @@
 # Adb Studio
 
-A cross-platform Slint + Rust application for organizing and annotating generated audio.
+A cross-platform Slint + Rust application for annotating Ace Step 1.5 AI-generated music.
 
 ## Status
 
