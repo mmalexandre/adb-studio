@@ -17,9 +17,19 @@ pub struct LoRAInfo {
 }
 
 pub fn parse_file(path: &Path) -> Result<ComfyUIWorkflow, String> {
+    eprintln!("[metadata] parsing workflow: {}", path.display());
     let contents = fs::read_to_string(path).map_err(|error| error.to_string())?;
     let value: Value = serde_json::from_str(&contents).map_err(|error| error.to_string())?;
-    Ok(parse_value(&value))
+    let workflow = parse_value(&value);
+    eprintln!(
+        "[metadata] parsed workflow: bpm={:?}, key={:?}, prompt_chars={}, lyrics_chars={}, loras={}",
+        workflow.bpm,
+        workflow.key,
+        workflow.prompt.chars().count(),
+        workflow.lyrics.chars().count(),
+        workflow.loras.len()
+    );
+    Ok(workflow)
 }
 
 pub fn parse_value(value: &Value) -> ComfyUIWorkflow {
@@ -31,6 +41,11 @@ pub fn parse_value(value: &Value) -> ComfyUIWorkflow {
 fn visit(value: &Value, workflow: &mut ComfyUIWorkflow, lyrics_context: bool) {
     match value {
         Value::Object(object) => {
+            if let Some(nodes) = object.get("nodes").and_then(Value::as_array) {
+                for node in nodes {
+                    parse_visual_node(node, workflow);
+                }
+            }
             let class_type = object
                 .get("class_type")
                 .and_then(Value::as_str)
@@ -110,6 +125,84 @@ fn visit(value: &Value, workflow: &mut ComfyUIWorkflow, lyrics_context: bool) {
     }
 }
 
+fn parse_visual_node(node: &Value, workflow: &mut ComfyUIWorkflow) {
+    let Some(object) = node.as_object() else {
+        return;
+    };
+    let node_type = object.get("type").and_then(Value::as_str).unwrap_or_default();
+    let node_lower = node_type.to_ascii_lowercase();
+    let widget_values = object
+        .get("widgets_values")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let inputs = object.get("inputs").and_then(Value::as_array);
+    let mut values = std::collections::HashMap::new();
+
+    if let Some(inputs) = inputs {
+        let mut value_index = 0;
+        for input in inputs {
+            let Some(input_object) = input.as_object() else {
+                continue;
+            };
+            let Some(name) = input_object.get("name").and_then(Value::as_str) else {
+                continue;
+            };
+            if input_object.get("widget").is_none() {
+                continue;
+            }
+            if let Some(value) = widget_values.get(value_index) {
+                values.insert(name.to_ascii_lowercase(), value.clone());
+            }
+            value_index += 1;
+        }
+    }
+
+    if node_lower.contains("textencodeacestep")
+        || (node_lower.contains("acestep") && node_lower.contains("textencode"))
+    {
+        if workflow.prompt.is_empty() {
+            workflow.prompt = values
+                .get("tags")
+                .or_else(|| values.get("prompt"))
+                .map(scalar_text)
+                .unwrap_or_default();
+        }
+        if workflow.lyrics.is_empty() {
+            workflow.lyrics = values.get("lyrics").map(scalar_text).unwrap_or_default();
+        }
+        if workflow.bpm.is_empty() {
+            workflow.bpm = values.get("bpm").map(scalar_text).unwrap_or_default();
+        }
+        if workflow.key.is_empty() {
+            workflow.key = values
+                .get("keyscale")
+                .or_else(|| values.get("key"))
+                .or_else(|| values.get("tonality"))
+                .map(scalar_text)
+                .unwrap_or_default();
+        }
+    }
+
+    if node_lower.contains("loraloader") || node_lower.contains("loadlora") {
+        if let Some(filename) = values
+            .get("lora_name")
+            .or_else(|| values.get("filename"))
+            .or_else(|| values.get("file_name"))
+            .or_else(|| values.get("name"))
+            .map(scalar_text)
+        {
+            let strength = values
+                .get("strength_model")
+                .or_else(|| values.get("strength"))
+                .or_else(|| values.get("weight"))
+                .map(scalar_text)
+                .unwrap_or_default();
+            workflow.loras.push(LoRAInfo { filename, strength });
+        }
+    }
+}
+
 fn find_string(object: &serde_json::Map<String, Value>, keys: &[&str]) -> Option<String> {
     keys.iter().find_map(|key| {
         object
@@ -169,5 +262,40 @@ mod tests {
             "2": {"class_type": "ShowText", "inputs": {"lyrics": "la la la"}}
         }));
         assert_eq!(workflow.lyrics, "la la la");
+    }
+
+    #[test]
+    fn extracts_metadata_from_visual_workflow_nodes() {
+        let workflow = parse_value(&json!({
+            "nodes": [
+                {
+                    "type": "TextEncodeAceStepAudio1.5",
+                    "inputs": [
+                        {"name": "tags", "widget": {"name": "tags"}, "link": null},
+                        {"name": "lyrics", "widget": {"name": "lyrics"}, "link": null},
+                        {"name": "seed", "widget": {"name": "seed"}, "link": 1},
+                        {"name": "bpm", "widget": {"name": "bpm"}, "link": null},
+                        {"name": "keyscale", "widget": {"name": "keyscale"}, "link": null}
+                    ],
+                    "widgets_values": ["prompt", "lyrics", 31, 130, "E minor"]
+                },
+                {
+                    "type": "LoraLoaderModelOnly",
+                    "inputs": [
+                        {"name": "model", "link": 2},
+                        {"name": "lora_name", "widget": {"name": "lora_name"}, "link": null},
+                        {"name": "strength_model", "widget": {"name": "strength_model"}, "link": null}
+                    ],
+                    "widgets_values": ["style.safetensors", 0.8]
+                }
+            ]
+        }));
+
+        assert_eq!(workflow.bpm, "130");
+        assert_eq!(workflow.key, "E minor");
+        assert_eq!(workflow.prompt, "prompt");
+        assert_eq!(workflow.lyrics, "lyrics");
+        assert_eq!(workflow.loras[0].filename, "style.safetensors");
+        assert_eq!(workflow.loras[0].strength, "0.8");
     }
 }
