@@ -1,4 +1,4 @@
-import { Button, LineEdit, ListView, ScrollView, VerticalBox } from "std-widgets.slint";
+import { Button, LineEdit, ListView, ScrollView, TextEdit, VerticalBox } from "std-widgets.slint";
 
 export struct TreeRow {
     path: string,
@@ -977,80 +977,103 @@ export component MainWindow inherits Window {
             }
 
             Rectangle {
-                if root.metadata-visible : Rectangle {
-                    height: 6px;
-                    background: metadata-drag-area.has-hover ? (root.light-theme ? #aeb8c6 : #566171) : (root.light-theme ? #e0e5eb : #3b4655);
-                    metadata-drag-area := TouchArea {
-                        mouse-cursor: ns-resize;
-                        pointer-event(event) => {
-                            if event.kind == PointerEventKind.down {
-                                root.metadata-drag-start-y = self.mouse-y;
-                                root.metadata-drag-start-height = root.metadata-pane-height;
-                            } else if event.kind == PointerEventKind.move && self.pressed {
-                                root.metadata-pane-height = (root.metadata-drag-start-height - (self.mouse-y - root.metadata-drag-start-y)).max(120px).min(420px);
-                            }
-                        }
-                    }
-                }
-                if root.metadata-visible : Rectangle {
-                    height: root.metadata-pane-height;
-                    background: root.light-theme ? #eef1f5 : #1a2029;
-                    border-color: root.light-theme ? #cbd2dc : #2a3340;
-                    border-width: 1px;
-                    VerticalBox {
-                        padding: 12px;
-                        spacing: 8px;
-                        HorizontalLayout {
-                            Text { text: root.audio-file-name == "" ? "ComfyUI Metadata" : root.audio-file-name; color: root.light-theme ? #202833 : #e3e8ef; font-size: 16px; overflow: elide; }
-                            Rectangle { horizontal-stretch: 1; }
-                            Button { text: "Close"; clicked => { root.metadata-toggle(); } }
-                        }
-                        HorizontalLayout {
-                            spacing: 12px;
-                            vertical-stretch: 1;
-                            VerticalBox {
-                                width: (parent.width - 36px) / 4;
-                                alignment: start;
-                                spacing: 6px;
-                                Text { text: "Duration\n" + root.audio-total-duration; color: root.light-theme ? #202833 : #e3e8ef; }
-                                WorkflowSuggestionBox {
-                                    width: 100%;
-                                    files: root.workflow-json-files;
-                                    light-theme: root.light-theme;
-                                    list-visible <=> root.workflow-dropdown-visible;
-                                    query <=> root.selected-workflow;
-                                    selected(path) => { root.workflow-selected(path); }
-                                    search-requested(query) => { root.workflow-search-changed(query); }
-                                }
-                                Text { text: "BPM\n" + (root.workflow-bpm == "" ? "-" : root.workflow-bpm) + "\n\nKey\n" + (root.workflow-key == "" ? "-" : root.workflow-key) + "\n\nSeed\n" + (root.workflow-seed == "" ? "-" : root.workflow-seed); color: root.light-theme ? #202833 : #e3e8ef; vertical-alignment: center; }
-                            }
-                            ScrollView {
-                                width: (parent.width - 36px) / 4;
-                                vertical-stretch: 1;
-                                vertical-scrollbar-policy: always-on;
-                                prompt-text := Text {
-                                    width: parent.width;
-                                    text: root.workflow-prompt == "" ? "Prompt\n-" : "Prompt\n" + root.workflow-prompt;
-                                    color: root.light-theme ? #202833 : #e3e8ef;
-                                    wrap: word-wrap;
-                                }
-                            }
-                            ScrollView {
-                                width: (parent.width - 36px) / 4;
-                                vertical-stretch: 1;
-                                vertical-scrollbar-policy: always-on;
-                                lyrics-text := Text {
-                                    width: parent.width;
-                                    text: root.workflow-lyrics == "" ? "Lyrics\n-" : "Lyrics\n" + root.workflow-lyrics;
-                                    color: root.light-theme ? #202833 : #e3e8ef;
-                                    wrap: word-wrap;
-                                }
-                            }
-                            VerticalBox { width: (parent.width - 36px) / 4; vertical-stretch: 1; Text { text: "LoRAs"; color: root.light-theme ? #202833 : #e3e8ef; } ListView { vertical-stretch: 1; vertical-scrollbar-policy: always-on; for lora in root.workflow-loras : Text { text: lora.filename + (lora.strength == "" ? "" : "  x" + lora.strength); color: root.light-theme ? #5c6878 : #aeb8c6; overflow: elide; } } }
-                        }
-                    }
-                }
                 height: root.metadata-visible ? root.metadata-pane-height + 6px : 0px;
+                if root.metadata-visible : VerticalBox {
+                    spacing: 0px;
+                    Rectangle {
+                        height: 6px;
+                        background: metadata-drag-area.has-hover ? (root.light-theme ? #aeb8c6 : #566171) : (root.light-theme ? #e0e5eb : #3b4655);
+                        metadata-drag-area := TouchArea {
+                            mouse-cursor: ns-resize;
+                            pointer-event(event) => {
+                                if event.kind == PointerEventKind.down {
+                                    root.metadata-drag-start-y = self.mouse-y;
+                                    root.metadata-drag-start-height = root.metadata-pane-height;
+                                } else if event.kind == PointerEventKind.move && self.pressed {
+                                    root.metadata-pane-height = (root.metadata-drag-start-height - (self.mouse-y - root.metadata-drag-start-y)).max(120px).min(420px);
+                                }
+                            }
+                        }
+                    }
+                    Rectangle {
+                        height: root.metadata-pane-height;
+                        background: root.light-theme ? #eef1f5 : #1a2029;
+                        border-color: root.light-theme ? #cbd2dc : #2a3340;
+                        border-width: 1px;
+                        VerticalBox {
+                            width: 100%;
+                            height: 100%;
+                            padding: 12px;
+                            spacing: 8px;
+                            HorizontalLayout {
+                                width: 100%;
+                                Text { text: root.audio-file-name == "" ? "ComfyUI Metadata" : root.audio-file-name; color: root.light-theme ? #202833 : #e3e8ef; font-size: 16px; overflow: elide; }
+                                Rectangle { horizontal-stretch: 1; }
+                                Button { text: "Close"; clicked => { root.metadata-toggle(); } }
+                            }
+                            HorizontalLayout {
+                                width: 100%;
+                                height: (root.metadata-pane-height - 56px);
+                                spacing: 12px;
+                                VerticalBox {
+                                    width: (parent.width - 36px) / 4;
+                                    height: 100%;
+                                    alignment: start;
+                                    spacing: 6px;
+                                    Text { text: "Duration\n" + root.audio-total-duration; color: root.light-theme ? #202833 : #e3e8ef; }
+                                    WorkflowSuggestionBox {
+                                        width: 100%;
+                                        files: root.workflow-json-files;
+                                        light-theme: root.light-theme;
+                                        list-visible <=> root.workflow-dropdown-visible;
+                                        query <=> root.selected-workflow;
+                                        selected(path) => { root.workflow-selected(path); }
+                                        search-requested(query) => { root.workflow-search-changed(query); }
+                                    }
+                                    Text { text: "BPM\n" + (root.workflow-bpm == "" ? "-" : root.workflow-bpm) + "\n\nKey\n" + (root.workflow-key == "" ? "-" : root.workflow-key) + "\n\nSeed\n" + (root.workflow-seed == "" ? "-" : root.workflow-seed); color: root.light-theme ? #202833 : #e3e8ef; vertical-alignment: top; }
+                                }
+                                    VerticalBox {
+                                    width: (parent.width - 36px) / 4;
+                                    height: 100%;
+                                    Text { text: "Prompt"; color: root.light-theme ? #202833 : #e3e8ef; }
+                                    TextEdit {
+                                        width: 100%;
+                                        height: 100%;
+                                        text: root.workflow-prompt == "" ? "-" : root.workflow-prompt;
+                                        read-only: true;
+                                        wrap: word-wrap;
+                                    }
+                                }
+                                VerticalBox {
+                                    width: (parent.width - 36px) / 4;
+                                    height: 100%;
+                                    Text { text: "Lyrics"; color: root.light-theme ? #202833 : #e3e8ef; }
+                                    TextEdit {
+                                        width: 100%;
+                                        height: 100%;
+                                        text: root.workflow-lyrics == "" ? "-" : root.workflow-lyrics;
+                                        read-only: true;
+                                        wrap: word-wrap;
+                                    }
+                                }
+                                VerticalBox {
+                                    width: (parent.width - 36px) / 4;
+                                    height: 100%;
+                                    Text { text: "LoRAs"; color: root.light-theme ? #202833 : #e3e8ef; }
+                                    ListView {
+                                        height: 100%;
+                                        vertical-scrollbar-policy: always-on;
+                                        for lora in root.workflow-loras : Text {
+                                            text: lora.filename + (lora.strength == "" ? "" : "  x" + lora.strength);
+                                            color: root.light-theme ? #5c6878 : #aeb8c6;
+                                            overflow: elide;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
             Rectangle {
