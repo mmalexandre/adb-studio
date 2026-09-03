@@ -55,10 +55,18 @@ struct AppSettings {
     loop_enabled: bool,
     #[serde(default = "default_left_pane_width")]
     left_pane_width: f32,
+    #[serde(default = "default_metadata_pane_height")]
+    metadata_pane_height: f32,
+    #[serde(default)]
+    metadata_visible: bool,
 }
 
 fn default_left_pane_width() -> f32 {
     280.0
+}
+
+fn default_metadata_pane_height() -> f32 {
+    190.0
 }
 
 impl Default for AppSettings {
@@ -69,6 +77,8 @@ impl Default for AppSettings {
             light_theme: false,
             loop_enabled: false,
             left_pane_width: default_left_pane_width(),
+            metadata_pane_height: default_metadata_pane_height(),
+            metadata_visible: false,
         }
     }
 }
@@ -105,6 +115,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     window.set_light_theme(settings.borrow().light_theme);
     window.set_loop_enabled(settings.borrow().loop_enabled);
     window.set_left_pane_width(settings.borrow().left_pane_width.into());
+    window.set_metadata_pane_height(settings.borrow().metadata_pane_height.into());
+    window.set_metadata_visible(settings.borrow().metadata_visible);
 
     {
         let weak_window = window.as_weak();
@@ -139,10 +151,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     {
         let weak_window = window.as_weak();
+        let settings = Rc::clone(&settings);
         let workflow_audio_folder = Rc::clone(&audio_folder);
         window.on_metadata_toggle(move || {
             if let Some(window) = weak_window.upgrade() {
-                window.set_metadata_visible(!window.get_metadata_visible());
+                let visible = !window.get_metadata_visible();
+                window.set_metadata_visible(visible);
+                let mut settings = settings.borrow_mut();
+                settings.metadata_visible = visible;
+                save_settings(&settings);
             }
         });
         let weak_window = window.as_weak();
@@ -487,6 +504,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let settings = Rc::clone(&settings);
         window.on_left_pane_width_changed(move |width| {
             settings.borrow_mut().left_pane_width = width;
+            let settings_snapshot = settings.borrow().clone();
+            save_settings(&settings_snapshot);
+        });
+    }
+
+    {
+        let settings = Rc::clone(&settings);
+        window.on_metadata_pane_height_changed(move |height| {
+            settings.borrow_mut().metadata_pane_height = height;
             let settings_snapshot = settings.borrow().clone();
             save_settings(&settings_snapshot);
         });
@@ -990,7 +1016,9 @@ fn scan_json_files(folder: &Path) -> Vec<String> {
     fn visit(folder: &Path, files: &mut Vec<String>) {
         for entry in file_system::read_dir_sorted(folder) {
             if entry.is_dir {
-                visit(&entry.path, files);
+                if entry.name != ".adbstudio" {
+                    visit(&entry.path, files);
+                }
             } else if entry.kind == file_system::FileKind::Json {
                 files.push(entry.path.to_string_lossy().into_owned());
             }

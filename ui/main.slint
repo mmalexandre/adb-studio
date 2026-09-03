@@ -586,6 +586,9 @@ export component MainWindow inherits Window {
     in-out property <string> audio-total-duration: "00:00";
     in-out property <string> audio-error: "";
     in-out property <bool> metadata-visible: false;
+    in-out property <length> metadata-pane-height: 190px;
+    property <length> metadata-drag-start-y: 0px;
+    property <length> metadata-drag-start-height: 190px;
     in-out property <[string]> workflow-json-files: [];
     in-out property <string> selected-workflow: "";
     in-out property <string> workflow-bpm: "";
@@ -613,6 +616,7 @@ export component MainWindow inherits Window {
     callback comment-cancel();
     callback comment-delete(string, string, string, string);
     callback metadata-toggle();
+    callback metadata-pane-height-changed(length);
     callback workflow-selected(string);
     in-out property <bool> comment-editor-visible: false;
     in-out property <string> comment-editor-path: "";
@@ -622,6 +626,10 @@ export component MainWindow inherits Window {
 
     changed left-pane-width => {
         root.left-pane-width-changed(root.left-pane-width);
+    }
+
+    changed metadata-pane-height => {
+        root.metadata-pane-height-changed(root.metadata-pane-height);
     }
 
     Rectangle {
@@ -900,7 +908,22 @@ export component MainWindow inherits Window {
 
             Rectangle {
                 if root.metadata-visible : Rectangle {
-                    height: 190px;
+                    height: 6px;
+                    background: metadata-drag-area.has-hover ? (root.light-theme ? #aeb8c6 : #566171) : (root.light-theme ? #e0e5eb : #3b4655);
+                    metadata-drag-area := TouchArea {
+                        mouse-cursor: ns-resize;
+                        pointer-event(event) => {
+                            if event.kind == PointerEventKind.down {
+                                root.metadata-drag-start-y = self.mouse-y;
+                                root.metadata-drag-start-height = root.metadata-pane-height;
+                            } else if event.kind == PointerEventKind.move && self.pressed {
+                                root.metadata-pane-height = (root.metadata-drag-start-height - (self.mouse-y - root.metadata-drag-start-y)).max(120px).min(420px);
+                            }
+                        }
+                    }
+                }
+                if root.metadata-visible : Rectangle {
+                    height: root.metadata-pane-height;
                     background: root.light-theme ? #eef1f5 : #1a2029;
                     border-color: root.light-theme ? #cbd2dc : #2a3340;
                     border-width: 1px;
@@ -926,7 +949,7 @@ export component MainWindow inherits Window {
                         }
                     }
                 }
-                height: root.metadata-visible ? 190px : 0px;
+                height: root.metadata-visible ? root.metadata-pane-height + 6px : 0px;
             }
 
             Rectangle {
