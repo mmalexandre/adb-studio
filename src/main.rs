@@ -22,8 +22,6 @@ slint::include_modules!();
 
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 const BUILD_NUMBER: &str = env!("ADB_BUILD_NUMBER");
-const VISIBLE_AUDIO_ROWS: usize = 10;
-
 struct AudioLoadState {
     folder: PathBuf,
     paths: Vec<PathBuf>,
@@ -31,6 +29,8 @@ struct AudioLoadState {
     generated: HashSet<PathBuf>,
     generation: u64,
     running: bool,
+    completed: usize,
+    total: usize,
     result_sender: Sender<AudioResult>,
 }
 
@@ -61,6 +61,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         generated: HashSet::new(),
         generation: 0,
         running: false,
+        completed: 0,
+        total: 0,
         result_sender: audio_result_sender,
     }));
     window.set_build_number(BUILD_NUMBER.into());
@@ -75,11 +77,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     {
+        let weak_window = window.as_weak();
         let audio_model = Rc::clone(&audio_model);
         let audio_load_state = Arc::clone(&audio_load_state);
         let audio_result_receiver = Rc::new(RefCell::new(audio_result_receiver));
+        let mut spinner_frame = 0usize;
         let timer = slint::Timer::default();
         timer.start(slint::TimerMode::Repeated, Duration::from_millis(40), move || {
+            if let Some(window) = weak_window.upgrade() {
+                let state = audio_load_state.lock().unwrap();
+                window.set_audio_loading(state.running);
+                window.set_audio_completed(state.completed as i32);
+                window.set_audio_total(state.total as i32);
+                if state.running {
+                    window.set_audio_spinner(["|", "/", "-", "\\"][spinner_frame].into());
+                    spinner_frame = (spinner_frame + 1) % 4;
+                }
+            }
             let Some(model) = audio_model.borrow().clone() else {
                 return;
             };
@@ -277,7 +291,8 @@ fn refresh_audio(
         });
     }
     rows.sort_by(|left, right| right.modified_date.cmp(&left.modified_date));
-    let paths = rows.iter().map(|row| PathBuf::from(row.path.as_str())).collect();
+    let paths: Vec<PathBuf> = rows.iter().map(|row| PathBuf::from(row.path.as_str())).collect();
+    let total = paths.len();
     *audio_folder.borrow_mut() = Some(folder);
     let model = Rc::new(VecModel::from(rows));
     window.set_audio_rows(ModelRc::new(model.clone()));
@@ -288,7 +303,9 @@ fn refresh_audio(
         state.paths = paths;
         state.generated.clear();
         state.generation += 1;
-        state.requested_range = Some((0, VISIBLE_AUDIO_ROWS));
+        state.completed = 0;
+        state.total = total;
+        state.requested_range = Some((0, total));
     }
     request_audio_generation(audio_load_state, 0);
 }
@@ -298,8 +315,8 @@ fn request_audio_generation(
     start_index: usize,
 ) {
     let mut state = audio_load_state.lock().unwrap();
-    let end_index = start_index.saturating_add(VISIBLE_AUDIO_ROWS);
-    state.requested_range = Some((start_index, end_index));
+    let _ = start_index;
+    state.requested_range = Some((0, state.paths.len()));
     if state.running {
         return;
     }
@@ -346,6 +363,7 @@ fn generate_audio_ranges(audio_load_state: Arc<Mutex<AudioLoadState>>) {
                     continue;
                 }
                 state.generated.insert(path);
+                state.completed += 1;
             }
             let state = audio_load_state.lock().unwrap();
             let _ = state.result_sender.send(AudioResult {

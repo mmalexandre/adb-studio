@@ -2,7 +2,7 @@ use sha2::{Digest, Sha256};
 use std::{fs, path::Path};
 use symphonia::core::{audio::SampleBuffer, codecs::DecoderOptions, formats::FormatOptions, io::MediaSourceStream, meta::MetadataOptions, probe::Hint};
 
-pub const PEAK_COUNT: usize = 96;
+pub const PEAK_COUNT: usize = 4096;
 
 pub fn load_or_generate(path: &Path, workspace: &Path) -> (String, Vec<f32>) {
     let cache_key = cache_key(path);
@@ -26,6 +26,7 @@ pub fn load_or_generate(path: &Path, workspace: &Path) -> (String, Vec<f32>) {
 fn cache_key(path: &Path) -> String {
     let mut hasher = Sha256::new();
     hasher.update(env!("CARGO_PKG_VERSION").as_bytes());
+    hasher.update(PEAK_COUNT.to_le_bytes());
     if let Ok(contents) = fs::read(path) {
         hasher.update(contents);
     } else {
