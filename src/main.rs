@@ -19,6 +19,7 @@ mod file_system;
 mod metadata;
 mod waveform;
 use file_system::TreeState;
+use metadata::AudioComment;
 
 slint::include_modules!();
 
@@ -50,6 +51,8 @@ struct AppSettings {
     last_folder: Option<String>,
     last_selected_path: Option<String>,
     light_theme: bool,
+    #[serde(default)]
+    loop_enabled: bool,
     #[serde(default = "default_left_pane_width")]
     left_pane_width: f32,
 }
@@ -64,6 +67,7 @@ impl Default for AppSettings {
             last_folder: None,
             last_selected_path: None,
             light_theme: false,
+            loop_enabled: false,
             left_pane_width: default_left_pane_width(),
         }
     }
@@ -75,6 +79,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tree_state: Rc<RefCell<Option<TreeState>>> = Rc::new(RefCell::new(None));
     let audio_folder: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(None));
     let audio_model: Rc<RefCell<Option<Rc<VecModel<AudioRow>>>>> = Rc::new(RefCell::new(None));
+    let comment_editor_original: Rc<RefCell<Option<AudioComment>>> = Rc::new(RefCell::new(None));
+    let comment_editor_duration = Rc::new(RefCell::new(0.0_f32));
     let last_button_click: Rc<RefCell<Option<(PathBuf, Instant)>>> = Rc::new(RefCell::new(None));
     let (playback, playback_error) = match PlaybackEngine::new() {
         Ok(engine) => (Rc::new(RefCell::new(Some(engine))), None),
@@ -97,7 +103,169 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }));
     window.set_build_number(BUILD_NUMBER.into());
     window.set_light_theme(settings.borrow().light_theme);
+    window.set_loop_enabled(settings.borrow().loop_enabled);
     window.set_left_pane_width(settings.borrow().left_pane_width.into());
+
+    {
+        let weak_window = window.as_weak();
+        let audio_model = Rc::clone(&audio_model);
+        let audio_folder = Rc::clone(&audio_folder);
+        let playback = Rc::clone(&playback);
+        let comment_editor_original = Rc::clone(&comment_editor_original);
+        let comment_editor_duration = Rc::clone(&comment_editor_duration);
+        window.on_comment_range_requested(move |path, start, end| {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            let path = PathBuf::from(path.as_str());
+            let Some(folder) = audio_folder.borrow().clone() else {
+                return;
+            };
+            let duration = comment_duration(&folder, &path, &playback);
+            if duration <= 0.0 {
+                window.set_audio_error("Unable to determine audio duration".into());
+                return;
+            }
+            select_comment(&audio_model, &path, start, end);
+            *comment_editor_original.borrow_mut() = None;
+            *comment_editor_duration.borrow_mut() = duration;
+            window.set_comment_editor_path(path.to_string_lossy().into_owned().into());
+            window.set_comment_editor_start(format_seconds(start * duration).into());
+            window.set_comment_editor_end(format_seconds(end * duration).into());
+            window.set_comment_editor_text("".into());
+            window.set_comment_editor_visible(true);
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        let audio_model = Rc::clone(&audio_model);
+        let audio_folder = Rc::clone(&audio_folder);
+        let playback = Rc::clone(&playback);
+        let comment_editor_original = Rc::clone(&comment_editor_original);
+        let comment_editor_duration = Rc::clone(&comment_editor_duration);
+        window.on_comment_selected(move |path, start, end, text| {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            let path = PathBuf::from(path.as_str());
+            let Some(folder) = audio_folder.borrow().clone() else {
+                return;
+            };
+            let duration = comment_duration(&folder, &path, &playback);
+            if duration <= 0.0 {
+                return;
+            }
+            let original = AudioComment {
+                start_seconds: start * duration,
+                end_seconds: end * duration,
+                text: text.to_string(),
+            };
+            *comment_editor_duration.borrow_mut() = duration;
+            select_comment(&audio_model, &path, start, end);
+            *comment_editor_original.borrow_mut() = Some(original.clone());
+            window.set_comment_editor_path(path.to_string_lossy().into_owned().into());
+            window.set_comment_editor_start(format_seconds(original.start_seconds).into());
+            window.set_comment_editor_end(format_seconds(original.end_seconds).into());
+            window.set_comment_editor_text(original.text.into());
+            window.set_comment_editor_visible(true);
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        let audio_folder = Rc::clone(&audio_folder);
+        let audio_model = Rc::clone(&audio_model);
+        let audio_load_state = Arc::clone(&audio_load_state);
+        let comment_editor_original = Rc::clone(&comment_editor_original);
+        let comment_editor_duration = Rc::clone(&comment_editor_duration);
+        window.on_comment_save(move |path, start, end, text| {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            let path = PathBuf::from(path.as_str());
+            let Some(folder) = audio_folder.borrow().clone() else {
+                return;
+            };
+            let (Ok(start_seconds), Ok(end_seconds)) = (start.parse::<f32>(), end.parse::<f32>()) else {
+                window.set_audio_error("Comment times must be numbers".into());
+                return;
+            };
+            let duration = metadata::load_index(&folder)
+                .audio_files
+                .iter()
+                .find(|item| item.file_path == path.to_string_lossy())
+                .map(|item| item.duration_seconds)
+                .filter(|duration| *duration > 0.0)
+                .unwrap_or(*comment_editor_duration.borrow());
+            if duration <= 0.0 {
+                window.set_audio_error("Unable to determine audio duration".into());
+                return;
+            }
+            let comment = AudioComment {
+                start_seconds,
+                end_seconds,
+                text: text.to_string(),
+            }
+            .normalized(duration);
+            let selected_start = comment.start_seconds / duration;
+            let selected_end = comment.end_seconds / duration;
+            let mut index = metadata::load_index(&folder);
+            let Some(file) = index.audio_files.iter_mut().find(|item| item.file_path == path.to_string_lossy()) else {
+                index.audio_files.push(metadata::AudioFileMetadata { file_path: path.to_string_lossy().into_owned(), comments: vec![comment], ..Default::default() });
+                metadata::save_index(&folder, &index);
+                refresh_audio(&window, &audio_folder, &audio_model, &audio_load_state, folder);
+                select_comment(&audio_model, &path, selected_start, selected_end);
+                window.set_comment_editor_visible(false);
+                return;
+            };
+            if let Some(original) = comment_editor_original.borrow_mut().take() {
+                file.comments.retain(|item| item != &original);
+            }
+            file.comments.push(comment);
+            metadata::save_index(&folder, &index);
+            refresh_audio(&window, &audio_folder, &audio_model, &audio_load_state, folder);
+            select_comment(&audio_model, &path, selected_start, selected_end);
+            window.set_comment_editor_visible(false);
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        let audio_folder = Rc::clone(&audio_folder);
+        let audio_model = Rc::clone(&audio_model);
+        let audio_load_state = Arc::clone(&audio_load_state);
+        let comment_editor_original = Rc::clone(&comment_editor_original);
+        window.on_comment_delete(move |path, _start, _end, _text| {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            let Some(folder) = audio_folder.borrow().clone() else {
+                return;
+            };
+            let mut index = metadata::load_index(&folder);
+            let Some(file) = index.audio_files.iter_mut().find(|item| item.file_path == path.as_str()) else {
+                return;
+            };
+            if let Some(original) = comment_editor_original.borrow_mut().take() {
+                file.comments.retain(|item| item != &original);
+                metadata::save_index(&folder, &index);
+                refresh_audio(&window, &audio_folder, &audio_model, &audio_load_state, folder);
+            }
+            window.set_comment_editor_visible(false);
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        let comment_editor_original = Rc::clone(&comment_editor_original);
+        window.on_comment_cancel(move || {
+            *comment_editor_original.borrow_mut() = None;
+            if let Some(window) = weak_window.upgrade() {
+                window.set_comment_editor_visible(false);
+            }
+        });
+    }
 
     {
         let settings = Rc::clone(&settings);
@@ -130,6 +298,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let audio_load_state = Arc::clone(&audio_load_state);
         let playback = Rc::clone(&playback);
         let audio_folder = Rc::clone(&audio_folder);
+        let settings = Rc::clone(&settings);
         let last_persisted_position = Rc::new(RefCell::new(Instant::now()));
         let last_persisted_position_for_timer = Rc::clone(&last_persisted_position);
         let audio_result_receiver = Rc::new(RefCell::new(audio_result_receiver));
@@ -142,6 +311,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if let Some(window) = weak_window.upgrade() {
                     if let Some(engine) = playback.borrow_mut().as_mut() {
                         engine.update_position();
+                        let selected_loop = engine
+                            .path()
+                            .and_then(|path| selected_loop_range(&audio_model, path));
+                        if settings.borrow().loop_enabled
+                            && !engine.is_playing()
+                            && !engine.duration().is_zero()
+                            && engine.position()
+                                >= selected_loop
+                                    .map(|(_, end)| engine.duration().mul_f32(end))
+                                    .unwrap_or(engine.duration())
+                        {
+                            if let Some(path) = engine.path().map(Path::to_path_buf) {
+                                let loop_start = selected_loop
+                                    .map(|(start, _)| engine.duration().mul_f32(start))
+                                    .unwrap_or(Duration::ZERO);
+                                let _ = engine.play(&path, loop_start);
+                            }
+                        }
                         let active_path = engine
                             .path()
                             .map(|path| path.to_string_lossy().into_owned())
@@ -191,9 +378,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             peaks: ModelRc::new(VecModel::from(waveform::aggregate_peaks(
                                 &result.peaks,
                             ))),
+                            comments: row.comments,
                             is_active: row.is_active,
                             is_playing: row.is_playing,
                             progress: row.progress,
+                            loop_enabled: row.loop_enabled,
+                            selected_comment_start: row.selected_comment_start,
+                            selected_comment_end: row.selected_comment_end,
                         },
                     );
                 }
@@ -227,6 +418,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     &audio_model,
                     &audio_load_state,
                 );
+            }
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        let settings = Rc::clone(&settings);
+        window.on_loop_changed(move |enabled| {
+            settings.borrow_mut().loop_enabled = enabled;
+            let settings_snapshot = settings.borrow().clone();
+            save_settings(&settings_snapshot);
+            if let Some(window) = weak_window.upgrade() {
+                window.set_loop_enabled(enabled);
             }
         });
     }
@@ -571,6 +775,37 @@ fn refresh_audio(
             .audio_files
             .into_iter()
             .find(|item| item.file_path == path_string);
+        let comments = stored_position
+            .as_ref()
+            .map(|item| {
+                let duration = item.duration_seconds.max(0.001);
+                let mut comment_rows: Vec<(f32, f32, String)> = item
+                    .comments
+                    .iter()
+                    .map(|comment| (
+                        (comment.start_seconds / duration).clamp(0.0, 1.0),
+                        (comment.end_seconds / duration).clamp(0.0, 1.0),
+                        comment.text.clone(),
+                    ))
+                    .collect();
+                comment_rows.sort_by(|left, right| left.0.total_cmp(&right.0));
+                let comment_rows = comment_rows
+                    .iter()
+                    .enumerate()
+                    .map(|(index, (start, end, text))| CommentRow {
+                        start: *start,
+                        end: *end,
+                        bubble_end: comment_rows
+                            .get(index + 1)
+                            .map(|next| next.0)
+                            .unwrap_or(1.0)
+                            .max(*start),
+                        text: text.clone().into(),
+                    })
+                    .collect::<Vec<_>>();
+                ModelRc::new(VecModel::from(comment_rows))
+            })
+            .unwrap_or_else(|| ModelRc::new(VecModel::from(Vec::new())));
         let progress = stored_position
             .as_ref()
             .filter(|item| item.duration_seconds > 0.0)
@@ -581,9 +816,13 @@ fn refresh_audio(
             name: entry.name.into(),
             modified_date: modified_date.to_string().into(),
             peaks: ModelRc::new(VecModel::from(vec![0.0; waveform::DISPLAY_PEAK_COUNT])),
+            comments,
             is_active: false,
             is_playing: false,
             progress,
+            loop_enabled: false,
+            selected_comment_start: -1.0,
+            selected_comment_end: -1.0,
         });
     }
     rows.sort_by(|left, right| right.modified_date.cmp(&left.modified_date));
@@ -640,13 +879,119 @@ fn update_audio_rows(
                     name: row.name,
                     modified_date: row.modified_date,
                     peaks: row.peaks,
+                    comments: row.comments,
                     is_active,
                     is_playing: is_active && is_playing,
                     progress: if is_active { progress } else { row.progress },
+                    loop_enabled: row.loop_enabled,
+                    selected_comment_start: row.selected_comment_start,
+                    selected_comment_end: row.selected_comment_end,
                 },
             );
         }
     }
+}
+
+fn comment_duration(
+    folder: &Path,
+    path: &Path,
+    playback: &Rc<RefCell<Option<PlaybackEngine>>>,
+) -> f32 {
+    let path_string = path.to_string_lossy();
+    let stored_duration = metadata::load_index(folder)
+        .audio_files
+        .iter()
+        .find(|item| item.file_path == path_string)
+        .map(|item| item.duration_seconds)
+        .unwrap_or_default();
+    if stored_duration > 0.0 {
+        return stored_duration;
+    }
+    let mut playback_ref = playback.borrow_mut();
+    let Some(engine) = playback_ref.as_mut() else {
+        return 0.0;
+    };
+    if engine.path() != Some(path) && engine.play(path, Duration::ZERO).is_err() {
+        return 0.0;
+    }
+    let duration = engine.duration().as_secs_f32();
+    if duration > 0.0 {
+        let mut index = metadata::load_index(folder);
+        if let Some(file) = index.audio_files.iter_mut().find(|item| item.file_path == path_string) {
+            file.duration_seconds = duration;
+        } else {
+            index.audio_files.push(metadata::AudioFileMetadata {
+                file_path: path_string.into_owned(),
+                duration_seconds: duration,
+                ..Default::default()
+            });
+        }
+        metadata::save_index(folder, &index);
+    }
+    duration
+}
+
+fn selected_loop_range(
+    audio_model: &Rc<RefCell<Option<Rc<VecModel<AudioRow>>>>>,
+    path: &Path,
+) -> Option<(f32, f32)> {
+    let model = audio_model.borrow().clone()?;
+    (0..model.row_count()).find_map(|index| {
+        let row = model.row_data(index)?;
+        if Path::new(row.path.as_str()) == path
+            && row.selected_comment_start >= 0.0
+            && row.selected_comment_end > row.selected_comment_start
+        {
+            Some((
+                row.selected_comment_start.clamp(0.0, 1.0),
+                row.selected_comment_end.clamp(0.0, 1.0),
+            ))
+        } else {
+            None
+        }
+    })
+}
+
+fn select_comment(
+    audio_model: &Rc<RefCell<Option<Rc<VecModel<AudioRow>>>>>,
+    path: &Path,
+    start: f32,
+    end: f32,
+) {
+    let Some(model) = audio_model.borrow().clone() else {
+        return;
+    };
+    for index in 0..model.row_count() {
+        let Some(row) = model.row_data(index) else {
+            continue;
+        };
+        let selected = Path::new(row.path.as_str()) == path;
+        if selected
+            || row.selected_comment_start >= 0.0
+            || row.selected_comment_end >= 0.0
+        {
+            model.set_row_data(
+                index,
+                AudioRow {
+                    path: row.path,
+                    name: row.name,
+                    modified_date: row.modified_date,
+                    peaks: row.peaks,
+                    comments: row.comments,
+                    is_active: row.is_active,
+                    is_playing: row.is_playing,
+                    progress: row.progress,
+                    loop_enabled: row.loop_enabled,
+                    selected_comment_start: if selected { start } else { -1.0 },
+                    selected_comment_end: if selected { end } else { -1.0 },
+                },
+            );
+        }
+    }
+}
+
+fn format_seconds(seconds: f32) -> String {
+    format!("{seconds:.3}")
 }
 
 fn format_duration(duration: Duration) -> String {

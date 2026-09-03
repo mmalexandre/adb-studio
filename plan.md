@@ -204,22 +204,29 @@
 ### Goals
 - 5-star rating widget (hover + click)
 - Reset to zero stars (hover over 0 area or dedicated button)
-- Right-click waveform → Comment popup
+- Right-click waveform → point comment popup
+- Right-click-drag waveform → ranged comment selection and popup
+- Display selected ranges in orange over the gray waveform with black endpoint locators
 - Comment display below waveform (truncated, full on hover)
-- Edit/delete comment on click
-- Drag comment to reposition (seek to new time)
-- Save all to .adbstudio/ metadata
+- Click a comment to restore its range markers
+- Edit/delete comments and reposition their start/end range
+- General Loop control with persistent enabled/disabled state
+- Save ratings and ranged comments to .adbstudio/ metadata
 
 ### Steps
 1. Extend metadata schema (`src/app/metadata/schema.rs`)
-   - Add fields: `rating: 0..=5`, `comments: [{ position_seconds, text }]`
+   - Add fields: `rating: 0..=5`, `comments: [{ start_seconds, end_seconds, text }]`
+   - A point comment uses equal start and end values
 2. Extend Slint UI: Star rating widget
    - 5 star buttons (or custom star glyph)
    - Hover state (preview rating)
    - Click to set rating
    - Visual indicator for current rating
    - Right-click or icon to reset to 0
-3. Add comment popup UI
+3. Add comment range interaction and popup UI
+   - Right click creates a zero-length range
+   - Right-click drag creates a start/end range and highlights it orange
+   - Show black vertical endpoint lines with downward triangles
    - Modal dialog with text input
    - Buttons: Save, Cancel, Delete (if existing)
    - Show current comment text if editing
@@ -227,22 +234,25 @@
    - Display comments as small labels below waveform
    - Truncate with ellipsis ("This is a long comment...")
    - Tooltip/hover shows full text
-5. Implement comment drag-to-reposition
-   - Mouse down on comment → drag along waveform
-   - Release → snap to new time, update metadata
-   - No need to reorder, just update timestamp
-6. Implement right-click context menu on waveform
-   - "Add comment" → Open comment popup
-   - Collect click coordinates, convert to time position
+5. Implement comment range editing and selection
+   - Edit start and end positions from the selected comment
+   - Clicking a comment restores both endpoint markers
+   - Dragging a comment updates its range and keeps start ≤ end
+6. Add general playback Loop control
+   - Toggle Loop on/off beside the play controls
+   - Persist the preference in application settings
+   - When enabled, repeat the selected comment range; without a selected range, repeat the active track
 7. Persist rating and comments
    - On app exit, save to .adbstudio/ (via existing metadata store)
 8. **Verification**:
    - Click and hover star rating
-   - Right-click waveform → Add comment → Save
-   - Comment appears below waveform
-   - Drag comment, verify time changed in metadata
+   - Right-click waveform → Add point comment → Save
+   - Right-click-drag waveform → verify orange range and endpoint markers
+   - Comment appears below waveform and clicking it restores the range
+   - Edit or drag a comment, verify both times changed in metadata
    - Edit existing comment
    - Delete comment
+   - Toggle Loop and verify selected-range and full-track behavior
    - Restart app, metadata persists
 
 ---
