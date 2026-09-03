@@ -189,38 +189,36 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     {
-        let weak_window = window.as_weak();
         let audio_folder = Rc::clone(&audio_folder);
         let audio_model = Rc::clone(&audio_model);
-        let audio_load_state = Arc::clone(&audio_load_state);
         window.on_comment_range_moved(move |path, old_start, old_end, start, end, text| {
-            let Some(window) = weak_window.upgrade() else {
-                return;
-            };
             let Some(folder) = audio_folder.borrow().clone() else {
                 return;
             };
             let path_string = path.to_string();
             let mut index = metadata::load_index(&folder);
-            let Some(file) = index.audio_files.iter_mut().find(|item| item.file_path == path_string) else {
-                return;
+            let comments = {
+                let Some(file) = index.audio_files.iter_mut().find(|item| item.file_path == path_string) else {
+                    return;
+                };
+                let duration = file.duration_seconds;
+                if duration <= 0.0 {
+                    return;
+                }
+                if let Some(comment) = file.comments.iter_mut().find(|comment| {
+                    (comment.start_seconds / duration - old_start).abs() < 0.001
+                        && (comment.end_seconds / duration - old_end).abs() < 0.001
+                        && comment.text == text.as_str()
+                }) {
+                    comment.start_seconds = (start * duration).clamp(0.0, duration);
+                    comment.end_seconds = (end * duration).clamp(comment.start_seconds, duration);
+                } else {
+                    return;
+                }
+                comment_rows(file)
             };
-            let duration = file.duration_seconds;
-            if duration <= 0.0 {
-                return;
-            }
-            if let Some(comment) = file.comments.iter_mut().find(|comment| {
-                (comment.start_seconds / duration - old_start).abs() < 0.001
-                    && (comment.end_seconds / duration - old_end).abs() < 0.001
-                    && comment.text == text.as_str()
-            }) {
-                comment.start_seconds = (start * duration).clamp(0.0, duration);
-                comment.end_seconds = (end * duration).clamp(comment.start_seconds, duration);
-            } else {
-                return;
-            }
             metadata::save_index(&folder, &index);
-            refresh_audio(&window, &audio_folder, &audio_model, &audio_load_state, folder);
+            update_comment_model(&audio_model, Path::new(path.as_str()), comments);
             select_comment(&audio_model, Path::new(path.as_str()), start, end);
         });
     }
@@ -866,34 +864,7 @@ fn refresh_audio(
             .find(|item| item.file_path == path_string);
         let comments = stored_position
             .as_ref()
-            .map(|item| {
-                let duration = item.duration_seconds.max(0.001);
-                let mut comment_rows: Vec<(f32, f32, String)> = item
-                    .comments
-                    .iter()
-                    .map(|comment| (
-                        (comment.start_seconds / duration).clamp(0.0, 1.0),
-                        (comment.end_seconds / duration).clamp(0.0, 1.0),
-                        comment.text.clone(),
-                    ))
-                    .collect();
-                comment_rows.sort_by(|left, right| left.0.total_cmp(&right.0));
-                let comment_rows = comment_rows
-                    .iter()
-                    .enumerate()
-                    .map(|(index, (start, end, text))| CommentRow {
-                        start: *start,
-                        end: *end,
-                        bubble_end: comment_rows
-                            .get(index + 1)
-                            .map(|next| next.0)
-                            .unwrap_or(1.0)
-                            .max(*start),
-                        text: text.clone().into(),
-                    })
-                    .collect::<Vec<_>>();
-                ModelRc::new(VecModel::from(comment_rows))
-            })
+            .map(comment_rows)
             .unwrap_or_else(|| ModelRc::new(VecModel::from(Vec::new())));
         let progress = stored_position
             .as_ref()
@@ -936,6 +907,56 @@ fn refresh_audio(
         state.requested_range = None;
     }
     request_audio_generation(audio_load_state, 0);
+}
+
+fn comment_rows(item: &metadata::AudioFileMetadata) -> ModelRc<CommentRow> {
+    let duration = item.duration_seconds.max(0.001);
+    let mut normalized: Vec<(f32, f32, String)> = item
+        .comments
+        .iter()
+        .map(|comment| (
+            (comment.start_seconds / duration).clamp(0.0, 1.0),
+            (comment.end_seconds / duration).clamp(0.0, 1.0),
+            comment.text.clone(),
+        ))
+        .collect();
+    normalized.sort_by(|left, right| left.0.total_cmp(&right.0));
+    let rows = normalized
+        .iter()
+        .enumerate()
+        .map(|(index, (start, end, text))| CommentRow {
+            start: *start,
+            end: *end,
+            bubble_end: normalized
+                .get(index + 1)
+                .map(|next| next.0)
+                .unwrap_or(1.0)
+                .max(*start),
+            text: text.clone().into(),
+        })
+        .collect::<Vec<_>>();
+    ModelRc::new(VecModel::from(rows))
+}
+
+fn update_comment_model(
+    audio_model: &Rc<RefCell<Option<Rc<VecModel<AudioRow>>>>>,
+    path: &Path,
+    comments: ModelRc<CommentRow>,
+) {
+    let Some(model) = audio_model.borrow().clone() else {
+        return;
+    };
+    for index in 0..model.row_count() {
+        let Some(row) = model.row_data(index) else {
+            continue;
+        };
+        if Path::new(row.path.as_str()) == path {
+            if let Some(comment_model) = row.comments.as_any().downcast_ref::<VecModel<CommentRow>>() {
+                comment_model.set_vec(comments.iter().collect::<Vec<_>>());
+            }
+            break;
+        }
+    }
 }
 
 fn update_audio_rows(

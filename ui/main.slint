@@ -47,12 +47,18 @@ component Waveform inherits Rectangle {
     property <float> comment-drag-start: -1;
     property <float> comment-drag-original-start: -1;
     property <float> comment-drag-original-end: -1;
+    property <int> comment-drag-index: -1;
+    property <float> comment-drag-preview-start: -1;
     property <bool> comment-dragged: false;
     in property <float> progress: 0;
     callback seek-requested(float);
     callback comment-range-requested(float, float);
     callback comment-selected(float, float, string);
     callback comment-range-moved(float, float, float, float, string);
+
+    function displayed-comment-start(index: int, start: float) -> float {
+        return index == root.comment-drag-index ? root.comment-drag-preview-start : start;
+    }
 
     VerticalBox {
         spacing: 0px;
@@ -171,7 +177,7 @@ component Waveform inherits Rectangle {
         }
     }
     for comment[index] in root.comments : Rectangle {
-        x: comment.start * parent.width;
+        x: root.displayed-comment-start(index, comment.start) * parent.width;
         height: parent.height;
         width: ((comment.bubble-end - comment.start) * parent.width).max(comment-text.preferred-width + 8px).min(root.width * (1 - comment.start));
         background: transparent;
@@ -202,27 +208,31 @@ component Waveform inherits Rectangle {
             background: transparent;
             comment-touch := TouchArea {
                 pointer-event(event) => {
-                    if event.button == PointerEventButton.left {
-                        if event.kind == PointerEventKind.down {
-                            root.comment-drag-start = ((comment.start * root.width + self.mouse-x) / root.width).max(0).min(1);
-                            root.comment-drag-original-start = comment.start;
-                            root.comment-drag-original-end = comment.end;
-                            root.comment-dragged = false;
-                        } else if event.kind == PointerEventKind.move && self.pressed && root.comment-drag-start >= 0 {
-                            let delta = ((comment.start * root.width + self.mouse-x) / root.width).max(0).min(1) - root.comment-drag-start;
-                            root.comment-dragged = root.comment-dragged || delta.abs() > 0.005;
-                        } else if event.kind == PointerEventKind.up && root.comment-drag-start >= 0 {
-                            let delta = ((comment.start * root.width + self.mouse-x) / root.width).max(0).min(1) - root.comment-drag-start;
-                            if root.comment-dragged {
-                                let length = root.comment-drag-original-end - root.comment-drag-original-start;
-                                let start = (root.comment-drag-original-start + delta).max(0).min(1 - length);
-                                root.comment-range-moved(root.comment-drag-original-start, root.comment-drag-original-end, start, start + length, comment.text);
-                            } else {
-                                root.comment-selected(comment.start, comment.end, comment.text);
-                            }
-                            root.comment-drag-start = -1;
-                            root.comment-dragged = false;
+                    if event.kind == PointerEventKind.down && event.button == PointerEventButton.left {
+                        root.comment-drag-start = ((comment.start * root.width + self.mouse-x) / root.width).max(0).min(1);
+                        root.comment-drag-original-start = comment.start;
+                        root.comment-drag-original-end = comment.end;
+                        root.comment-drag-index = index;
+                        root.comment-drag-preview-start = comment.start;
+                        root.comment-dragged = false;
+                    } else if event.kind == PointerEventKind.move && root.comment-drag-start >= 0 {
+                        let delta = ((comment.start * root.width + self.mouse-x) / root.width).max(0).min(1) - root.comment-drag-start;
+                        let length = root.comment-drag-original-end - root.comment-drag-original-start;
+                        root.comment-drag-preview-start = (root.comment-drag-original-start + delta).max(0).min(1 - length);
+                        root.comment-dragged = root.comment-dragged || delta.abs() > 0.005;
+                    } else if event.kind == PointerEventKind.up && root.comment-drag-start >= 0 {
+                        let delta = ((comment.start * root.width + self.mouse-x) / root.width).max(0).min(1) - root.comment-drag-start;
+                        if root.comment-dragged {
+                            let length = root.comment-drag-original-end - root.comment-drag-original-start;
+                            let start = (root.comment-drag-original-start + delta).max(0).min(1 - length);
+                            root.comment-range-moved(root.comment-drag-original-start, root.comment-drag-original-end, start, start + length, comment.text);
+                        } else {
+                            root.comment-selected(comment.start, comment.end, comment.text);
                         }
+                        root.comment-drag-start = -1;
+                        root.comment-drag-index = -1;
+                        root.comment-drag-preview-start = -1;
+                        root.comment-dragged = false;
                     }
                 }
                 changed has-hover => {
