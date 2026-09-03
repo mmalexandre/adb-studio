@@ -24,6 +24,7 @@ component Waveform inherits Rectangle {
     height: 58px;
     background: transparent;
     in property <bool> light-theme;
+    in property <bool> is-active;
     in property <[float]> peaks;
     in property <float> progress: 0;
     callback seek-requested(float);
@@ -72,7 +73,7 @@ component Waveform inherits Rectangle {
         width: 1px;
         height: parent.height;
         background: #ffffff;
-        visible: root.peaks.length > 0;
+        visible: root.is-active && root.peaks.length > 0;
     }
     TouchArea {
         clicked => { root.seek-requested((self.mouse-x / self.width).max(0).min(1)); }
@@ -100,25 +101,8 @@ component AudioRowView inherits Rectangle {
         padding-right: 12px;
         spacing: 2px;
         HorizontalLayout {
+            height: 40px;
             spacing: 8px;
-            Rectangle {
-                width: 30px;
-                height: 30px;
-                border-radius: 15px;
-                background: root.is-playing ? #d46b32 : (root.light-theme ? #e7ebf0 : #2a3340);
-                border-color: root.light-theme ? #b8c0ca : #566171;
-                border-width: 1px;
-                Text {
-                    text: root.is-playing ? "||" : "▶";
-                    color: root.is-playing ? #ffffff : (root.light-theme ? #455160 : #e3e8ef);
-                    font-size: root.is-playing ? 12px : 15px;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
-                }
-                TouchArea {
-                    clicked => { root.play-requested(); }
-                }
-            }
             Text {
                 text: root.name;
                 color: root.light-theme ? #202833 : #e3e8ef;
@@ -126,21 +110,48 @@ component AudioRowView inherits Rectangle {
                 overflow: elide;
                 horizontal-stretch: 1;
             }
-        }
-        Rectangle {
-            height: 58px;
-            Waveform {
-                width: 100%;
-                light-theme: root.light-theme;
-                peaks: root.peaks;
-                progress: root.progress;
-                y: -15px;
-                seek-requested(progress) => { root.seek-requested(progress); }
+            Rectangle {
+                width: 40px;
+                height: 40px;
+                VerticalBox {
+                    alignment: center;
+                    Rectangle {
+                        width: 40px;
+                        height: 40px;
+                        border-radius: 20px;
+                        background: #ffffff;
+                        border-color: root.light-theme ? (play-area.has-hover ? #b8c0ca : #b8c0ca80) : (play-area.has-hover ? #566171 : #56617180);
+                        border-width: 2px;
+                        Text {
+                            text: root.is-playing ? "||" : "▶";
+                            color: root.light-theme ? #b8c0ca : #566171;
+                            opacity: play-area.has-hover ? 1 : 0.5;
+                            font-size: root.is-playing ? 14px : 17px;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                        play-area := TouchArea {
+                            clicked => { root.play-requested(); }
+                        }
+                    }
+                    Rectangle { width: 25px; }
+                }
             }
         }
+        HorizontalLayout {
+            height: 58px;
+            Waveform {
+                width: parent.width - 48px;
+                light-theme: root.light-theme;
+                is-active: root.is-active;
+                peaks: root.peaks;
+                progress: root.progress;
+                y: -40px;
+                seek-requested(progress) => { root.seek-requested(progress); }
+            }
+            Rectangle { width: 48px; }
+        }
     }
-    callback seek-requested(float);
-    callback play-requested(string);
 }
 
 component AudioList inherits ListView {
@@ -148,6 +159,7 @@ component AudioList inherits ListView {
     in property <[AudioRow]> rows;
     callback viewport-changed(int);
     callback seek-requested(string, float);
+    callback play-requested(string);
 
     changed viewport-y => {
         root.viewport-changed((0px - root.viewport-y) / 86px);
@@ -443,12 +455,35 @@ export component MainWindow inherits Window {
 
                 if root.left-pane-visible : Rectangle {
                     width: 6px;
-                    background: root.light-theme ? #cbd2dc : #2a3340;
+                    background: drag-area.has-hover ? (root.light-theme ? #aeb8c6 : #566171) : (root.light-theme ? #e0e5eb : #3b4655);
 
-                    TouchArea {
+                    VerticalBox {
+                        alignment: center;
+                        spacing: 2px;
+                        Rectangle {
+                            width: 3px;
+                            height: 3px;
+                            border-radius: 1.5px;
+                            background: drag-area.has-hover ? (root.light-theme ? #f5f7fa : #d7dce5) : (root.light-theme ? #8b96a7 : #8b96a7);
+                        }
+                        Rectangle {
+                            width: 3px;
+                            height: 3px;
+                            border-radius: 1.5px;
+                            background: drag-area.has-hover ? (root.light-theme ? #f5f7fa : #d7dce5) : (root.light-theme ? #8b96a7 : #8b96a7);
+                        }
+                        Rectangle {
+                            width: 3px;
+                            height: 3px;
+                            border-radius: 1.5px;
+                            background: drag-area.has-hover ? (root.light-theme ? #f5f7fa : #d7dce5) : (root.light-theme ? #8b96a7 : #8b96a7);
+                        }
+                    }
+
+                    drag-area := TouchArea {
                         mouse-cursor: ew-resize;
                         pointer-event(event) => {
-                            if event.kind == PointerEventKind.move {
+                            if event.kind == PointerEventKind.move && self.pressed {
                                 root.left-pane-width = (parent.x + self.mouse-x - 48px).max(180px).min(600px);
                             }
                         }

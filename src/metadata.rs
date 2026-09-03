@@ -8,6 +8,10 @@ pub struct AudioFileMetadata {
     pub comments: Vec<String>,
     pub modified_date: String,
     pub waveform_cache_key: String,
+    #[serde(default)]
+    pub last_position_seconds: f32,
+    #[serde(default)]
+    pub duration_seconds: f32,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]

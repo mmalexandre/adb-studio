@@ -38,6 +38,9 @@ impl PlaybackEngine {
                 .map_err(|error| format!("Could not seek audio file: {error}"))?;
         }
         player.play();
+        if let Some(previous) = self.player.take() {
+            previous.stop();
+        }
         self.player = Some(player);
         self.path = Some(path.to_path_buf());
         self.duration = duration;
@@ -59,16 +62,6 @@ impl PlaybackEngine {
             player.play();
             self.playing = true;
         }
-    }
-
-    pub fn stop(&mut self) {
-        if let Some(player) = self.player.take() {
-            player.stop();
-        }
-        self.path = None;
-        self.duration = Duration::ZERO;
-        self.position = Duration::ZERO;
-        self.playing = false;
     }
 
     pub fn seek(&mut self, position: Duration) -> Result<(), String> {
@@ -103,5 +96,9 @@ impl PlaybackEngine {
 
     pub fn is_playing(&self) -> bool {
         self.playing && self.player.as_ref().is_some_and(|player| !player.empty())
+    }
+
+    pub fn can_resume(&self) -> bool {
+        self.player.as_ref().is_some_and(|player| !player.empty())
     }
 }

@@ -7,7 +7,7 @@ use std::{
     sync::mpsc::{self, Sender},
     sync::{Arc, Mutex},
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use audio::playback::PlaybackEngine;
@@ -75,6 +75,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tree_state: Rc<RefCell<Option<TreeState>>> = Rc::new(RefCell::new(None));
     let audio_folder: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(None));
     let audio_model: Rc<RefCell<Option<Rc<VecModel<AudioRow>>>>> = Rc::new(RefCell::new(None));
+    let last_button_click: Rc<RefCell<Option<(PathBuf, Instant)>>> = Rc::new(RefCell::new(None));
     let (playback, playback_error) = match PlaybackEngine::new() {
         Ok(engine) => (Rc::new(RefCell::new(Some(engine))), None),
         Err(error) => (Rc::new(RefCell::new(None)), Some(error)),
@@ -128,6 +129,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let audio_model = Rc::clone(&audio_model);
         let audio_load_state = Arc::clone(&audio_load_state);
         let playback = Rc::clone(&playback);
+        let audio_folder = Rc::clone(&audio_folder);
+        let last_persisted_position = Rc::new(RefCell::new(Instant::now()));
+        let last_persisted_position_for_timer = Rc::clone(&last_persisted_position);
         let audio_result_receiver = Rc::new(RefCell::new(audio_result_receiver));
         let mut spinner_frame = 0usize;
         let timer = slint::Timer::default();
@@ -150,6 +154,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         window.set_audio_current_time(format_duration(position).into());
                         window.set_audio_total_duration(format_duration(duration).into());
                         update_audio_rows(&audio_model, engine.path(), playing, position, duration);
+                        if last_persisted_position_for_timer.borrow().elapsed() >= Duration::from_millis(500) {
+                            if let Some(folder) = audio_folder.borrow().clone() {
+                                save_playback_position(&folder, engine);
+                            }
+                            *last_persisted_position_for_timer.borrow_mut() = Instant::now();
+                        }
                     }
                     let state = audio_load_state.lock().unwrap();
                     window.set_audio_loading(state.running);
@@ -299,6 +309,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let weak_window = window.as_weak();
         let playback = Rc::clone(&playback);
         let audio_model = Rc::clone(&audio_model);
+        let audio_folder = Rc::clone(&audio_folder);
         window.on_audio_play_pause(move || {
             let Some(window) = weak_window.upgrade() else {
                 return;
@@ -322,6 +333,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 engine.duration(),
             );
             window.set_audio_playing(engine.is_playing());
+            if let Some(folder) = audio_folder.borrow().clone() {
+                save_playback_position(&folder, engine);
+            }
         });
     }
 
@@ -329,6 +343,59 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let weak_window = window.as_weak();
         let playback = Rc::clone(&playback);
         let audio_model = Rc::clone(&audio_model);
+        let audio_folder = Rc::clone(&audio_folder);
+        let last_button_click = Rc::clone(&last_button_click);
+        window.on_audio_play(move |path| {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            let path = PathBuf::from(path.as_str());
+            let now = Instant::now();
+            let restart = last_button_click.borrow().as_ref().is_some_and(|(last_path, last_time)| {
+                last_path == &path && last_time.elapsed() <= Duration::from_millis(350)
+            });
+            *last_button_click.borrow_mut() = Some((path.clone(), now));
+            let mut playback_ref = playback.borrow_mut();
+            let Some(engine) = playback_ref.as_mut() else {
+                return;
+            };
+            if restart {
+                if let Err(error) = engine.play(&path, Duration::ZERO) {
+                    window.set_audio_error(error.into());
+                    return;
+                }
+            } else if engine.path() == Some(path.as_path()) && engine.can_resume() {
+                if engine.is_playing() {
+                    engine.pause();
+                } else {
+                    engine.resume();
+                }
+            } else {
+                let resume_position = audio_folder
+                    .borrow()
+                    .as_ref()
+                    .and_then(|folder| resume_position(folder, &path))
+                    .unwrap_or(Duration::ZERO);
+                if let Err(error) = engine.play(&path, resume_position) {
+                    window.set_audio_error(error.into());
+                    return;
+                }
+            }
+            window.set_audio_error("".into());
+            window.set_active_audio_path(path.to_string_lossy().into_owned().into());
+            window.set_audio_playing(engine.is_playing());
+            update_audio_rows(&audio_model, engine.path(), engine.is_playing(), engine.position(), engine.duration());
+            if let Some(folder) = audio_folder.borrow().clone() {
+                save_playback_position(&folder, engine);
+            }
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        let playback = Rc::clone(&playback);
+        let audio_model = Rc::clone(&audio_model);
+        let audio_folder = Rc::clone(&audio_folder);
         window.on_audio_seek(move |path, progress| {
             let Some(window) = weak_window.upgrade() else {
                 return;
@@ -359,6 +426,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 engine.position(),
                 engine.duration(),
             );
+            if let Some(folder) = audio_folder.borrow().clone() {
+                save_playback_position(&folder, engine);
+            }
         });
     }
 
@@ -499,6 +569,15 @@ fn refresh_audio(
             .map(|time| time.as_secs())
             .unwrap_or_default();
         let path_string = entry.path.to_string_lossy().into_owned();
+        let stored_position = metadata::load_index(&folder)
+            .audio_files
+            .into_iter()
+            .find(|item| item.file_path == path_string);
+        let progress = stored_position
+            .as_ref()
+            .filter(|item| item.duration_seconds > 0.0)
+            .map(|item| (item.last_position_seconds / item.duration_seconds).clamp(0.0, 1.0))
+            .unwrap_or(0.0);
         rows.push(AudioRow {
             path: path_string.into(),
             name: entry.name.into(),
@@ -506,7 +585,7 @@ fn refresh_audio(
             peaks: ModelRc::new(VecModel::from(vec![0.0; waveform::DISPLAY_PEAK_COUNT])),
             is_active: false,
             is_playing: false,
-            progress: 0.0,
+            progress,
         });
     }
     rows.sort_by(|left, right| right.modified_date.cmp(&left.modified_date));
@@ -565,7 +644,7 @@ fn update_audio_rows(
                     peaks: row.peaks,
                     is_active,
                     is_playing: is_active && is_playing,
-                    progress: if is_active { progress } else { 0.0 },
+                    progress: if is_active { progress } else { row.progress },
                 },
             );
         }
@@ -575,6 +654,42 @@ fn update_audio_rows(
 fn format_duration(duration: Duration) -> String {
     let total_seconds = duration.as_secs();
     format!("{:02}:{:02}", total_seconds / 60, total_seconds % 60)
+}
+
+fn resume_position(folder: &Path, path: &Path) -> Option<Duration> {
+    let stored = metadata::load_index(folder)
+        .audio_files
+        .into_iter()
+        .find(|item| item.file_path == path.to_string_lossy())?;
+    if stored.duration_seconds > 0.0 && stored.last_position_seconds >= stored.duration_seconds {
+        return Some(Duration::ZERO);
+    }
+    (stored.last_position_seconds > 0.0)
+        .then(|| Duration::from_secs_f32(stored.last_position_seconds))
+}
+
+fn save_playback_position(folder: &Path, engine: &PlaybackEngine) {
+    let Some(path) = engine.path() else {
+        return;
+    };
+    let path_string = path.to_string_lossy().into_owned();
+    let mut index = metadata::load_index(folder);
+    if let Some(stored) = index
+        .audio_files
+        .iter_mut()
+        .find(|item| item.file_path == path_string)
+    {
+        stored.last_position_seconds = engine.position().as_secs_f32();
+        stored.duration_seconds = engine.duration().as_secs_f32();
+    } else {
+        index.audio_files.push(metadata::AudioFileMetadata {
+            file_path: path_string,
+            last_position_seconds: engine.position().as_secs_f32(),
+            duration_seconds: engine.duration().as_secs_f32(),
+            ..Default::default()
+        });
+    }
+    metadata::save_index(folder, &index);
 }
 
 fn request_audio_generation(audio_load_state: &Arc<Mutex<AudioLoadState>>, start_index: usize) {
