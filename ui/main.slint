@@ -1,22 +1,5 @@
 import { Button, LineEdit, VerticalBox } from "std-widgets.slint";
 
-component MenuButton inherits Rectangle {
-    height: 28px;
-    width: 64px;
-    background: #1a2029;
-    callback clicked();
-    in property <string> label;
-    Text {
-        text: root.label;
-        color: #d7dce5;
-        horizontal-alignment: center;
-        vertical-alignment: center;
-    }
-    TouchArea {
-        clicked => { root.clicked(); }
-    }
-}
-
 component ToolButton inherits Rectangle {
     width: 48px;
     height: 48px;
@@ -37,8 +20,10 @@ component ToolButton inherits Rectangle {
 
 export component MainWindow inherits Window {
     title: "Adb Studio";
-    width: 1280px;
-    height: 800px;
+    preferred-width: 1280px;
+    preferred-height: 800px;
+    min-width: 900px;
+    min-height: 560px;
     background: #11151b;
 
     in-out property <bool> has-folder: false;
@@ -48,39 +33,28 @@ export component MainWindow inherits Window {
     callback open-folder();
     callback close-about();
 
+    MenuBar {
+        Menu {
+            title: "File";
+            MenuItem {
+                title: "Open Folder...";
+                activated => { root.open-folder(); }
+            }
+        }
+        Menu {
+            title: "Help";
+            MenuItem {
+                title: "About";
+                activated => { root.about-visible = true; }
+            }
+        }
+    }
+
     Rectangle {
         background: #11151b;
 
         VerticalBox {
             spacing: 0px;
-
-            Rectangle {
-                height: 40px;
-                background: #1a2029;
-                border-color: #2a3340;
-                border-width: 1px;
-
-                HorizontalLayout {
-                    padding-left: 10px;
-                    spacing: 4px;
-
-                    MenuButton {
-                        label: "File";
-                        clicked => { root.open-folder(); }
-                    }
-                    MenuButton {
-                        label: "Help";
-                        clicked => { root.about-visible = true; }
-                    }
-                    Rectangle { horizontal-stretch: 1; }
-                    Text {
-                        text: "Adb Studio";
-                        color: #7f8b9d;
-                        vertical-alignment: center;
-                        font-size: 13px;
-                    }
-                }
-            }
 
             HorizontalLayout {
                 spacing: 0px;
