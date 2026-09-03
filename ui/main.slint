@@ -633,6 +633,7 @@ export component MainWindow inherits Window {
     in-out property <int> audio-total: 0;
     in-out property <string> audio-spinner: "|";
     in-out property <string> active-audio-path: "";
+    in-out property <string> audio-file-name: "";
     in-out property <bool> audio-playing: false;
     in-out property <bool> loop-enabled: false;
     in-out property <string> audio-current-time: "00:00";
@@ -985,7 +986,7 @@ export component MainWindow inherits Window {
                         padding: 12px;
                         spacing: 8px;
                         HorizontalLayout {
-                            Text { text: "ComfyUI Metadata"; color: root.light-theme ? #202833 : #e3e8ef; font-size: 16px; }
+                            Text { text: root.audio-file-name == "" ? "ComfyUI Metadata" : root.audio-file-name; color: root.light-theme ? #202833 : #e3e8ef; font-size: 16px; overflow: elide; }
                             Rectangle { horizontal-stretch: 1; }
                             Button { text: "Close"; clicked => { root.metadata-toggle(); } }
                         }
@@ -994,6 +995,7 @@ export component MainWindow inherits Window {
                             VerticalBox {
                                 width: 180px;
                                 spacing: 6px;
+                                Text { text: "Duration\n" + root.audio-total-duration; color: root.light-theme ? #202833 : #e3e8ef; }
                                 WorkflowSuggestionBox {
                                     width: 180px;
                                     files: root.workflow-json-files;

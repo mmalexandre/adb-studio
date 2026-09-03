@@ -85,6 +85,7 @@ impl Default for AppSettings {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let window = MainWindow::new()?;
+    slint::set_xdg_app_id("com.adbstudio.AdbStudio")?;
     let settings = Rc::new(RefCell::new(load_settings()));
     let tree_state: Rc<RefCell<Option<TreeState>>> = Rc::new(RefCell::new(None));
     let audio_folder: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(None));
@@ -345,6 +346,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             window.set_audio_error("".into());
             window.set_active_audio_path(path.to_string_lossy().into_owned().into());
+            window.set_audio_file_name(
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or_default()
+                    .into(),
+            );
             window.set_audio_playing(engine.is_playing());
             update_audio_rows(
                 &audio_model,
@@ -599,6 +606,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         let duration = engine.duration();
                         let playing = engine.is_playing();
                         window.set_active_audio_path(active_path.into());
+                        window.set_audio_file_name(
+                            engine
+                                .path()
+                                .and_then(|path| path.file_name())
+                                .map(|name| name.to_string_lossy().into_owned())
+                                .unwrap_or_default()
+                                .into(),
+                        );
                         window.set_audio_playing(playing);
                         window.set_audio_current_time(format_duration(position).into());
                         window.set_audio_total_duration(format_duration(duration).into());
@@ -852,6 +867,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             window.set_audio_error("".into());
             window.set_active_audio_path(path.to_string_lossy().into_owned().into());
+            window.set_audio_file_name(
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or_default()
+                    .into(),
+            );
             window.set_audio_playing(engine.is_playing());
             update_audio_rows(
                 &audio_model,
@@ -895,6 +916,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             window.set_audio_error("".into());
             window.set_active_audio_path(path.to_string_lossy().into_owned().into());
+            window.set_audio_file_name(
+                path.file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_default()
+                    .into(),
+            );
             update_audio_rows(
                 &audio_model,
                 engine.path(),
@@ -978,6 +1005,7 @@ fn set_workspace(
             .collect::<Vec<_>>(),
     )));
     window.set_selected_workflow("".into());
+    window.set_audio_file_name("".into());
     clear_workflow(window);
 
     {

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Adb Studio
+Comment=Organize and annotate generated audio
+Exec=adb-studio
+Icon=com.adbstudio.AdbStudio
+Terminal=false
+StartupNotify=true
+StartupWMClass=com.adbstudio.AdbStudio
+Categories=AudioVideo;Audio;Utility;
