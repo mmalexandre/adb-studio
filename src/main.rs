@@ -351,9 +351,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             };
             let path = PathBuf::from(path.as_str());
             let now = Instant::now();
-            let restart = last_button_click.borrow().as_ref().is_some_and(|(last_path, last_time)| {
-                last_path == &path && last_time.elapsed() <= Duration::from_millis(350)
-            });
+            let restart = last_button_click
+                .borrow()
+                .as_ref()
+                .is_some_and(|(last_path, last_time)| {
+                    last_path == &path && last_time.elapsed() <= Duration::from_millis(350)
+                });
             *last_button_click.borrow_mut() = Some((path.clone(), now));
             let mut playback_ref = playback.borrow_mut();
             let Some(engine) = playback_ref.as_mut() else {
@@ -371,12 +374,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     engine.resume();
                 }
             } else {
-                let resume_position = audio_folder
-                    .borrow()
-                    .as_ref()
-                    .and_then(|folder| resume_position(folder, &path))
-                    .unwrap_or(Duration::ZERO);
-                if let Err(error) = engine.play(&path, resume_position) {
+                if let Err(error) = engine.play(&path, Duration::ZERO) {
                     window.set_audio_error(error.into());
                     return;
                 }
@@ -654,18 +652,6 @@ fn update_audio_rows(
 fn format_duration(duration: Duration) -> String {
     let total_seconds = duration.as_secs();
     format!("{:02}:{:02}", total_seconds / 60, total_seconds % 60)
-}
-
-fn resume_position(folder: &Path, path: &Path) -> Option<Duration> {
-    let stored = metadata::load_index(folder)
-        .audio_files
-        .into_iter()
-        .find(|item| item.file_path == path.to_string_lossy())?;
-    if stored.duration_seconds > 0.0 && stored.last_position_seconds >= stored.duration_seconds {
-        return Some(Duration::ZERO);
-    }
-    (stored.last_position_seconds > 0.0)
-        .then(|| Duration::from_secs_f32(stored.last_position_seconds))
 }
 
 fn save_playback_position(folder: &Path, engine: &PlaybackEngine) {

@@ -31,6 +31,7 @@ impl PlaybackEngine {
         let decoder = Decoder::try_from(file)
             .map_err(|error| format!("Could not decode audio file: {error}"))?;
         let duration = decoder.total_duration().unwrap_or(Duration::ZERO);
+        let position = position.min(duration);
         let player = Player::connect_new(self.stream.mixer());
         player.append(decoder);
         if position > Duration::ZERO {
@@ -44,7 +45,7 @@ impl PlaybackEngine {
         self.player = Some(player);
         self.path = Some(path.to_path_buf());
         self.duration = duration;
-        self.position = position.min(duration);
+        self.position = position;
         self.playing = true;
         Ok(())
     }
