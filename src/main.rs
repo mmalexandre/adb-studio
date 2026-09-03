@@ -109,7 +109,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     path: result.path.into(),
                     name: row.name,
                     modified_date: row.modified_date,
-                    peaks: ModelRc::new(VecModel::from(result.peaks)),
+                    peaks: ModelRc::new(VecModel::from(waveform::aggregate_peaks(&result.peaks))),
                 });
             }
         });
@@ -287,7 +287,7 @@ fn refresh_audio(
             path: path_string.into(),
             name: entry.name.into(),
             modified_date: modified_date.to_string().into(),
-            peaks: ModelRc::new(VecModel::from(vec![0.0; waveform::PEAK_COUNT])),
+            peaks: ModelRc::new(VecModel::from(vec![0.0; waveform::DISPLAY_PEAK_COUNT])),
         });
     }
     rows.sort_by(|left, right| right.modified_date.cmp(&left.modified_date));

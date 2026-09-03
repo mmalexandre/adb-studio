@@ -3,6 +3,20 @@ use std::{fs, path::Path};
 use symphonia::core::{audio::SampleBuffer, codecs::DecoderOptions, formats::FormatOptions, io::MediaSourceStream, meta::MetadataOptions, probe::Hint};
 
 pub const PEAK_COUNT: usize = 4096;
+pub const DISPLAY_PEAK_COUNT: usize = 160;
+
+pub fn aggregate_peaks(peaks: &[f32]) -> Vec<f32> {
+    if peaks.is_empty() {
+        return vec![0.0; DISPLAY_PEAK_COUNT];
+    }
+    (0..DISPLAY_PEAK_COUNT)
+        .map(|bucket| {
+            let start = bucket * peaks.len() / DISPLAY_PEAK_COUNT;
+            let end = ((bucket + 1) * peaks.len() / DISPLAY_PEAK_COUNT).max(start + 1);
+            peaks[start..end.min(peaks.len())].iter().copied().fold(0.0, f32::max)
+        })
+        .collect()
+}
 
 pub fn load_or_generate(path: &Path, workspace: &Path) -> (String, Vec<f32>) {
     let cache_key = cache_key(path);

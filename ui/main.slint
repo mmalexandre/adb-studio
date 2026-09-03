@@ -23,12 +23,42 @@ component Waveform inherits Rectangle {
     in property <bool> light-theme;
     in property <[float]> peaks;
 
-    HorizontalLayout {
+    VerticalBox {
         spacing: 0px;
-        for peak in root.peaks : Rectangle {
-            width: parent.width / root.peaks.length;
-            height: 5px + peak * 44px;
-            background: root.light-theme ? #d46b32 : #e58a4d;
+        Rectangle {
+            height: 29px;
+            HorizontalLayout {
+                spacing: 2px;
+                for peak in root.peaks : Rectangle {
+                    width: (parent.width - (root.peaks.length - 1) * 2px) / root.peaks.length;
+                    height: 29px;
+                    Rectangle {
+                        width: 100%;
+                        height: 2px + peak * 25px;
+                        border-radius: 1px;
+                        y: parent.height - self.height;
+                        background: root.light-theme ? #d46b32 : #e58a4d;
+                    }
+                }
+            }
+        }
+        Rectangle {
+            height: 29px;
+            HorizontalLayout {
+                spacing: 2px;
+                for peak in root.peaks : Rectangle {
+                    width: (parent.width - (root.peaks.length - 1) * 2px) / root.peaks.length;
+                    height: 29px;
+                    Rectangle {
+                        width: 100%;
+                        height: 2px + peak * 25px;
+                        border-radius: 1px;
+                        y: 0px;
+                        opacity: 0.5;
+                        background: root.light-theme ? #d46b32 : #e58a4d;
+                    }
+                }
+            }
         }
     }
 }
@@ -57,15 +87,15 @@ component AudioRowView inherits Rectangle {
                 overflow: elide;
                 horizontal-stretch: 1;
             }
-            Text {
-                text: root.modified-date;
-                color: root.light-theme ? #7a8492 : #8b96a7;
-                font-size: 11px;
-            }
         }
-        Waveform {
-            light-theme: root.light-theme;
-            peaks: root.peaks;
+        Rectangle {
+            height: 58px;
+            Waveform {
+                width: 100%;
+                light-theme: root.light-theme;
+                peaks: root.peaks;
+                y: -15px;
+            }
         }
     }
 }
