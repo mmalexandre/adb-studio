@@ -139,6 +139,94 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     {
         let weak_window = window.as_weak();
+        let audio_folder = Rc::clone(&audio_folder);
+        let audio_model = Rc::clone(&audio_model);
+        window.on_rating_requested(move |path, rating| {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            let Some(folder) = audio_folder.borrow().clone() else {
+                return;
+            };
+            let path_string = path.to_string();
+            let mut index = metadata::load_index(&folder);
+            if let Some(file) = index.audio_files.iter_mut().find(|item| item.file_path == path_string) {
+                file.rating = rating.clamp(0, 5) as u8;
+            } else {
+                index.audio_files.push(metadata::AudioFileMetadata {
+                    file_path: path_string.clone(),
+                    rating: rating.clamp(0, 5) as u8,
+                    ..Default::default()
+                });
+            }
+            metadata::save_index(&folder, &index);
+            if let Some(model) = audio_model.borrow().clone() {
+                for index in 0..model.row_count() {
+                    let Some(row) = model.row_data(index) else {
+                        continue;
+                    };
+                    if row.path.as_str() == path_string {
+                        model.set_row_data(index, AudioRow {
+                            path: row.path,
+                            name: row.name,
+                            modified_date: row.modified_date,
+                            peaks: row.peaks,
+                            comments: row.comments,
+                            rating: rating.clamp(0, 5),
+                            is_active: row.is_active,
+                            is_playing: row.is_playing,
+                            progress: row.progress,
+                            loop_enabled: row.loop_enabled,
+                            selected_comment_start: row.selected_comment_start,
+                            selected_comment_end: row.selected_comment_end,
+                        });
+                        break;
+                    }
+                }
+            }
+            window.set_audio_error("".into());
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        let audio_folder = Rc::clone(&audio_folder);
+        let audio_model = Rc::clone(&audio_model);
+        let audio_load_state = Arc::clone(&audio_load_state);
+        window.on_comment_range_moved(move |path, old_start, old_end, start, end, text| {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            let Some(folder) = audio_folder.borrow().clone() else {
+                return;
+            };
+            let path_string = path.to_string();
+            let mut index = metadata::load_index(&folder);
+            let Some(file) = index.audio_files.iter_mut().find(|item| item.file_path == path_string) else {
+                return;
+            };
+            let duration = file.duration_seconds;
+            if duration <= 0.0 {
+                return;
+            }
+            if let Some(comment) = file.comments.iter_mut().find(|comment| {
+                (comment.start_seconds / duration - old_start).abs() < 0.001
+                    && (comment.end_seconds / duration - old_end).abs() < 0.001
+                    && comment.text == text.as_str()
+            }) {
+                comment.start_seconds = (start * duration).clamp(0.0, duration);
+                comment.end_seconds = (end * duration).clamp(comment.start_seconds, duration);
+            } else {
+                return;
+            }
+            metadata::save_index(&folder, &index);
+            refresh_audio(&window, &audio_folder, &audio_model, &audio_load_state, folder);
+            select_comment(&audio_model, Path::new(path.as_str()), start, end);
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
         let audio_model = Rc::clone(&audio_model);
         let audio_folder = Rc::clone(&audio_folder);
         let playback = Rc::clone(&playback);
@@ -379,6 +467,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 &result.peaks,
                             ))),
                             comments: row.comments,
+                            rating: row.rating,
                             is_active: row.is_active,
                             is_playing: row.is_playing,
                             progress: row.progress,
@@ -817,6 +906,7 @@ fn refresh_audio(
             modified_date: modified_date.to_string().into(),
             peaks: ModelRc::new(VecModel::from(vec![0.0; waveform::DISPLAY_PEAK_COUNT])),
             comments,
+            rating: stored_position.as_ref().map(|item| item.normalized_rating() as i32).unwrap_or(0),
             is_active: false,
             is_playing: false,
             progress,
@@ -880,6 +970,7 @@ fn update_audio_rows(
                     modified_date: row.modified_date,
                     peaks: row.peaks,
                     comments: row.comments,
+                    rating: row.rating,
                     is_active,
                     is_playing: is_active && is_playing,
                     progress: if is_active { progress } else { row.progress },
@@ -978,6 +1069,7 @@ fn select_comment(
                     modified_date: row.modified_date,
                     peaks: row.peaks,
                     comments: row.comments,
+                    rating: row.rating,
                     is_active: row.is_active,
                     is_playing: row.is_playing,
                     progress: row.progress,

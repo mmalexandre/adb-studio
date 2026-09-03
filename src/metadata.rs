@@ -34,6 +34,12 @@ pub struct AudioFileMetadata {
     pub duration_seconds: f32,
 }
 
+impl AudioFileMetadata {
+    pub fn normalized_rating(&self) -> u8 {
+        self.rating.min(5)
+    }
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct MetadataIndex {
     pub audio_files: Vec<AudioFileMetadata>,
@@ -90,5 +96,11 @@ mod tests {
 
         assert_eq!(comment.start_seconds, 0.0);
         assert_eq!(comment.end_seconds, 5.0);
+    }
+
+    #[test]
+    fn clamps_rating_to_five_stars() {
+        let metadata = AudioFileMetadata { rating: 9, ..Default::default() };
+        assert_eq!(metadata.normalized_rating(), 5);
     }
 }
