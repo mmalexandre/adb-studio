@@ -4,15 +4,17 @@ use std::{
     fs,
     path::{Path, PathBuf},
     rc::Rc,
-    sync::{Arc, Mutex},
     sync::mpsc::{self, Sender},
+    sync::{Arc, Mutex},
     thread,
     time::Duration,
 };
 
+use audio::playback::PlaybackEngine;
 use serde::{Deserialize, Serialize};
 use slint::{Model, ModelRc, VecModel};
 
+mod audio;
 mod file_system;
 mod metadata;
 mod waveform;
@@ -56,6 +58,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tree_state: Rc<RefCell<Option<TreeState>>> = Rc::new(RefCell::new(None));
     let audio_folder: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(None));
     let audio_model: Rc<RefCell<Option<Rc<VecModel<AudioRow>>>>> = Rc::new(RefCell::new(None));
+    let (playback, playback_error) = match PlaybackEngine::new() {
+        Ok(engine) => (Rc::new(RefCell::new(Some(engine))), None),
+        Err(error) => (Rc::new(RefCell::new(None)), Some(error)),
+    };
+    if let Some(error) = playback_error {
+        window.set_audio_error(error.into());
+    }
     let (audio_result_sender, audio_result_receiver) = mpsc::channel();
     let audio_load_state = Arc::new(Mutex::new(AudioLoadState {
         folder: PathBuf::new(),
@@ -75,7 +84,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(last_folder) = last_folder {
         let folder = PathBuf::from(last_folder);
         if folder.is_dir() {
-            set_workspace(&window, folder, &settings, &tree_state, &audio_folder, &audio_model, &audio_load_state);
+            set_workspace(
+                &window,
+                folder,
+                &settings,
+                &tree_state,
+                &audio_folder,
+                &audio_model,
+                &audio_load_state,
+            );
         }
     }
 
@@ -83,39 +100,68 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let weak_window = window.as_weak();
         let audio_model = Rc::clone(&audio_model);
         let audio_load_state = Arc::clone(&audio_load_state);
+        let playback = Rc::clone(&playback);
         let audio_result_receiver = Rc::new(RefCell::new(audio_result_receiver));
         let mut spinner_frame = 0usize;
         let timer = slint::Timer::default();
-        timer.start(slint::TimerMode::Repeated, Duration::from_millis(40), move || {
-            if let Some(window) = weak_window.upgrade() {
-                let state = audio_load_state.lock().unwrap();
-                window.set_audio_loading(state.running);
-                window.set_audio_completed(state.completed as i32);
-                window.set_audio_total(state.total as i32);
-                if state.running {
-                    window.set_audio_spinner(["|", "/", "-", "\\"][spinner_frame].into());
-                    spinner_frame = (spinner_frame + 1) % 4;
+        timer.start(
+            slint::TimerMode::Repeated,
+            Duration::from_millis(40),
+            move || {
+                if let Some(window) = weak_window.upgrade() {
+                    if let Some(engine) = playback.borrow_mut().as_mut() {
+                        engine.update_position();
+                        let active_path = engine
+                            .path()
+                            .map(|path| path.to_string_lossy().into_owned())
+                            .unwrap_or_default();
+                        let position = engine.position();
+                        let duration = engine.duration();
+                        let playing = engine.is_playing();
+                        window.set_active_audio_path(active_path.into());
+                        window.set_audio_playing(playing);
+                        window.set_audio_current_time(format_duration(position).into());
+                        window.set_audio_total_duration(format_duration(duration).into());
+                        update_audio_rows(&audio_model, engine.path(), playing, position, duration);
+                    }
+                    let state = audio_load_state.lock().unwrap();
+                    window.set_audio_loading(state.running);
+                    window.set_audio_completed(state.completed as i32);
+                    window.set_audio_total(state.total as i32);
+                    if state.running {
+                        window.set_audio_spinner(["|", "/", "-", "\\"][spinner_frame].into());
+                        spinner_frame = (spinner_frame + 1) % 4;
+                    }
                 }
-            }
-            let Some(model) = audio_model.borrow().clone() else {
-                return;
-            };
-            for result in audio_result_receiver.borrow_mut().try_iter().take(3) {
-                let current_generation = audio_load_state.lock().unwrap().generation;
-                if result.generation != current_generation || result.index >= model.row_count() {
-                    continue;
-                }
-                let Some(row) = model.row_data(result.index) else {
-                    continue;
+                let Some(model) = audio_model.borrow().clone() else {
+                    return;
                 };
-                model.set_row_data(result.index, AudioRow {
-                    path: result.path.into(),
-                    name: row.name,
-                    modified_date: row.modified_date,
-                    peaks: ModelRc::new(VecModel::from(waveform::aggregate_peaks(&result.peaks))),
-                });
-            }
-        });
+                for result in audio_result_receiver.borrow_mut().try_iter().take(3) {
+                    let current_generation = audio_load_state.lock().unwrap().generation;
+                    if result.generation != current_generation || result.index >= model.row_count()
+                    {
+                        continue;
+                    }
+                    let Some(row) = model.row_data(result.index) else {
+                        continue;
+                    };
+                    model.set_row_data(
+                        result.index,
+                        AudioRow {
+                            path: result.path.into(),
+                            name: row.name,
+                            modified_date: row.modified_date,
+                            peaks: ModelRc::new(VecModel::from(waveform::aggregate_peaks(
+                                &result.peaks,
+                            ))),
+                            is_active: row.is_active,
+                            is_playing: row.is_playing,
+                            progress: row.progress,
+                        },
+                    );
+                }
+            },
+        );
         std::mem::forget(timer);
     }
 
@@ -131,8 +177,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return;
             };
 
-            if let Some(folder) = rfd::FileDialog::new().set_title("Open Adb Studio Workspace").pick_folder() {
-                set_workspace(&window, folder, &settings, &tree_state, &audio_folder, &audio_model, &audio_load_state);
+            if let Some(folder) = rfd::FileDialog::new()
+                .set_title("Open Adb Studio Workspace")
+                .pick_folder()
+            {
+                set_workspace(
+                    &window,
+                    folder,
+                    &settings,
+                    &tree_state,
+                    &audio_folder,
+                    &audio_model,
+                    &audio_load_state,
+                );
             }
         });
     }
@@ -171,7 +228,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             window.set_selected_name(selected_name.into());
             refresh_tree(&window, &tree_state);
             if path.is_dir() {
-                refresh_audio(&window, &audio_folder, &audio_model, &audio_load_state, path);
+                refresh_audio(
+                    &window,
+                    &audio_folder,
+                    &audio_model,
+                    &audio_load_state,
+                    path,
+                );
             }
         });
     }
@@ -187,7 +250,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             };
             window.set_audio_filter(filter);
             if let Some(folder) = audio_folder.borrow().clone() {
-                refresh_audio(&window, &audio_folder, &audio_model, &audio_load_state, folder);
+                refresh_audio(
+                    &window,
+                    &audio_folder,
+                    &audio_model,
+                    &audio_load_state,
+                    folder,
+                );
             }
         });
     }
@@ -196,6 +265,73 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let audio_load_state = Arc::clone(&audio_load_state);
         window.on_audio_viewport_changed(move |start_index| {
             request_audio_generation(&audio_load_state, start_index as usize);
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        let playback = Rc::clone(&playback);
+        let audio_model = Rc::clone(&audio_model);
+        window.on_audio_play_pause(move || {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            let mut playback_ref = playback.borrow_mut();
+            let Some(engine) = playback_ref.as_mut() else {
+                return;
+            };
+            if engine.is_playing() {
+                engine.pause();
+            } else if engine.path().is_some() {
+                engine.resume();
+            } else {
+                return;
+            }
+            update_audio_rows(
+                &audio_model,
+                engine.path(),
+                engine.is_playing(),
+                engine.position(),
+                engine.duration(),
+            );
+            window.set_audio_playing(engine.is_playing());
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        let playback = Rc::clone(&playback);
+        let audio_model = Rc::clone(&audio_model);
+        window.on_audio_seek(move |path, progress| {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            let path = PathBuf::from(path.as_str());
+            let mut playback_ref = playback.borrow_mut();
+            let Some(engine) = playback_ref.as_mut() else {
+                return;
+            };
+            let progress = progress.clamp(0.0, 1.0);
+            let result = if engine.path() == Some(path.as_path()) {
+                engine.seek(engine.duration().mul_f32(progress))
+            } else {
+                engine
+                    .play(&path, Duration::ZERO)
+                    .and_then(|_| engine.seek(engine.duration().mul_f32(progress)))
+            };
+            if let Err(error) = result {
+                window.set_audio_error(error.into());
+                return;
+            }
+            window.set_audio_error("".into());
+            window.set_active_audio_path(path.to_string_lossy().into_owned().into());
+            update_audio_rows(
+                &audio_model,
+                engine.path(),
+                engine.is_playing(),
+                engine.position(),
+                engine.duration(),
+            );
         });
     }
 
@@ -263,7 +399,11 @@ fn set_workspace(
     save_settings(&settings_snapshot);
 
     let mut new_tree_state = TreeState::new(folder.clone());
-    if let Some(selected_path) = settings_snapshot.last_selected_path.as_deref().map(PathBuf::from) {
+    if let Some(selected_path) = settings_snapshot
+        .last_selected_path
+        .as_deref()
+        .map(PathBuf::from)
+    {
         if selected_path != folder
             && selected_path.exists()
             && selected_path.strip_prefix(&folder).is_ok()
@@ -301,7 +441,13 @@ fn set_workspace(
             }
         })
         .unwrap_or(folder);
-    refresh_audio(window, audio_folder, audio_model, audio_load_state, audio_view_folder);
+    refresh_audio(
+        window,
+        audio_folder,
+        audio_model,
+        audio_load_state,
+        audio_view_folder,
+    );
 }
 
 fn refresh_audio(
@@ -331,10 +477,16 @@ fn refresh_audio(
             name: entry.name.into(),
             modified_date: modified_date.to_string().into(),
             peaks: ModelRc::new(VecModel::from(vec![0.0; waveform::DISPLAY_PEAK_COUNT])),
+            is_active: false,
+            is_playing: false,
+            progress: 0.0,
         });
     }
     rows.sort_by(|left, right| right.modified_date.cmp(&left.modified_date));
-    let paths: Vec<PathBuf> = rows.iter().map(|row| PathBuf::from(row.path.as_str())).collect();
+    let paths: Vec<PathBuf> = rows
+        .iter()
+        .map(|row| PathBuf::from(row.path.as_str()))
+        .collect();
     let total = paths.len();
     *audio_folder.borrow_mut() = Some(folder);
     let model = Rc::new(VecModel::from(rows));
@@ -353,10 +505,52 @@ fn refresh_audio(
     request_audio_generation(audio_load_state, 0);
 }
 
-fn request_audio_generation(
-    audio_load_state: &Arc<Mutex<AudioLoadState>>,
-    start_index: usize,
+fn update_audio_rows(
+    audio_model: &Rc<RefCell<Option<Rc<VecModel<AudioRow>>>>>,
+    active_path: Option<&Path>,
+    is_playing: bool,
+    position: Duration,
+    duration: Duration,
 ) {
+    let Some(model) = audio_model.borrow().clone() else {
+        return;
+    };
+    let progress = if duration.is_zero() {
+        0.0
+    } else {
+        (position.as_secs_f32() / duration.as_secs_f32()).clamp(0.0, 1.0)
+    };
+    for index in 0..model.row_count() {
+        let Some(row) = model.row_data(index) else {
+            continue;
+        };
+        let is_active = active_path.is_some_and(|path| path == Path::new(row.path.as_str()));
+        if row.is_active != is_active
+            || row.is_playing != (is_active && is_playing)
+            || (is_active && (row.progress - progress).abs() > 0.001)
+        {
+            model.set_row_data(
+                index,
+                AudioRow {
+                    path: row.path,
+                    name: row.name,
+                    modified_date: row.modified_date,
+                    peaks: row.peaks,
+                    is_active,
+                    is_playing: is_active && is_playing,
+                    progress: if is_active { progress } else { 0.0 },
+                },
+            );
+        }
+    }
+}
+
+fn format_duration(duration: Duration) -> String {
+    let total_seconds = duration.as_secs();
+    format!("{:02}:{:02}", total_seconds / 60, total_seconds % 60)
+}
+
+fn request_audio_generation(audio_load_state: &Arc<Mutex<AudioLoadState>>, start_index: usize) {
     let mut state = audio_load_state.lock().unwrap();
     let start = start_index.saturating_sub(AUDIO_PREFETCH_BEFORE);
     let end = start_index
@@ -379,7 +573,12 @@ fn generate_audio_ranges(audio_load_state: Arc<Mutex<AudioLoadState>>) {
                 state.running = false;
                 return;
             };
-            (state.folder.clone(), state.paths.clone(), range, state.generation)
+            (
+                state.folder.clone(),
+                state.paths.clone(),
+                range,
+                state.generation,
+            )
         };
         let end = range.1.min(paths.len());
         for index in range.0.min(end)..end {
@@ -393,14 +592,20 @@ fn generate_audio_ranges(audio_load_state: Arc<Mutex<AudioLoadState>>) {
             let (cache_key, peaks) = waveform::load_or_generate(&path, &folder);
             let mut metadata_index = metadata::load_index(&folder);
             let path_string = path.to_string_lossy().into_owned();
-            if let Some(stored) = metadata_index.audio_files.iter_mut().find(|item| item.file_path == path_string) {
+            if let Some(stored) = metadata_index
+                .audio_files
+                .iter_mut()
+                .find(|item| item.file_path == path_string)
+            {
                 stored.waveform_cache_key = cache_key;
             } else {
-                metadata_index.audio_files.push(metadata::AudioFileMetadata {
-                    file_path: path_string.clone(),
-                    waveform_cache_key: cache_key,
-                    ..Default::default()
-                });
+                metadata_index
+                    .audio_files
+                    .push(metadata::AudioFileMetadata {
+                        file_path: path_string.clone(),
+                        waveform_cache_key: cache_key,
+                        ..Default::default()
+                    });
             }
             metadata::save_index(&folder, &metadata_index);
             {
@@ -443,7 +648,6 @@ fn refresh_tree(window: &MainWindow, tree_state: &Rc<RefCell<Option<TreeState>>>
 
     window.set_tree_rows(ModelRc::new(VecModel::from(rows)));
 }
-
 
 fn settings_path() -> Option<PathBuf> {
     dirs::config_dir().map(|directory| directory.join("adb-studio").join("settings.json"))

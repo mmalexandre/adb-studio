@@ -81,4 +81,4 @@ fn decode_peaks(path: &Path) -> Result<Vec<f32>, Box<dyn std::error::Error>> {
     Ok((0..PEAK_COUNT)
         .map(|bucket| samples.iter().skip(bucket * bucket_size).take(bucket_size).copied().fold(0.0, f32::max))
         .collect())
-}
+    }

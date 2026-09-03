@@ -15,6 +15,9 @@ export struct AudioRow {
     name: string,
     modified-date: string,
     peaks: [float],
+    is-active: bool,
+    is-playing: bool,
+    progress: float,
 }
 
 component Waveform inherits Rectangle {
@@ -22,6 +25,8 @@ component Waveform inherits Rectangle {
     background: transparent;
     in property <bool> light-theme;
     in property <[float]> peaks;
+    in property <float> progress: 0;
+    callback seek-requested(float);
 
     VerticalBox {
         spacing: 0px;
@@ -29,7 +34,7 @@ component Waveform inherits Rectangle {
             height: 29px;
             HorizontalLayout {
                 spacing: 2px;
-                for peak in root.peaks : Rectangle {
+                for peak[index] in root.peaks : Rectangle {
                     width: (parent.width - (root.peaks.length - 1) * 2px) / root.peaks.length;
                     height: 29px;
                     Rectangle {
@@ -37,7 +42,7 @@ component Waveform inherits Rectangle {
                         height: 2px + peak * 25px;
                         border-radius: 1px;
                         y: parent.height - self.height;
-                        background: root.light-theme ? #d46b32 : #e58a4d;
+                        background: (index / root.peaks.length) <= root.progress ? (root.light-theme ? #d46b32 : #e58a4d) : (root.light-theme ? #b8c0ca : #566171);
                     }
                 }
             }
@@ -46,7 +51,7 @@ component Waveform inherits Rectangle {
             height: 29px;
             HorizontalLayout {
                 spacing: 2px;
-                for peak in root.peaks : Rectangle {
+                for peak[index] in root.peaks : Rectangle {
                     width: (parent.width - (root.peaks.length - 1) * 2px) / root.peaks.length;
                     height: 29px;
                     Rectangle {
@@ -55,11 +60,22 @@ component Waveform inherits Rectangle {
                         border-radius: 1px;
                         y: 0px;
                         opacity: 0.5;
-                        background: root.light-theme ? #d46b32 : #e58a4d;
+                        background: (index / root.peaks.length) <= root.progress ? (root.light-theme ? #d46b32 : #e58a4d) : (root.light-theme ? #b8c0ca : #566171);
                     }
                 }
             }
         }
+    }
+    Rectangle {
+        x: root.progress * (parent.width - 1px);
+        y: 0px;
+        width: 1px;
+        height: parent.height;
+        background: #ffffff;
+        visible: root.peaks.length > 0;
+    }
+    TouchArea {
+        clicked => { root.seek-requested((self.mouse-x / self.width).max(0).min(1)); }
     }
 }
 
@@ -72,6 +88,9 @@ component AudioRowView inherits Rectangle {
     in property <string> name;
     in property <string> modified-date;
     in property <[float]> peaks;
+    in property <bool> is-active;
+    in property <bool> is-playing;
+    in property <float> progress;
 
     VerticalBox {
         padding: 8px;
@@ -94,16 +113,20 @@ component AudioRowView inherits Rectangle {
                 width: 100%;
                 light-theme: root.light-theme;
                 peaks: root.peaks;
+                progress: root.progress;
                 y: -15px;
+                seek-requested(progress) => { root.seek-requested(progress); }
             }
         }
     }
+    callback seek-requested(float);
 }
 
 component AudioList inherits ListView {
     in property <bool> light-theme;
     in property <[AudioRow]> rows;
     callback viewport-changed(int);
+    callback seek-requested(string, float);
 
     changed viewport-y => {
         root.viewport-changed((0px - root.viewport-y) / 86px);
@@ -114,6 +137,10 @@ component AudioList inherits ListView {
         name: row.name;
         modified-date: row.modified-date;
         peaks: row.peaks;
+        is-active: row.is-active;
+        is-playing: row.is-playing;
+        progress: row.progress;
+        seek-requested(progress) => { root.seek-requested(row.path, progress); }
     }
 }
 
@@ -234,6 +261,11 @@ export component MainWindow inherits Window {
     in-out property <int> audio-completed: 0;
     in-out property <int> audio-total: 0;
     in-out property <string> audio-spinner: "|";
+    in-out property <string> active-audio-path: "";
+    in-out property <bool> audio-playing: false;
+    in-out property <string> audio-current-time: "00:00";
+    in-out property <string> audio-total-duration: "00:00";
+    in-out property <string> audio-error: "";
     callback open-folder();
     callback close-about();
     callback close-settings();
@@ -241,6 +273,8 @@ export component MainWindow inherits Window {
     callback row-clicked(string);
     callback filter-changed(string);
     callback audio-viewport-changed(int);
+    callback audio-play-pause();
+    callback audio-seek(string, float);
 
     Rectangle {
         background: root.light-theme ? #f5f7fa : #11151b;
@@ -413,6 +447,23 @@ export component MainWindow inherits Window {
                                 font-size: 24px;
                                 vertical-alignment: center;
                             }
+                            Button {
+                                text: root.audio-playing ? "Pause" : "Play";
+                                enabled: root.active-audio-path != "" && root.audio-error == "";
+                                clicked => { root.audio-play-pause(); }
+                            }
+                            Text {
+                                text: root.audio-current-time + " / " + root.audio-total-duration;
+                                color: root.light-theme ? #5c6878 : #aeb8c6;
+                                vertical-alignment: center;
+                            }
+                            Text {
+                                text: root.audio-error;
+                                color: #d46b32;
+                                vertical-alignment: center;
+                                overflow: elide;
+                                width: 260px;
+                            }
                             Rectangle { horizontal-stretch: 1; }
                             LineEdit {
                                 placeholder-text: "Filter audio files...";
@@ -438,6 +489,7 @@ export component MainWindow inherits Window {
                                 width: 100%;
                                 height: 100%;
                                 viewport-changed(start-index) => { root.audio-viewport-changed(start-index); }
+                                seek-requested(path, progress) => { root.audio-seek(path, progress); }
                             }
                         }
                     }
