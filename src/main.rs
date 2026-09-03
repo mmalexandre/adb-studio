@@ -2,7 +2,7 @@ use std::{
     cell::RefCell,
     collections::HashSet,
     fs,
-    path::PathBuf,
+    path::{Path, PathBuf},
     rc::Rc,
     sync::{Arc, Mutex},
     sync::mpsc::{self, Sender},
@@ -22,6 +22,8 @@ slint::include_modules!();
 
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 const BUILD_NUMBER: &str = env!("ADB_BUILD_NUMBER");
+const AUDIO_PREFETCH_ROWS: usize = 32;
+const AUDIO_PREFETCH_BEFORE: usize = 4;
 struct AudioLoadState {
     folder: PathBuf,
     paths: Vec<PathBuf>,
@@ -44,6 +46,7 @@ struct AudioResult {
 #[derive(Clone, Default, Deserialize, Serialize)]
 struct AppSettings {
     last_folder: Option<String>,
+    last_selected_path: Option<String>,
     light_theme: bool,
 }
 
@@ -137,6 +140,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         let weak_window = window.as_weak();
         let tree_state = Rc::clone(&tree_state);
+        let settings = Rc::clone(&settings);
         let audio_folder = Rc::clone(&audio_folder);
         let audio_model = Rc::clone(&audio_model);
         let audio_load_state = Arc::clone(&audio_load_state);
@@ -159,6 +163,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .and_then(|name| name.to_str())
                 .unwrap_or_default()
                 .to_string();
+            settings.borrow_mut().last_selected_path = Some(path.to_string_lossy().into_owned());
+            let settings_snapshot = settings.borrow().clone();
+            save_settings(&settings_snapshot);
             drop(state_ref);
 
             window.set_selected_name(selected_name.into());
@@ -248,7 +255,6 @@ fn set_workspace(
 
     window.set_folder_name(folder_name.into());
     window.set_has_folder(true);
-    window.set_selected_name("".into());
 
     {
         settings.borrow_mut().last_folder = Some(folder.to_string_lossy().into_owned());
@@ -256,9 +262,46 @@ fn set_workspace(
     let settings_snapshot = settings.borrow().clone();
     save_settings(&settings_snapshot);
 
-    *tree_state.borrow_mut() = Some(TreeState::new(folder.clone()));
+    let mut new_tree_state = TreeState::new(folder.clone());
+    if let Some(selected_path) = settings_snapshot.last_selected_path.as_deref().map(PathBuf::from) {
+        if selected_path != folder
+            && selected_path.exists()
+            && selected_path.strip_prefix(&folder).is_ok()
+        {
+            new_tree_state.select_and_expand(&selected_path);
+            window.set_selected_name(
+                selected_path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or_default()
+                    .into(),
+            );
+        } else {
+            window.set_selected_name("".into());
+        }
+    } else {
+        window.set_selected_name("".into());
+    }
+    *tree_state.borrow_mut() = Some(new_tree_state);
     refresh_tree(window, tree_state);
-    refresh_audio(window, audio_folder, audio_model, audio_load_state, folder);
+    let audio_view_folder = settings_snapshot
+        .last_selected_path
+        .as_deref()
+        .map(PathBuf::from)
+        .filter(|selected_path| {
+            selected_path != &folder
+                && selected_path.exists()
+                && selected_path.strip_prefix(&folder).is_ok()
+        })
+        .and_then(|selected_path| {
+            if selected_path.is_dir() {
+                Some(selected_path)
+            } else {
+                selected_path.parent().map(Path::to_path_buf)
+            }
+        })
+        .unwrap_or(folder);
+    refresh_audio(window, audio_folder, audio_model, audio_load_state, audio_view_folder);
 }
 
 fn refresh_audio(
@@ -305,7 +348,7 @@ fn refresh_audio(
         state.generation += 1;
         state.completed = 0;
         state.total = total;
-        state.requested_range = Some((0, total));
+        state.requested_range = None;
     }
     request_audio_generation(audio_load_state, 0);
 }
@@ -315,8 +358,11 @@ fn request_audio_generation(
     start_index: usize,
 ) {
     let mut state = audio_load_state.lock().unwrap();
-    let _ = start_index;
-    state.requested_range = Some((0, state.paths.len()));
+    let start = start_index.saturating_sub(AUDIO_PREFETCH_BEFORE);
+    let end = start_index
+        .saturating_add(AUDIO_PREFETCH_ROWS)
+        .min(state.paths.len());
+    state.requested_range = Some((start, end));
     if state.running {
         return;
     }

@@ -106,6 +106,18 @@ impl TreeState {
     pub fn select(&mut self, path: &Path) {
         self.selected = Some(path.to_path_buf());
     }
+
+    pub fn select_and_expand(&mut self, path: &Path) {
+        self.select(path);
+        let mut ancestor = path.parent();
+        while let Some(path) = ancestor {
+            self.expanded.insert(path.to_path_buf());
+            if path == self.root {
+                break;
+            }
+            ancestor = path.parent();
+        }
+    }
 }
 
 pub struct VisibleRow {
