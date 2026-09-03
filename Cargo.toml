@@ -9,9 +9,11 @@ description = "A cross-platform workspace for organizing and annotating generate
 [dependencies]
 dirs = "6"
 rfd = "0.15"
+sha2 = "0.10"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 slint = "1.9"
+symphonia = { version = "0.5", features = ["all"] }
 
 [build-dependencies]
 slint-build = "1.9"

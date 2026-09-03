@@ -4,7 +4,7 @@ A cross-platform Slint + Rust application for annotating Ace Step 1.5 AI-generat
 
 ## Status
 
-Early development. The current shell includes the welcome screen, workspace folder picker, explorer layout, audio-library placeholder, and About dialog.
+Early development. The current shell includes the welcome screen, workspace folder picker, explorer layout, cached waveform audio library, and About dialog.
 
 ## Run
 

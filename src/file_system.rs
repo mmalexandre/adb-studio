@@ -24,7 +24,7 @@ impl FileKind {
             .map(|ext| ext.to_ascii_lowercase())
             .as_deref()
         {
-            Some("mp3" | "opus" | "wav") => FileKind::Audio,
+            Some("flac" | "mp3" | "opus" | "wav") => FileKind::Audio,
             Some("safetensors") => FileKind::Safetensors,
             Some("json") => FileKind::Json,
             _ => FileKind::Other,
