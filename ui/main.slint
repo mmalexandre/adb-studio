@@ -54,6 +54,7 @@ component Waveform inherits Rectangle {
     callback seek-requested(float);
     callback comment-range-requested(float, float);
     callback comment-selected(float, float, string);
+    callback comment-edit-requested(float, float, string);
     callback comment-range-moved(float, float, float, float, string);
 
     function displayed-comment-start(index: int, start: float) -> float {
@@ -131,6 +132,31 @@ component Waveform inherits Rectangle {
         background: #11151b;
         Text { text: "▼"; x: -5px; y: -2px; color: #11151b; font-size: 10px; }
     }
+    if root.hovered-comment >= 0 && root.comments[root.hovered-comment].end >= root.comments[root.hovered-comment].start : Rectangle {
+        x: root.comments[root.hovered-comment].start * parent.width;
+        width: (root.comments[root.hovered-comment].end - root.comments[root.hovered-comment].start) * parent.width;
+        y: 0px;
+        height: parent.height;
+        background: root.light-theme ? #d46b3260 : #e58a4d60;
+        border-color: root.light-theme ? #d46b32 : #e58a4d;
+        border-width: 1px;
+    }
+    if root.hovered-comment >= 0 : Rectangle {
+        x: root.comments[root.hovered-comment].start * parent.width;
+        y: 0px;
+        width: 2px;
+        height: parent.height;
+        background: #11151b;
+        Text { text: "▼"; x: -5px; y: 0px; color: #11151b; font-size: 10px; }
+    }
+    if root.hovered-comment >= 0 && root.comments[root.hovered-comment].end > root.comments[root.hovered-comment].start : Rectangle {
+        x: root.comments[root.hovered-comment].end * parent.width;
+        y: 0px;
+        width: 2px;
+        height: parent.height;
+        background: #11151b;
+        Text { text: "▼"; x: -5px; y: 0px; color: #11151b; font-size: 10px; }
+    }
     if root.gesture-start >= 0 && root.gesture-end >= root.gesture-start : Rectangle {
         x: root.gesture-start * parent.width;
         width: (root.gesture-end - root.gesture-start) * parent.width;
@@ -206,7 +232,9 @@ component Waveform inherits Rectangle {
             background: transparent;
             comment-touch := TouchArea {
                 pointer-event(event) => {
-                    if event.kind == PointerEventKind.down && event.button == PointerEventButton.left {
+                    if event.kind == PointerEventKind.down && event.button == PointerEventButton.right {
+                        root.comment-edit-requested(comment.start, comment.end, comment.text);
+                    } else if event.kind == PointerEventKind.down && event.button == PointerEventButton.left {
                         root.comment-drag-start = ((self.mouse-x + comment-hit.x + comment-container.x) / root.width).max(0).min(1);
                         root.comment-drag-original-start = comment.start;
                         root.comment-drag-original-end = comment.end;
@@ -288,6 +316,7 @@ component AudioRowView inherits Rectangle {
     callback seek-requested(float);
     callback comment-range-requested(float, float);
     callback comment-selected(float, float, string);
+    callback comment-edit-requested(float, float, string);
     callback comment-range-moved(float, float, float, float, string);
     callback rating-requested(int);
 
@@ -379,6 +408,7 @@ component AudioRowView inherits Rectangle {
                 seek-requested(progress) => { root.seek-requested(progress); }
                 comment-range-requested(start, end) => { root.comment-range-requested(start, end); }
                 comment-selected(start, end, text) => { root.comment-selected(start, end, text); }
+                comment-edit-requested(start, end, text) => { root.comment-edit-requested(start, end, text); }
                 comment-range-moved(old-start, old-end, start, end, text) => { root.comment-range-moved(old-start, old-end, start, end, text); }
             }
             Rectangle { width: 204px; }
@@ -394,6 +424,7 @@ component AudioList inherits ListView {
     callback play-requested(string);
     callback comment-range-requested(string, float, float);
     callback comment-selected(string, float, float, string);
+    callback comment-edit-requested(string, float, float, string);
     callback comment-range-moved(string, float, float, float, float, string);
     callback rating-requested(string, int);
 
@@ -418,6 +449,7 @@ component AudioList inherits ListView {
         play-requested => { root.play-requested(row.path); }
         comment-range-requested(start, end) => { root.comment-range-requested(row.path, start, end); }
         comment-selected(start, end, text) => { root.comment-selected(row.path, start, end, text); }
+        comment-edit-requested(start, end, text) => { root.comment-edit-requested(row.path, start, end, text); }
         comment-range-moved(old-start, old-end, start, end, text) => { root.comment-range-moved(row.path, old-start, old-end, start, end, text); }
         rating-requested(rating) => { root.rating-requested(row.path, rating); }
     }
@@ -561,6 +593,7 @@ export component MainWindow inherits Window {
     callback loop-changed(bool);
     callback comment-range-requested(string, float, float);
     callback comment-selected(string, float, float, string);
+    callback comment-edit-requested(string, float, float, string);
     callback comment-range-moved(string, float, float, float, float, string);
     callback rating-requested(string, int);
     callback comment-save(string, string, string, string);
@@ -837,6 +870,7 @@ export component MainWindow inherits Window {
                                 play-requested(path) => { root.audio-play(path); }
                                 comment-range-requested(path, start, end) => { root.comment-range-requested(path, start, end); }
                                 comment-selected(path, start, end, text) => { root.comment-selected(path, start, end, text); }
+                                comment-edit-requested(path, start, end, text) => { root.comment-edit-requested(path, start, end, text); }
                                 comment-range-moved(path, old-start, old-end, start, end, text) => { root.comment-range-moved(path, old-start, old-end, start, end, text); }
                                 rating-requested(path, rating) => { root.rating-requested(path, rating); }
                             }

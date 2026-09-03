@@ -228,9 +228,60 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let audio_model = Rc::clone(&audio_model);
         let audio_folder = Rc::clone(&audio_folder);
         let playback = Rc::clone(&playback);
+        window.on_comment_selected(move |path, start, _end, _text| {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            let path = PathBuf::from(path.as_str());
+            let Some(folder) = audio_folder.borrow().clone() else {
+                return;
+            };
+            let duration = comment_duration(&folder, &path, &playback);
+            if duration <= 0.0 {
+                window.set_audio_error("Unable to determine audio duration".into());
+                return;
+            }
+            select_comment(&audio_model, &path, start, _end);
+            let mut playback_ref = playback.borrow_mut();
+            let Some(engine) = playback_ref.as_mut() else {
+                return;
+            };
+            let position = Duration::from_secs_f32((start.clamp(0.0, 1.0) * duration).min(duration));
+            let result = if engine.path() == Some(path.as_path()) && engine.can_resume() {
+                let result = engine.seek(position);
+                if result.is_ok() {
+                    engine.resume();
+                }
+                result
+            } else {
+                engine.play(&path, position)
+            };
+            if let Err(error) = result {
+                window.set_audio_error(error.into());
+                return;
+            }
+            window.set_audio_error("".into());
+            window.set_active_audio_path(path.to_string_lossy().into_owned().into());
+            window.set_audio_playing(engine.is_playing());
+            update_audio_rows(
+                &audio_model,
+                engine.path(),
+                engine.is_playing(),
+                engine.position(),
+                engine.duration(),
+            );
+            save_playback_position(&folder, engine);
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        let audio_model = Rc::clone(&audio_model);
+        let audio_folder = Rc::clone(&audio_folder);
+        let playback = Rc::clone(&playback);
         let comment_editor_original = Rc::clone(&comment_editor_original);
         let comment_editor_duration = Rc::clone(&comment_editor_duration);
-        window.on_comment_selected(move |path, start, end, text| {
+        window.on_comment_edit_requested(move |path, start, end, text| {
             let Some(window) = weak_window.upgrade() else {
                 return;
             };
@@ -400,14 +451,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         let selected_loop = engine
                             .path()
                             .and_then(|path| selected_loop_range(&audio_model, path));
-                        if settings.borrow().loop_enabled
-                            && !engine.is_playing()
-                            && !engine.duration().is_zero()
-                            && engine.position()
-                                >= selected_loop
-                                    .map(|(_, end)| engine.duration().mul_f32(end))
-                                    .unwrap_or(engine.duration())
-                        {
+                        let should_loop = selected_loop
+                            .map(|(_, end)| engine.position() >= engine.duration().mul_f32(end))
+                            .unwrap_or_else(|| !engine.is_playing() && engine.position() >= engine.duration());
+                        if settings.borrow().loop_enabled && !engine.duration().is_zero() && should_loop {
                             if let Some(path) = engine.path().map(Path::to_path_buf) {
                                 let loop_start = selected_loop
                                     .map(|(start, _)| engine.duration().mul_f32(start))
