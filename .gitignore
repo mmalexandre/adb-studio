@@ -1,0 +1,16 @@
+# Rust build output
+target/
+
+# Adb Studio workspace metadata and waveform cache
+.adbstudio/
+
+# Local editor and operating-system files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.swp
+*.swo
+*~

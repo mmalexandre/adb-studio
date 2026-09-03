@@ -1,0 +1,260 @@
+import { Button, LineEdit, VerticalBox } from "std-widgets.slint";
+
+component MenuButton inherits Rectangle {
+    height: 28px;
+    width: 64px;
+    background: #1a2029;
+    callback clicked();
+    in property <string> label;
+    Text {
+        text: root.label;
+        color: #d7dce5;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+component ToolButton inherits Rectangle {
+    width: 48px;
+    height: 48px;
+    background: #171c24;
+    callback clicked();
+    in property <string> label;
+    Text {
+        text: root.label;
+        color: #b7c0ce;
+        font-size: 22px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+export component MainWindow inherits Window {
+    title: "Adb Studio";
+    width: 1280px;
+    height: 800px;
+    background: #11151b;
+
+    in-out property <bool> has-folder: false;
+    in-out property <string> folder-name: "";
+    in-out property <string> build-number: "development";
+    in-out property <bool> about-visible: false;
+    callback open-folder();
+    callback close-about();
+
+    Rectangle {
+        background: #11151b;
+
+        VerticalBox {
+            spacing: 0px;
+
+            Rectangle {
+                height: 40px;
+                background: #1a2029;
+                border-color: #2a3340;
+                border-width: 1px;
+
+                HorizontalLayout {
+                    padding-left: 10px;
+                    spacing: 4px;
+
+                    MenuButton {
+                        label: "File";
+                        clicked => { root.open-folder(); }
+                    }
+                    MenuButton {
+                        label: "Help";
+                        clicked => { root.about-visible = true; }
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                    Text {
+                        text: "Adb Studio";
+                        color: #7f8b9d;
+                        vertical-alignment: center;
+                        font-size: 13px;
+                    }
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 0px;
+                vertical-stretch: 1;
+
+                Rectangle {
+                    width: 48px;
+                    background: #171c24;
+                    border-color: #2a3340;
+                    border-width: 1px;
+
+                    VerticalBox {
+                        alignment: start;
+                        ToolButton {
+                            label: "▤";
+                            clicked => { }
+                        }
+                    }
+                }
+
+                Rectangle {
+                    width: 280px;
+                    background: #1a2029;
+                    border-color: #2a3340;
+                    border-width: 1px;
+
+                    if root.has-folder : VerticalBox {
+                        padding: 18px;
+                        spacing: 12px;
+                        Text {
+                            text: "EXPLORER";
+                            color: #7f8b9d;
+                            font-size: 11px;
+                        }
+                        Text {
+                            text: root.folder-name;
+                            color: #e3e8ef;
+                            font-size: 15px;
+                            overflow: elide;
+                        }
+                        Rectangle {
+                            height: 1px;
+                            background: #2a3340;
+                        }
+                        Text {
+                            text: "Folder contents will appear here";
+                            color: #7f8b9d;
+                            wrap: word-wrap;
+                        }
+                        Rectangle { vertical-stretch: 1; }
+                    }
+
+                    if !root.has-folder : VerticalBox {
+                        padding: 18px;
+                        spacing: 12px;
+                        Text {
+                            text: "EXPLORER";
+                            color: #7f8b9d;
+                            font-size: 11px;
+                        }
+                        Text {
+                            text: "No folder open";
+                            color: #e3e8ef;
+                            font-size: 15px;
+                        }
+                        Rectangle { vertical-stretch: 1; }
+                    }
+                }
+
+                Rectangle {
+                    background: #11151b;
+                    horizontal-stretch: 1;
+
+                    if !root.has-folder : VerticalBox {
+                        alignment: center;
+                        spacing: 14px;
+                        Text {
+                            text: "Welcome to Adb Studio";
+                            color: #e3e8ef;
+                            font-size: 28px;
+                            horizontal-alignment: center;
+                        }
+                        Text {
+                            text: "Open a workspace folder to begin organizing your audio.";
+                            color: #8b96a7;
+                            horizontal-alignment: center;
+                        }
+                        Button {
+                            text: "Open Folder...";
+                            clicked => { root.open-folder(); }
+                        }
+                    }
+
+                    if root.has-folder : VerticalBox {
+                        padding: 24px;
+                        spacing: 18px;
+                        HorizontalLayout {
+                            spacing: 12px;
+                            Text {
+                                text: "Audio Library";
+                                color: #e3e8ef;
+                                font-size: 24px;
+                                vertical-alignment: center;
+                            }
+                            Rectangle { horizontal-stretch: 1; }
+                            LineEdit {
+                                placeholder-text: "Filter audio files...";
+                                width: 260px;
+                            }
+                        }
+                        Rectangle {
+                            background: #1a2029;
+                            border-color: #2a3340;
+                            border-width: 1px;
+                            vertical-stretch: 1;
+                            Text {
+                                text: "Select a folder in the explorer to view its audio files.";
+                                color: #8b96a7;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+                }
+            }
+
+            Rectangle {
+                height: 32px;
+                background: #1a2029;
+                border-color: #2a3340;
+                border-width: 1px;
+                Text {
+                    text: root.has-folder ? "Workspace: " + root.folder-name : "No workspace folder opened";
+                    color: #7f8b9d;
+                    font-size: 11px;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        if root.about-visible : Rectangle {
+            background: #00000080;
+            x: 0px;
+            y: 0px;
+            width: parent.width;
+            height: parent.height;
+
+            Rectangle {
+                width: 390px;
+                height: 250px;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                background: #202832;
+                border-color: #435064;
+                border-width: 1px;
+
+                VerticalBox {
+                    padding: 24px;
+                    spacing: 12px;
+                    Text {
+                        text: "About Adb Studio";
+                        color: #f1f4f8;
+                        font-size: 22px;
+                    }
+                    Text { text: "Version 0.1.0"; color: #c4ccd8; }
+                    Text { text: "Build: " + root.build-number; color: #c4ccd8; }
+                    Text { text: "Author: Alexandre Dupuis-Belin"; color: #c4ccd8; }
+                    Rectangle { vertical-stretch: 1; }
+                    Button {
+                        text: "Close";
+                        clicked => { root.close-about(); }
+                    }
+                }
+            }
+        }
+    }
+}
