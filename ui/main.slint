@@ -176,7 +176,7 @@ component Waveform inherits Rectangle {
             }
         }
     }
-    for comment[index] in root.comments : Rectangle {
+    for comment[index] in root.comments : comment-container := Rectangle {
         x: root.displayed-comment-start(index, comment.start) * parent.width;
         height: parent.height;
         width: ((comment.bubble-end - comment.start) * parent.width).max(comment-text.preferred-width + 8px).min(root.width * (1 - comment.start));
@@ -209,19 +209,21 @@ component Waveform inherits Rectangle {
             comment-touch := TouchArea {
                 pointer-event(event) => {
                     if event.kind == PointerEventKind.down && event.button == PointerEventButton.left {
-                        root.comment-drag-start = ((comment.start * root.width + self.mouse-x) / root.width).max(0).min(1);
+                        root.comment-drag-start = ((self.mouse-x + comment-hit.x + comment-container.x) / root.width).max(0).min(1);
                         root.comment-drag-original-start = comment.start;
                         root.comment-drag-original-end = comment.end;
                         root.comment-drag-index = index;
                         root.comment-drag-preview-start = comment.start;
                         root.comment-dragged = false;
                     } else if event.kind == PointerEventKind.move && root.comment-drag-start >= 0 {
-                        let delta = ((comment.start * root.width + self.mouse-x) / root.width).max(0).min(1) - root.comment-drag-start;
+                        let pointer = ((self.mouse-x + comment-hit.x + comment-container.x) / root.width).max(0).min(1);
+                        let delta = pointer - root.comment-drag-start;
                         let length = root.comment-drag-original-end - root.comment-drag-original-start;
                         root.comment-drag-preview-start = (root.comment-drag-original-start + delta).max(0).min(1 - length);
                         root.comment-dragged = root.comment-dragged || delta.abs() > 0.005;
                     } else if event.kind == PointerEventKind.up && root.comment-drag-start >= 0 {
-                        let delta = ((comment.start * root.width + self.mouse-x) / root.width).max(0).min(1) - root.comment-drag-start;
+                        let pointer = ((self.mouse-x + comment-hit.x + comment-container.x) / root.width).max(0).min(1);
+                        let delta = pointer - root.comment-drag-start;
                         if root.comment-dragged {
                             let length = root.comment-drag-original-end - root.comment-drag-original-start;
                             let start = (root.comment-drag-original-start + delta).max(0).min(1 - length);
@@ -246,7 +248,7 @@ component Waveform inherits Rectangle {
         }
     }
     if root.hovered-comment >= 0 : Rectangle {
-        x: root.comments[root.hovered-comment].start * parent.width;
+        x: root.displayed-comment-start(root.hovered-comment, root.comments[root.hovered-comment].start) * parent.width;
         y: 39px;
         width: (hovered-label.preferred-width + 8px).min(parent.width - self.x - 2px).max(8px);
         height: 17px;
