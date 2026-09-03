@@ -1090,6 +1090,7 @@ fn scan_json_files(folder: &Path) -> Vec<(String, String)> {
 fn clear_workflow(window: &MainWindow) {
     window.set_workflow_bpm("".into());
     window.set_workflow_key("".into());
+    window.set_workflow_seed("".into());
     window.set_workflow_prompt("".into());
     window.set_workflow_lyrics("".into());
     window.set_workflow_loras(ModelRc::new(VecModel::from(Vec::<WorkflowLoraRow>::new())));
@@ -1103,6 +1104,7 @@ fn apply_workflow(window: &MainWindow, path: &str, workflow: metadata::comfyui::
     window.set_selected_workflow(display_name.into());
     window.set_workflow_bpm(workflow.bpm.into());
     window.set_workflow_key(workflow.key.into());
+    window.set_workflow_seed(workflow.seed.into());
     window.set_workflow_prompt(workflow.prompt.into());
     window.set_workflow_lyrics(workflow.lyrics.into());
     window.set_workflow_loras(ModelRc::new(VecModel::from(

@@ -5,6 +5,7 @@ use std::{fs, path::Path};
 pub struct ComfyUIWorkflow {
     pub bpm: String,
     pub key: String,
+    pub seed: String,
     pub prompt: String,
     pub lyrics: String,
     pub loras: Vec<LoRAInfo>,
@@ -81,6 +82,8 @@ fn visit(value: &Value, workflow: &mut ComfyUIWorkflow, lyrics_context: bool) {
                             && (key_lower == "key" || key_lower == "tonality")
                         {
                             workflow.key = scalar_text(child);
+                        } else if workflow.seed.is_empty() && key_lower == "seed" {
+                            workflow.seed = scalar_text(child);
                         } else if workflow.prompt.is_empty()
                             && (key_lower.contains("prompt") || key_lower == "text")
                         {
@@ -102,6 +105,8 @@ fn visit(value: &Value, workflow: &mut ComfyUIWorkflow, lyrics_context: bool) {
                         && (key_lower == "key" || key_lower == "tonality")
                     {
                         workflow.key = scalar_text(child);
+                    } else if workflow.seed.is_empty() && key_lower == "seed" {
+                        workflow.seed = scalar_text(child);
                     } else if workflow.prompt.is_empty()
                         && (key_lower.contains("prompt") || key_lower == "text")
                     {
@@ -155,6 +160,14 @@ fn parse_visual_node(node: &Value, workflow: &mut ComfyUIWorkflow) {
                 values.insert(name.to_ascii_lowercase(), value.clone());
             }
             value_index += 1;
+            if name.eq_ignore_ascii_case("seed")
+                && widget_values
+                    .get(value_index)
+                    .and_then(Value::as_str)
+                    .is_some_and(|value| matches!(value, "fixed" | "randomize"))
+            {
+                value_index += 1;
+            }
         }
     }
 
@@ -173,6 +186,9 @@ fn parse_visual_node(node: &Value, workflow: &mut ComfyUIWorkflow) {
         }
         if workflow.bpm.is_empty() {
             workflow.bpm = values.get("bpm").map(scalar_text).unwrap_or_default();
+        }
+        if workflow.seed.is_empty() {
+            workflow.seed = values.get("seed").map(scalar_text).unwrap_or_default();
         }
         if workflow.key.is_empty() {
             workflow.key = values
@@ -293,9 +309,28 @@ mod tests {
 
         assert_eq!(workflow.bpm, "130");
         assert_eq!(workflow.key, "E minor");
+        assert_eq!(workflow.seed, "31");
         assert_eq!(workflow.prompt, "prompt");
         assert_eq!(workflow.lyrics, "lyrics");
         assert_eq!(workflow.loras[0].filename, "style.safetensors");
         assert_eq!(workflow.loras[0].strength, "0.8");
+    }
+
+    #[test]
+    fn skips_seed_control_value_before_bpm() {
+        let workflow = parse_value(&json!({
+            "nodes": [{
+                "type": "TextEncodeAceStepAudio1.5",
+                "inputs": [
+                    {"name": "tags", "widget": {}},
+                    {"name": "lyrics", "widget": {}},
+                    {"name": "seed", "widget": {}},
+                    {"name": "bpm", "widget": {}}
+                ],
+                "widgets_values": ["prompt", "lyrics", 31, "fixed", 130]
+            }]
+        }));
+
+        assert_eq!(workflow.bpm, "130");
     }
 }
