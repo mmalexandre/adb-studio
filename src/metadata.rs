@@ -1,5 +1,10 @@
 use serde::{Deserialize, Serialize};
-use std::{fs, path::{Path, PathBuf}};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
+
+pub mod comfyui;
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct AudioComment {
@@ -32,6 +37,8 @@ pub struct AudioFileMetadata {
     pub last_position_seconds: f32,
     #[serde(default)]
     pub duration_seconds: f32,
+    #[serde(default)]
+    pub workflow_json_path: Option<String>,
 }
 
 impl AudioFileMetadata {
@@ -100,7 +107,10 @@ mod tests {
 
     #[test]
     fn clamps_rating_to_five_stars() {
-        let metadata = AudioFileMetadata { rating: 9, ..Default::default() };
+        let metadata = AudioFileMetadata {
+            rating: 9,
+            ..Default::default()
+        };
         assert_eq!(metadata.normalized_rating(), 5);
     }
 }

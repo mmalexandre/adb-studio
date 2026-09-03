@@ -139,6 +139,42 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     {
         let weak_window = window.as_weak();
+        let workflow_audio_folder = Rc::clone(&audio_folder);
+        window.on_metadata_toggle(move || {
+            if let Some(window) = weak_window.upgrade() {
+                window.set_metadata_visible(!window.get_metadata_visible());
+            }
+        });
+        let weak_window = window.as_weak();
+        window.on_workflow_selected(move |path| {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            let Some(folder) = workflow_audio_folder.borrow().clone() else {
+                return;
+            };
+            let audio_path = window.get_active_audio_path().to_string();
+            if audio_path.is_empty() {
+                return;
+            }
+            let mut index = metadata::load_index(&folder);
+            if let Some(file) = index
+                .audio_files
+                .iter_mut()
+                .find(|file| file.file_path == audio_path)
+            {
+                file.workflow_json_path = Some(path.to_string());
+                metadata::save_index(&folder, &index);
+            }
+            match metadata::comfyui::parse_file(Path::new(path.as_str())) {
+                Ok(workflow) => apply_workflow(&window, path.as_str(), workflow),
+                Err(error) => window.set_audio_error(format!("Workflow JSON: {error}").into()),
+            }
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
         let audio_folder = Rc::clone(&audio_folder);
         let audio_model = Rc::clone(&audio_model);
         window.on_rating_requested(move |path, rating| {
@@ -150,7 +186,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             };
             let path_string = path.to_string();
             let mut index = metadata::load_index(&folder);
-            if let Some(file) = index.audio_files.iter_mut().find(|item| item.file_path == path_string) {
+            if let Some(file) = index
+                .audio_files
+                .iter_mut()
+                .find(|item| item.file_path == path_string)
+            {
                 file.rating = rating.clamp(0, 5) as u8;
             } else {
                 index.audio_files.push(metadata::AudioFileMetadata {
@@ -166,20 +206,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         continue;
                     };
                     if row.path.as_str() == path_string {
-                        model.set_row_data(index, AudioRow {
-                            path: row.path,
-                            name: row.name,
-                            modified_date: row.modified_date,
-                            peaks: row.peaks,
-                            comments: row.comments,
-                            rating: rating.clamp(0, 5),
-                            is_active: row.is_active,
-                            is_playing: row.is_playing,
-                            progress: row.progress,
-                            loop_enabled: row.loop_enabled,
-                            selected_comment_start: row.selected_comment_start,
-                            selected_comment_end: row.selected_comment_end,
-                        });
+                        model.set_row_data(
+                            index,
+                            AudioRow {
+                                path: row.path,
+                                name: row.name,
+                                modified_date: row.modified_date,
+                                peaks: row.peaks,
+                                comments: row.comments,
+                                rating: rating.clamp(0, 5),
+                                is_active: row.is_active,
+                                is_playing: row.is_playing,
+                                progress: row.progress,
+                                loop_enabled: row.loop_enabled,
+                                selected_comment_start: row.selected_comment_start,
+                                selected_comment_end: row.selected_comment_end,
+                            },
+                        );
                         break;
                     }
                 }
@@ -198,7 +241,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let path_string = path.to_string();
             let mut index = metadata::load_index(&folder);
             let comments = {
-                let Some(file) = index.audio_files.iter_mut().find(|item| item.file_path == path_string) else {
+                let Some(file) = index
+                    .audio_files
+                    .iter_mut()
+                    .find(|item| item.file_path == path_string)
+                else {
                     return;
                 };
                 let duration = file.duration_seconds;
@@ -246,7 +293,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let Some(engine) = playback_ref.as_mut() else {
                 return;
             };
-            let position = Duration::from_secs_f32((start.clamp(0.0, 1.0) * duration).min(duration));
+            let position =
+                Duration::from_secs_f32((start.clamp(0.0, 1.0) * duration).min(duration));
             let result = if engine.path() == Some(path.as_path()) && engine.can_resume() {
                 let result = engine.seek(position);
                 if result.is_ok() {
@@ -324,7 +372,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let Some(folder) = audio_folder.borrow().clone() else {
                 return;
             };
-            let (Ok(start_seconds), Ok(end_seconds)) = (start.parse::<f32>(), end.parse::<f32>()) else {
+            let (Ok(start_seconds), Ok(end_seconds)) = (start.parse::<f32>(), end.parse::<f32>())
+            else {
                 window.set_audio_error("Comment times must be numbers".into());
                 return;
             };
@@ -348,10 +397,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let selected_start = comment.start_seconds / duration;
             let selected_end = comment.end_seconds / duration;
             let mut index = metadata::load_index(&folder);
-            let Some(file) = index.audio_files.iter_mut().find(|item| item.file_path == path.to_string_lossy()) else {
-                index.audio_files.push(metadata::AudioFileMetadata { file_path: path.to_string_lossy().into_owned(), comments: vec![comment], ..Default::default() });
+            let Some(file) = index
+                .audio_files
+                .iter_mut()
+                .find(|item| item.file_path == path.to_string_lossy())
+            else {
+                index.audio_files.push(metadata::AudioFileMetadata {
+                    file_path: path.to_string_lossy().into_owned(),
+                    comments: vec![comment],
+                    ..Default::default()
+                });
                 metadata::save_index(&folder, &index);
-                refresh_audio(&window, &audio_folder, &audio_model, &audio_load_state, folder);
+                refresh_audio(
+                    &window,
+                    &audio_folder,
+                    &audio_model,
+                    &audio_load_state,
+                    folder,
+                );
                 select_comment(&audio_model, &path, selected_start, selected_end);
                 window.set_comment_editor_visible(false);
                 return;
@@ -361,7 +424,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             file.comments.push(comment);
             metadata::save_index(&folder, &index);
-            refresh_audio(&window, &audio_folder, &audio_model, &audio_load_state, folder);
+            refresh_audio(
+                &window,
+                &audio_folder,
+                &audio_model,
+                &audio_load_state,
+                folder,
+            );
             select_comment(&audio_model, &path, selected_start, selected_end);
             window.set_comment_editor_visible(false);
         });
@@ -381,13 +450,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return;
             };
             let mut index = metadata::load_index(&folder);
-            let Some(file) = index.audio_files.iter_mut().find(|item| item.file_path == path.as_str()) else {
+            let Some(file) = index
+                .audio_files
+                .iter_mut()
+                .find(|item| item.file_path == path.as_str())
+            else {
                 return;
             };
             if let Some(original) = comment_editor_original.borrow_mut().take() {
                 file.comments.retain(|item| item != &original);
                 metadata::save_index(&folder, &index);
-                refresh_audio(&window, &audio_folder, &audio_model, &audio_load_state, folder);
+                refresh_audio(
+                    &window,
+                    &audio_folder,
+                    &audio_model,
+                    &audio_load_state,
+                    folder,
+                );
             }
             window.set_comment_editor_visible(false);
         });
@@ -453,8 +532,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             .and_then(|path| selected_loop_range(&audio_model, path));
                         let should_loop = selected_loop
                             .map(|(_, end)| engine.position() >= engine.duration().mul_f32(end))
-                            .unwrap_or_else(|| !engine.is_playing() && engine.position() >= engine.duration());
-                        if settings.borrow().loop_enabled && !engine.duration().is_zero() && should_loop {
+                            .unwrap_or_else(|| {
+                                !engine.is_playing() && engine.position() >= engine.duration()
+                            });
+                        if settings.borrow().loop_enabled
+                            && !engine.duration().is_zero()
+                            && should_loop
+                        {
                             if let Some(path) = engine.path().map(Path::to_path_buf) {
                                 let loop_start = selected_loop
                                     .map(|(start, _)| engine.duration().mul_f32(start))
@@ -474,7 +558,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         window.set_audio_current_time(format_duration(position).into());
                         window.set_audio_total_duration(format_duration(duration).into());
                         update_audio_rows(&audio_model, engine.path(), playing, position, duration);
-                        if last_persisted_position_for_timer.borrow().elapsed() >= Duration::from_millis(500) {
+                        if last_persisted_position_for_timer.borrow().elapsed()
+                            >= Duration::from_millis(500)
+                        {
                             if let Some(folder) = audio_folder.borrow().clone() {
                                 save_playback_position(&folder, engine);
                             }
@@ -689,12 +775,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             };
             let path = PathBuf::from(path.as_str());
             let now = Instant::now();
-            let restart = last_button_click
-                .borrow()
-                .as_ref()
-                .is_some_and(|(last_path, last_time)| {
-                    last_path == &path && last_time.elapsed() <= Duration::from_millis(350)
-                });
+            let restart =
+                last_button_click
+                    .borrow()
+                    .as_ref()
+                    .is_some_and(|(last_path, last_time)| {
+                        last_path == &path && last_time.elapsed() <= Duration::from_millis(350)
+                    });
             *last_button_click.borrow_mut() = Some((path.clone(), now));
             let mut playback_ref = playback.borrow_mut();
             let Some(engine) = playback_ref.as_mut() else {
@@ -720,8 +807,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             window.set_audio_error("".into());
             window.set_active_audio_path(path.to_string_lossy().into_owned().into());
             window.set_audio_playing(engine.is_playing());
-            update_audio_rows(&audio_model, engine.path(), engine.is_playing(), engine.position(), engine.duration());
+            update_audio_rows(
+                &audio_model,
+                engine.path(),
+                engine.is_playing(),
+                engine.position(),
+                engine.duration(),
+            );
             if let Some(folder) = audio_folder.borrow().clone() {
+                load_workflow_for_audio(&window, &folder, &path);
                 save_playback_position(&folder, engine);
             }
         });
@@ -763,6 +857,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 engine.duration(),
             );
             if let Some(folder) = audio_folder.borrow().clone() {
+                load_workflow_for_audio(&window, &folder, &path);
                 save_playback_position(&folder, engine);
             }
         });
@@ -824,6 +919,14 @@ fn set_workspace(
 
     window.set_folder_name(folder_name.into());
     window.set_has_folder(true);
+    window.set_workflow_json_files(ModelRc::new(VecModel::from(
+        scan_json_files(&folder)
+            .into_iter()
+            .map(Into::into)
+            .collect::<Vec<slint::SharedString>>(),
+    )));
+    window.set_selected_workflow("".into());
+    clear_workflow(window);
 
     {
         settings.borrow_mut().last_folder = Some(folder.to_string_lossy().into_owned());
@@ -883,6 +986,66 @@ fn set_workspace(
     );
 }
 
+fn scan_json_files(folder: &Path) -> Vec<String> {
+    fn visit(folder: &Path, files: &mut Vec<String>) {
+        for entry in file_system::read_dir_sorted(folder) {
+            if entry.is_dir {
+                visit(&entry.path, files);
+            } else if entry.kind == file_system::FileKind::Json {
+                files.push(entry.path.to_string_lossy().into_owned());
+            }
+        }
+    }
+    let mut files = Vec::new();
+    visit(folder, &mut files);
+    files.sort_by_key(|path| path.to_ascii_lowercase());
+    files
+}
+
+fn clear_workflow(window: &MainWindow) {
+    window.set_workflow_bpm("".into());
+    window.set_workflow_key("".into());
+    window.set_workflow_prompt("".into());
+    window.set_workflow_lyrics("".into());
+    window.set_workflow_loras(ModelRc::new(VecModel::from(Vec::<WorkflowLoraRow>::new())));
+}
+
+fn apply_workflow(window: &MainWindow, path: &str, workflow: metadata::comfyui::ComfyUIWorkflow) {
+    window.set_selected_workflow(path.into());
+    window.set_workflow_bpm(workflow.bpm.into());
+    window.set_workflow_key(workflow.key.into());
+    window.set_workflow_prompt(workflow.prompt.into());
+    window.set_workflow_lyrics(workflow.lyrics.into());
+    window.set_workflow_loras(ModelRc::new(VecModel::from(
+        workflow
+            .loras
+            .into_iter()
+            .map(|lora| WorkflowLoraRow {
+                filename: lora.filename.into(),
+                strength: lora.strength.into(),
+            })
+            .collect::<Vec<_>>(),
+    )));
+}
+
+fn load_workflow_for_audio(window: &MainWindow, folder: &Path, path: &Path) {
+    let path_string = path.to_string_lossy();
+    let workflow_path = metadata::load_index(folder)
+        .audio_files
+        .iter()
+        .find(|file| file.file_path == path_string)
+        .and_then(|file| file.workflow_json_path.clone());
+    let Some(workflow_path) = workflow_path else {
+        window.set_selected_workflow("".into());
+        clear_workflow(window);
+        return;
+    };
+    match metadata::comfyui::parse_file(Path::new(&workflow_path)) {
+        Ok(workflow) => apply_workflow(window, &workflow_path, workflow),
+        Err(error) => window.set_audio_error(format!("Workflow JSON: {error}").into()),
+    }
+}
+
 fn refresh_audio(
     window: &MainWindow,
     audio_folder: &Rc<RefCell<Option<PathBuf>>>,
@@ -924,7 +1087,10 @@ fn refresh_audio(
             modified_date: modified_date.to_string().into(),
             peaks: ModelRc::new(VecModel::from(vec![0.0; waveform::DISPLAY_PEAK_COUNT])),
             comments,
-            rating: stored_position.as_ref().map(|item| item.normalized_rating() as i32).unwrap_or(0),
+            rating: stored_position
+                .as_ref()
+                .map(|item| item.normalized_rating() as i32)
+                .unwrap_or(0),
             is_active: false,
             is_playing: false,
             progress,
@@ -961,11 +1127,13 @@ fn comment_rows(item: &metadata::AudioFileMetadata) -> ModelRc<CommentRow> {
     let mut normalized: Vec<(f32, f32, String)> = item
         .comments
         .iter()
-        .map(|comment| (
-            (comment.start_seconds / duration).clamp(0.0, 1.0),
-            (comment.end_seconds / duration).clamp(0.0, 1.0),
-            comment.text.clone(),
-        ))
+        .map(|comment| {
+            (
+                (comment.start_seconds / duration).clamp(0.0, 1.0),
+                (comment.end_seconds / duration).clamp(0.0, 1.0),
+                comment.text.clone(),
+            )
+        })
         .collect();
     normalized.sort_by(|left, right| left.0.total_cmp(&right.0));
     let rows = normalized
@@ -998,7 +1166,9 @@ fn update_comment_model(
             continue;
         };
         if Path::new(row.path.as_str()) == path {
-            if let Some(comment_model) = row.comments.as_any().downcast_ref::<VecModel<CommentRow>>() {
+            if let Some(comment_model) =
+                row.comments.as_any().downcast_ref::<VecModel<CommentRow>>()
+            {
                 comment_model.set_vec(comments.iter().collect::<Vec<_>>());
             }
             break;
@@ -1076,7 +1246,11 @@ fn comment_duration(
     let duration = engine.duration().as_secs_f32();
     if duration > 0.0 {
         let mut index = metadata::load_index(folder);
-        if let Some(file) = index.audio_files.iter_mut().find(|item| item.file_path == path_string) {
+        if let Some(file) = index
+            .audio_files
+            .iter_mut()
+            .find(|item| item.file_path == path_string)
+        {
             file.duration_seconds = duration;
         } else {
             index.audio_files.push(metadata::AudioFileMetadata {
@@ -1125,10 +1299,7 @@ fn select_comment(
             continue;
         };
         let selected = Path::new(row.path.as_str()) == path;
-        if selected
-            || row.selected_comment_start >= 0.0
-            || row.selected_comment_end >= 0.0
-        {
+        if selected || row.selected_comment_start >= 0.0 || row.selected_comment_end >= 0.0 {
             model.set_row_data(
                 index,
                 AudioRow {
