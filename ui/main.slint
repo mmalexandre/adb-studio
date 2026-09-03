@@ -23,6 +23,7 @@ export struct AudioRow {
     modified-date: string,
     peaks: [float],
     comments: [CommentRow],
+    rating: int,
     is-active: bool,
     is-playing: bool,
     progress: float,
@@ -43,10 +44,15 @@ component Waveform inherits Rectangle {
     property <int> hovered-comment: -1;
     property <float> gesture-start: -1;
     property <float> gesture-end: -1;
+    property <float> comment-drag-start: -1;
+    property <float> comment-drag-original-start: -1;
+    property <float> comment-drag-original-end: -1;
+    property <bool> comment-dragged: false;
     in property <float> progress: 0;
     callback seek-requested(float);
     callback comment-range-requested(float, float);
     callback comment-selected(float, float, string);
+    callback comment-range-moved(float, float, float, float, string);
 
     VerticalBox {
         spacing: 0px;
@@ -195,7 +201,30 @@ component Waveform inherits Rectangle {
             height: 17px;
             background: transparent;
             comment-touch := TouchArea {
-                clicked => { root.comment-selected(comment.start, comment.end, comment.text); }
+                pointer-event(event) => {
+                    if event.button == PointerEventButton.left {
+                        if event.kind == PointerEventKind.down {
+                            root.comment-drag-start = ((comment.start * root.width + self.mouse-x) / root.width).max(0).min(1);
+                            root.comment-drag-original-start = comment.start;
+                            root.comment-drag-original-end = comment.end;
+                            root.comment-dragged = false;
+                        } else if event.kind == PointerEventKind.move && self.pressed && root.comment-drag-start >= 0 {
+                            let delta = ((comment.start * root.width + self.mouse-x) / root.width).max(0).min(1) - root.comment-drag-start;
+                            root.comment-dragged = root.comment-dragged || delta.abs() > 0.005;
+                        } else if event.kind == PointerEventKind.up && root.comment-drag-start >= 0 {
+                            let delta = ((comment.start * root.width + self.mouse-x) / root.width).max(0).min(1) - root.comment-drag-start;
+                            if root.comment-dragged {
+                                let length = root.comment-drag-original-end - root.comment-drag-original-start;
+                                let start = (root.comment-drag-original-start + delta).max(0).min(1 - length);
+                                root.comment-range-moved(root.comment-drag-original-start, root.comment-drag-original-end, start, start + length, comment.text);
+                            } else {
+                                root.comment-selected(comment.start, comment.end, comment.text);
+                            }
+                            root.comment-drag-start = -1;
+                            root.comment-dragged = false;
+                        }
+                    }
+                }
                 changed has-hover => {
                     if self.has-hover {
                         root.hovered-comment = index;
@@ -237,6 +266,8 @@ component AudioRowView inherits Rectangle {
     in property <string> modified-date;
     in property <[float]> peaks;
     in property <[CommentRow]> comments;
+    in property <int> rating: 0;
+    property <int> hovered-rating: -1;
     in property <bool> is-active;
     in property <bool> is-playing;
     in property <float> progress;
@@ -247,6 +278,8 @@ component AudioRowView inherits Rectangle {
     callback seek-requested(float);
     callback comment-range-requested(float, float);
     callback comment-selected(float, float, string);
+    callback comment-range-moved(float, float, float, float, string);
+    callback rating-requested(int);
 
     VerticalBox {
         padding: 8px;
@@ -262,6 +295,36 @@ component AudioRowView inherits Rectangle {
                 font-size: 14px;
                 overflow: elide;
                 horizontal-stretch: 1;
+            }
+            HorizontalLayout {
+                width: 156px;
+                y: 20px;
+                spacing: 0px;
+                alignment: center;
+                for star-index in 5 : Rectangle {
+                    width: 24px;
+                    height: 32px;
+                    Text {
+                        text: star-index < (root.hovered-rating >= 0 ? root.hovered-rating : root.rating) ? "★" : "☆";
+                        color: star-index < (root.hovered-rating >= 0 ? root.hovered-rating : root.rating) ? #e58a4d : (root.light-theme ? #8b96a7 : #566171);
+                        font-size: 24px;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                    TouchArea {
+                        clicked => { root.rating-requested(star-index + 1); }
+                        changed has-hover => { root.hovered-rating = self.has-hover ? star-index + 1 : -1; }
+                    }
+                }
+                Rectangle {
+                    width: 24px;
+                    height: 32px;
+                    Text { text: "x"; color: root.light-theme ? #8b96a7 : #566171; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; }
+                    TouchArea {
+                        clicked => { root.rating-requested(0); }
+                        changed has-hover => { root.hovered-rating = self.has-hover ? 0 : -1; }
+                    }
+                }
             }
             Rectangle {
                 width: 40px;
@@ -294,7 +357,7 @@ component AudioRowView inherits Rectangle {
         HorizontalLayout {
             height: 58px;
             Waveform {
-                width: parent.width - 48px;
+                width: parent.width - 204px;
                 light-theme: root.light-theme;
                 is-active: root.is-active;
                 peaks: root.peaks;
@@ -306,8 +369,9 @@ component AudioRowView inherits Rectangle {
                 seek-requested(progress) => { root.seek-requested(progress); }
                 comment-range-requested(start, end) => { root.comment-range-requested(start, end); }
                 comment-selected(start, end, text) => { root.comment-selected(start, end, text); }
+                comment-range-moved(old-start, old-end, start, end, text) => { root.comment-range-moved(old-start, old-end, start, end, text); }
             }
-            Rectangle { width: 48px; }
+            Rectangle { width: 204px; }
         }
     }
 }
@@ -320,6 +384,8 @@ component AudioList inherits ListView {
     callback play-requested(string);
     callback comment-range-requested(string, float, float);
     callback comment-selected(string, float, float, string);
+    callback comment-range-moved(string, float, float, float, float, string);
+    callback rating-requested(string, int);
 
     changed viewport-y => {
         root.viewport-changed((0px - root.viewport-y) / 86px);
@@ -331,6 +397,7 @@ component AudioList inherits ListView {
         modified-date: row.modified-date;
         peaks: row.peaks;
         comments: row.comments;
+        rating: row.rating;
         is-active: row.is-active;
         is-playing: row.is-playing;
         progress: row.progress;
@@ -341,6 +408,8 @@ component AudioList inherits ListView {
         play-requested => { root.play-requested(row.path); }
         comment-range-requested(start, end) => { root.comment-range-requested(row.path, start, end); }
         comment-selected(start, end, text) => { root.comment-selected(row.path, start, end, text); }
+        comment-range-moved(old-start, old-end, start, end, text) => { root.comment-range-moved(row.path, old-start, old-end, start, end, text); }
+        rating-requested(rating) => { root.rating-requested(row.path, rating); }
     }
 }
 
@@ -482,6 +551,8 @@ export component MainWindow inherits Window {
     callback loop-changed(bool);
     callback comment-range-requested(string, float, float);
     callback comment-selected(string, float, float, string);
+    callback comment-range-moved(string, float, float, float, float, string);
+    callback rating-requested(string, int);
     callback comment-save(string, string, string, string);
     callback comment-cancel();
     callback comment-delete(string, string, string, string);
@@ -756,6 +827,8 @@ export component MainWindow inherits Window {
                                 play-requested(path) => { root.audio-play(path); }
                                 comment-range-requested(path, start, end) => { root.comment-range-requested(path, start, end); }
                                 comment-selected(path, start, end, text) => { root.comment-selected(path, start, end, text); }
+                                comment-range-moved(path, old-start, old-end, start, end, text) => { root.comment-range-moved(path, old-start, old-end, start, end, text); }
+                                rating-requested(path, rating) => { root.rating-requested(path, rating); }
                             }
                         }
                     }
