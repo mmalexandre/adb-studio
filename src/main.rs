@@ -88,6 +88,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let settings = Rc::new(RefCell::new(load_settings()));
     let tree_state: Rc<RefCell<Option<TreeState>>> = Rc::new(RefCell::new(None));
     let audio_folder: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(None));
+    let workflow_files: Rc<RefCell<Vec<(String, String)>>> = Rc::new(RefCell::new(Vec::new()));
     let audio_model: Rc<RefCell<Option<Rc<VecModel<AudioRow>>>>> = Rc::new(RefCell::new(None));
     let comment_editor_original: Rc<RefCell<Option<AudioComment>>> = Rc::new(RefCell::new(None));
     let comment_editor_duration = Rc::new(RefCell::new(0.0_f32));
@@ -153,6 +154,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let weak_window = window.as_weak();
         let settings = Rc::clone(&settings);
         let workflow_audio_folder = Rc::clone(&audio_folder);
+        let workflow_files_for_search = Rc::clone(&workflow_files);
         window.on_metadata_toggle(move || {
             if let Some(window) = weak_window.upgrade() {
                 let visible = !window.get_metadata_visible();
@@ -171,22 +173,38 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return;
             };
             let audio_path = window.get_active_audio_path().to_string();
-            if audio_path.is_empty() {
-                return;
-            }
-            let mut index = metadata::load_index(&folder);
-            if let Some(file) = index
-                .audio_files
-                .iter_mut()
-                .find(|file| file.file_path == audio_path)
-            {
-                file.workflow_json_path = Some(path.to_string());
-                metadata::save_index(&folder, &index);
+            if !audio_path.is_empty() {
+                let mut index = metadata::load_index(&folder);
+                if let Some(file) = index
+                    .audio_files
+                    .iter_mut()
+                    .find(|file| file.file_path == audio_path)
+                {
+                    file.workflow_json_path = Some(path.to_string());
+                    metadata::save_index(&folder, &index);
+                }
             }
             match metadata::comfyui::parse_file(Path::new(path.as_str())) {
                 Ok(workflow) => apply_workflow(&window, path.as_str(), workflow),
                 Err(error) => window.set_audio_error(format!("Workflow JSON: {error}").into()),
             }
+        });
+        let weak_window = window.as_weak();
+        window.on_workflow_search_changed(move |query| {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            let query = query.to_ascii_lowercase();
+            let rows = workflow_files_for_search
+                .borrow()
+                .iter()
+                .filter(|(name, _)| name.to_ascii_lowercase().contains(&query))
+                .map(|(name, path)| WorkflowFileRow {
+                    name: name.clone().into(),
+                    path: path.clone().into(),
+                })
+                .collect::<Vec<_>>();
+            window.set_workflow_json_files(ModelRc::new(VecModel::from(rows)));
         });
     }
 
@@ -530,6 +548,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &audio_folder,
                 &audio_model,
                 &audio_load_state,
+                &workflow_files,
             );
         }
     }
@@ -663,6 +682,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     &audio_folder,
                     &audio_model,
                     &audio_load_state,
+                    &workflow_files,
                 );
             }
         });
@@ -935,6 +955,7 @@ fn set_workspace(
     audio_folder: &Rc<RefCell<Option<PathBuf>>>,
     audio_model: &Rc<RefCell<Option<Rc<VecModel<AudioRow>>>>>,
     audio_load_state: &Arc<Mutex<AudioLoadState>>,
+    workflow_files: &Rc<RefCell<Vec<(String, String)>>>,
 ) {
     let folder_name = folder
         .file_name()
@@ -945,11 +966,16 @@ fn set_workspace(
 
     window.set_folder_name(folder_name.into());
     window.set_has_folder(true);
+    let scanned_workflows = scan_json_files(&folder);
+    *workflow_files.borrow_mut() = scanned_workflows.clone();
     window.set_workflow_json_files(ModelRc::new(VecModel::from(
-        scan_json_files(&folder)
+        scanned_workflows
             .into_iter()
-            .map(Into::into)
-            .collect::<Vec<slint::SharedString>>(),
+            .map(|(name, path)| WorkflowFileRow {
+                name: name.into(),
+                path: path.into(),
+            })
+            .collect::<Vec<_>>(),
     )));
     window.set_selected_workflow("".into());
     clear_workflow(window);
@@ -1012,21 +1038,24 @@ fn set_workspace(
     );
 }
 
-fn scan_json_files(folder: &Path) -> Vec<String> {
-    fn visit(folder: &Path, files: &mut Vec<String>) {
+fn scan_json_files(folder: &Path) -> Vec<(String, String)> {
+    fn visit(folder: &Path, files: &mut Vec<(String, String)>) {
         for entry in file_system::read_dir_sorted(folder) {
             if entry.is_dir {
                 if entry.name != ".adbstudio" {
                     visit(&entry.path, files);
                 }
             } else if entry.kind == file_system::FileKind::Json {
-                files.push(entry.path.to_string_lossy().into_owned());
+                files.push((
+                    entry.name,
+                    entry.path.to_string_lossy().into_owned(),
+                ));
             }
         }
     }
     let mut files = Vec::new();
     visit(folder, &mut files);
-    files.sort_by_key(|path| path.to_ascii_lowercase());
+    files.sort_by_key(|(name, _)| name.to_ascii_lowercase());
     files
 }
 
@@ -1039,7 +1068,11 @@ fn clear_workflow(window: &MainWindow) {
 }
 
 fn apply_workflow(window: &MainWindow, path: &str, workflow: metadata::comfyui::ComfyUIWorkflow) {
-    window.set_selected_workflow(path.into());
+    let display_name = Path::new(path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(path);
+    window.set_selected_workflow(display_name.into());
     window.set_workflow_bpm(workflow.bpm.into());
     window.set_workflow_key(workflow.key.into());
     window.set_workflow_prompt(workflow.prompt.into());

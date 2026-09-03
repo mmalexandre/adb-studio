@@ -1,4 +1,4 @@
-import { Button, ComboBox, LineEdit, ListView, VerticalBox } from "std-widgets.slint";
+import { Button, LineEdit, ListView, VerticalBox } from "std-widgets.slint";
 
 export struct TreeRow {
     path: string,
@@ -35,6 +35,59 @@ export struct AudioRow {
 export struct WorkflowLoraRow {
     filename: string,
     strength: string,
+}
+
+export struct WorkflowFileRow {
+    name: string,
+    path: string,
+}
+
+component WorkflowSuggestionBox inherits Rectangle {
+    in property <[WorkflowFileRow]> files: [];
+    in-out property <string> query: "";
+    in property <bool> light-theme: false;
+    property <bool> list-visible: true;
+    callback selected(string);
+    callback search-requested(string);
+    height: 28px;
+    background: transparent;
+
+    LineEdit {
+        width: 100%;
+        placeholder-text: "Search workflows...";
+        text <=> root.query;
+        edited(text) => {
+            root.list-visible = true;
+            root.search-requested(text);
+        }
+    }
+    if root.list-visible : Rectangle {
+        y: 30px;
+        width: root.width;
+        height: 150px;
+        z: 20;
+        background: root.light-theme ? #ffffff : #202832;
+        border-color: root.light-theme ? #cbd2dc : #435064;
+        border-width: 1px;
+        ListView {
+            width: 100%;
+            height: 100%;
+            for file in root.files : Rectangle {
+                height: 26px;
+                background: file-touch.has-hover ? (root.light-theme ? #e7ebf0 : #2a3546) : transparent;
+                Text { text: file.name; x: 8px; width: parent.width - 16px; color: root.light-theme ? #202833 : #f1f4f8; vertical-alignment: center; overflow: elide; }
+                file-touch := TouchArea {
+                    width: 100%;
+                    height: 100%;
+                    clicked => {
+                        root.query = file.name;
+                        root.list-visible = false;
+                        root.selected(file.path);
+                    }
+                }
+            }
+        }
+    }
 }
 
 component Waveform inherits Rectangle {
@@ -589,7 +642,7 @@ export component MainWindow inherits Window {
     in-out property <length> metadata-pane-height: 190px;
     property <length> metadata-drag-start-y: 0px;
     property <length> metadata-drag-start-height: 190px;
-    in-out property <[string]> workflow-json-files: [];
+    in-out property <[WorkflowFileRow]> workflow-json-files: [];
     in-out property <string> selected-workflow: "";
     in-out property <string> workflow-bpm: "";
     in-out property <string> workflow-key: "";
@@ -618,6 +671,7 @@ export component MainWindow inherits Window {
     callback metadata-toggle();
     callback metadata-pane-height-changed(length);
     callback workflow-selected(string);
+    callback workflow-search-changed(string);
     in-out property <bool> comment-editor-visible: false;
     in-out property <string> comment-editor-path: "";
     in-out property <string> comment-editor-start: "0";
@@ -935,14 +989,21 @@ export component MainWindow inherits Window {
                             Rectangle { horizontal-stretch: 1; }
                             Button { text: "Close"; clicked => { root.metadata-toggle(); } }
                         }
-                        ComboBox {
-                            model: root.workflow-json-files;
-                            current-value <=> root.selected-workflow;
-                            selected(value) => { root.workflow-selected(value); }
-                        }
                         HorizontalLayout {
                             spacing: 12px;
-                            Rectangle { width: 150px; Text { text: "BPM\n" + (root.workflow-bpm == "" ? "-" : root.workflow-bpm) + "\n\nKey\n" + (root.workflow-key == "" ? "-" : root.workflow-key); color: root.light-theme ? #202833 : #e3e8ef; vertical-alignment: center; } }
+                            VerticalBox {
+                                width: 180px;
+                                spacing: 6px;
+                                WorkflowSuggestionBox {
+                                    width: 180px;
+                                    files: root.workflow-json-files;
+                                    light-theme: root.light-theme;
+                                    query <=> root.selected-workflow;
+                                    selected(path) => { root.workflow-selected(path); }
+                                    search-requested(query) => { root.workflow-search-changed(query); }
+                                }
+                                Text { text: "BPM\n" + (root.workflow-bpm == "" ? "-" : root.workflow-bpm) + "\n\nKey\n" + (root.workflow-key == "" ? "-" : root.workflow-key); color: root.light-theme ? #202833 : #e3e8ef; vertical-alignment: center; }
+                            }
                             Text { text: root.workflow-prompt == "" ? "Prompt\n-" : "Prompt\n" + root.workflow-prompt; color: root.light-theme ? #202833 : #e3e8ef; horizontal-stretch: 1; overflow: elide; }
                             Text { text: root.workflow-lyrics == "" ? "Lyrics\n-" : "Lyrics\n" + root.workflow-lyrics; color: root.light-theme ? #202833 : #e3e8ef; horizontal-stretch: 1; overflow: elide; }
                             VerticalBox { width: 210px; Text { text: "LoRAs"; color: root.light-theme ? #202833 : #e3e8ef; } ListView { for lora in root.workflow-loras : Text { text: lora.filename + (lora.strength == "" ? "" : "  x" + lora.strength); color: root.light-theme ? #5c6878 : #aeb8c6; overflow: elide; } } }
