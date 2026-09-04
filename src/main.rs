@@ -1130,7 +1130,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return;
             };
             window.set_audio_filter(filter);
-            if let Some(folder) = audio_folder.borrow().clone() {
+            let folder = audio_folder.borrow().clone();
+            if let Some(folder) = folder {
                 refresh_audio(
                     &window,
                     &audio_folder,
@@ -1571,11 +1572,11 @@ fn refresh_audio(
     audio_load_state: &Arc<Mutex<AudioLoadState>>,
     folder: PathBuf,
 ) {
-    let filter = window.get_audio_filter().to_string().to_ascii_lowercase();
+    let filter = window.get_audio_filter().to_string();
     let mut rows = Vec::new();
     for entry in file_system::read_dir_sorted(&folder) {
         if entry.kind != file_system::FileKind::Audio
-            || !entry.name.to_ascii_lowercase().contains(&filter)
+            || !matches_audio_filter(&entry.name, &filter)
         {
             continue;
         }
@@ -1638,6 +1639,23 @@ fn refresh_audio(
         state.requested_range = None;
     }
     request_audio_generation(audio_load_state, 0);
+}
+
+fn matches_audio_filter(name: &str, filter: &str) -> bool {
+    let filter = filter.trim();
+    filter.is_empty() || name.to_lowercase().contains(&filter.to_lowercase())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::matches_audio_filter;
+
+    #[test]
+    fn audio_filter_matches_names_case_insensitively() {
+        assert!(matches_audio_filter("My Voice.WAV", " voice "));
+        assert!(matches_audio_filter("My Voice.WAV", ""));
+        assert!(!matches_audio_filter("My Voice.WAV", "music"));
+    }
 }
 
 fn comment_rows(item: &metadata::AudioFileMetadata) -> ModelRc<CommentRow> {
