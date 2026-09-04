@@ -1,4 +1,4 @@
-import { Button, ComboBox, LineEdit, ListView, ScrollView, TextEdit, VerticalBox } from "std-widgets.slint";
+import { Button, ComboBox, LineEdit, ListView, ScrollView, Slider, TextEdit, VerticalBox } from "std-widgets.slint";
 
 export struct TreeRow {
     path: string,
@@ -542,13 +542,19 @@ component ExplorerRow inherits Rectangle {
     height: 26px;
     background: root.is-selected ? (root.light-theme ? #d7e3f3 : #2a3546) : transparent;
     callback clicked();
+    callback right-clicked();
+    callback edit-accepted(string);
+    callback edit-cancelled();
     in property <bool> light-theme;
+    in property <string> path;
     in property <string> name;
     in property <int> depth;
     in property <bool> is-dir;
     in property <bool> is-expanded;
     in property <bool> is-selected;
     in property <string> kind;
+    in property <bool> editing;
+    in-out property <string> edit-text: "";
 
     function icon-source() -> image {
         if root.kind == "dir" && root.is-expanded {
@@ -579,7 +585,17 @@ component ExplorerRow inherits Rectangle {
             height: 16px;
             vertical-alignment: center;
         }
-        Text {
+        if root.editing : LineEdit {
+            text <=> root.edit-text;
+            horizontal-stretch: 1;
+            changed has-focus => {
+                if !self.has-focus {
+                    root.edit-cancelled();
+                }
+            }
+            accepted(text) => { root.edit-accepted(text); }
+        }
+        if !root.editing : Text {
             text: root.name;
             color: root.light-theme ? #202833 : #e3e8ef;
             font-size: 13px;
@@ -587,8 +603,13 @@ component ExplorerRow inherits Rectangle {
             overflow: elide;
         }
     }
-    TouchArea {
+    if !root.editing : TouchArea {
         clicked => { root.clicked(); }
+        pointer-event(event) => {
+            if event.kind == PointerEventKind.down && event.button == PointerEventButton.right {
+                root.right-clicked();
+            }
+        }
     }
 }
 
@@ -654,6 +675,11 @@ export component MainWindow inherits Window {
     in-out property <bool> file-menu-visible: false;
     in-out property <bool> edit-menu-visible: false;
     in-out property <bool> help-menu-visible: false;
+    in-out property <bool> tree-menu-visible: false;
+    in-out property <string> tree-menu-path: "";
+    in-out property <string> tree-edit-path: "";
+    in-out property <string> tree-edit-text: "";
+    in-out property <int> tree-edit-mode: 0;
     in-out property <bool> left-pane-visible: true;
     in-out property <length> left-pane-width: 280px;
     callback left-pane-width-changed(length);
@@ -670,6 +696,7 @@ export component MainWindow inherits Window {
     in-out property <string> audio-file-name: "";
     in-out property <bool> audio-playing: false;
     in-out property <bool> loop-enabled: false;
+    in-out property <float> audio-volume: 1.0;
     in-out property <string> audio-current-time: "00:00";
     in-out property <string> audio-total-duration: "00:00";
     in-out property <string> audio-error: "";
@@ -695,12 +722,18 @@ export component MainWindow inherits Window {
     callback theme-selected(bool);
     callback comment-colors-selected(string, string);
     callback row-clicked(string);
+    callback tree-context-menu(string);
+    callback rename-requested();
+    callback new-folder-requested(string);
+    callback tree-edit-accepted(string, string, int);
+    callback tree-edit-cancelled();
     callback filter-changed(string);
     callback audio-viewport-changed(int);
     callback audio-play-pause();
     callback audio-seek(string, float);
     callback audio-play(string);
     callback loop-changed(bool);
+    callback volume-changed(float);
     callback comment-range-requested(string, float, float);
     callback comment-selected(string, float, float, string);
     callback comment-edit-requested(string, float, float, string);
@@ -736,7 +769,13 @@ export component MainWindow inherits Window {
         TouchArea {
             width: 100%;
             height: 100%;
-            clicked => { root.workflow-dropdown-visible = false; }
+            clicked => {
+                root.workflow-dropdown-visible = false;
+                root.tree-menu-visible = false;
+                if root.tree-edit-path != "" {
+                    root.tree-edit-cancelled();
+                }
+            }
         }
 
         VerticalBox {
@@ -840,17 +879,48 @@ export component MainWindow inherits Window {
                             height: 1px;
                             background: root.light-theme ? #cbd2dc : #2a3340;
                         }
-                        ListView {
+                        tree-focus := FocusScope {
                             vertical-stretch: 1;
+                            key-pressed(event) => {
+                                if event.text == Key.F2 {
+                                    root.rename-requested();
+                                    accept;
+                                }
+                                reject;
+                            }
+                            ListView {
+                                width: 100%;
+                                height: 100%;
                             for row in root.tree-rows : ExplorerRow {
                                 light-theme: root.light-theme;
+                                path: row.path;
                                 name: row.name;
                                 depth: row.depth;
                                 is-dir: row.is-dir;
                                 is-expanded: row.is-expanded;
                                 is-selected: row.is-selected;
                                 kind: row.kind;
-                                clicked => { root.row-clicked(row.path); }
+                                editing: root.tree-edit-path == row.path;
+                                edit-text <=> root.tree-edit-text;
+                                clicked => {
+                                    if root.tree-edit-path != "" && root.tree-edit-path != row.path {
+                                        root.tree-edit-cancelled();
+                                    } else {
+                                        tree-focus.focus();
+                                        root.row-clicked(row.path);
+                                    }
+                                }
+                                right-clicked => {
+                                    if root.tree-edit-path != "" && root.tree-edit-path != row.path {
+                                        root.tree-edit-cancelled();
+                                    }
+                                    tree-focus.focus();
+                                    root.tree-menu-path = row.path;
+                                    root.tree-menu-visible = true;
+                                }
+                                edit-accepted(text) => { root.tree-edit-accepted(row.path, text, root.tree-edit-mode); }
+                                edit-cancelled => { root.tree-edit-cancelled(); }
+                            }
                             }
                         }
                     }
@@ -964,6 +1034,18 @@ export component MainWindow inherits Window {
                                 text: root.audio-current-time + " / " + root.audio-total-duration;
                                 color: root.light-theme ? #5c6878 : #aeb8c6;
                                 vertical-alignment: center;
+                            }
+                            Text {
+                                text: "Volume";
+                                color: root.light-theme ? #5c6878 : #aeb8c6;
+                                vertical-alignment: center;
+                            }
+                            Slider {
+                                value <=> root.audio-volume;
+                                minimum: 0;
+                                maximum: 1;
+                                width: 110px;
+                                changed => { root.volume-changed(self.value); }
                             }
                             Text {
                                 text: root.audio-error;
@@ -1229,6 +1311,54 @@ export component MainWindow inherits Window {
                 clicked => {
                     root.help-menu-visible = false;
                     root.about-visible = true;
+                }
+            }
+        }
+
+        if root.tree-menu-visible : Rectangle {
+            x: 6px;
+            y: 86px;
+            width: 210px;
+            height: 84px;
+            z: 10;
+            background: root.light-theme ? #ffffff : #202832;
+            border-color: root.light-theme ? #cbd2dc : #435064;
+            border-width: 1px;
+            Rectangle {
+                width: 100%;
+                height: 42px;
+                background: rename-touch.has-hover ? (root.light-theme ? #e7ebf0 : #2a3546) : transparent;
+                Text {
+                    text: "Rename...  F2";
+                    color: root.light-theme ? #202833 : #f1f4f8;
+                    x: 14px;
+                    width: parent.width - 14px;
+                    vertical-alignment: center;
+                }
+                rename-touch := TouchArea {
+                    clicked => {
+                        root.tree-menu-visible = false;
+                        root.rename-requested();
+                    }
+                }
+            }
+            Rectangle {
+                y: 42px;
+                width: 100%;
+                height: 42px;
+                background: folder-touch.has-hover ? (root.light-theme ? #e7ebf0 : #2a3546) : transparent;
+                Text {
+                    text: "New Folder";
+                    color: root.light-theme ? #202833 : #f1f4f8;
+                    x: 14px;
+                    width: parent.width - 14px;
+                    vertical-alignment: center;
+                }
+                folder-touch := TouchArea {
+                    clicked => {
+                        root.tree-menu-visible = false;
+                        root.new-folder-requested(root.tree-menu-path);
+                    }
                 }
             }
         }

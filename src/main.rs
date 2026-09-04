@@ -148,6 +148,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     window.set_light_theme(settings.borrow().light_theme);
     window.set_theme_index(if settings.borrow().light_theme { 1 } else { 0 });
     window.set_loop_enabled(settings.borrow().loop_enabled);
+    window.set_audio_volume(1.0);
     window.set_left_pane_width(settings.borrow().left_pane_width.into());
     window.set_metadata_pane_height(settings.borrow().metadata_pane_height.into());
     window.set_metadata_visible(settings.borrow().metadata_visible);
@@ -155,6 +156,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     window.set_comment_text_hex(settings.borrow().comment_text_color.clone().into());
     window.set_comment_background_color(parse_color(&settings.borrow().comment_background_color, slint::Color::from_argb_u8(255, 0, 0, 0)));
     window.set_comment_text_color(parse_color(&settings.borrow().comment_text_color, slint::Color::from_argb_u8(255, 255, 255, 255)));
+
+    {
+        let playback = Rc::clone(&playback);
+        window.on_volume_changed(move |volume| {
+            if let Some(engine) = playback.borrow_mut().as_mut() {
+                engine.set_volume(volume);
+            }
+        });
+    }
 
     {
         let weak_window = window.as_weak();
@@ -184,6 +194,146 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             window.set_comment_editor_end(format_seconds(end * duration).into());
             window.set_comment_editor_text("".into());
             window.set_comment_editor_visible(true);
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        let tree_state = Rc::clone(&tree_state);
+        window.on_rename_requested(move || {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            let path = if !window.get_tree_menu_path().is_empty() {
+                PathBuf::from(window.get_tree_menu_path().as_str())
+            } else {
+                let state_ref = tree_state.borrow();
+                let Some(state) = state_ref.as_ref() else {
+                    return;
+                };
+                let Some(path) = state.selected.as_ref() else {
+                    return;
+                };
+                path.clone()
+            };
+            if !path.exists() || path.file_name().is_none() {
+                return;
+            }
+            window.set_tree_edit_path(path.to_string_lossy().into_owned().into());
+            window.set_tree_edit_text(
+                path.file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_default()
+                    .into(),
+            );
+            window.set_tree_edit_mode(1);
+            window.set_tree_menu_path("".into());
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        let tree_state = Rc::clone(&tree_state);
+        window.on_new_folder_requested(move |parent| {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            let parent = PathBuf::from(parent.as_str());
+            let parent = if parent.is_dir() {
+                parent
+            } else if parent.is_file() {
+                let Some(parent) = parent.parent() else {
+                    return;
+                };
+                parent.to_path_buf()
+            } else {
+                return;
+            };
+            {
+                let mut state_ref = tree_state.borrow_mut();
+                let Some(state) = state_ref.as_mut() else {
+                    return;
+                };
+                state.select_and_expand(&parent);
+            }
+            window.set_tree_edit_path(parent.to_string_lossy().into_owned().into());
+            window.set_tree_edit_text("".into());
+            window.set_tree_edit_mode(2);
+            window.set_tree_menu_path("".into());
+            refresh_tree(&window, &tree_state);
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        let tree_state = Rc::clone(&tree_state);
+        let settings = Rc::clone(&settings);
+        window.on_tree_edit_accepted(move |path, text, mode| {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            let name = text.trim();
+            if name.is_empty()
+                || name == "."
+                || name == ".."
+                || name.chars().any(|character| character == '/' || character == '\\')
+            {
+                window.set_tree_edit_path("".into());
+                window.set_tree_edit_text("".into());
+                window.set_tree_edit_mode(0);
+                return;
+            }
+            let source = PathBuf::from(path.as_str());
+            let destination = if mode == 2 {
+                source.join(name)
+            } else {
+                let Some(parent) = source.parent() else {
+                    return;
+                };
+                parent.join(name)
+            };
+            let result = if mode == 2 {
+                fs::create_dir(&destination)
+            } else {
+                fs::rename(&source, &destination)
+            };
+            if let Err(error) = result {
+                window.set_audio_error(format!("File operation: {error}").into());
+                return;
+            }
+            {
+                let mut state_ref = tree_state.borrow_mut();
+                let Some(state) = state_ref.as_mut() else {
+                    return;
+                };
+                state.select_and_expand(&destination);
+            }
+            settings.borrow_mut().last_selected_path = Some(destination.to_string_lossy().into_owned());
+            let settings_snapshot = settings.borrow().clone();
+            save_settings(&settings_snapshot);
+            window.set_selected_name(
+                destination
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_default()
+                    .into(),
+            );
+            window.set_tree_edit_path("".into());
+            window.set_tree_edit_text("".into());
+            window.set_tree_edit_mode(0);
+            window.set_audio_error("".into());
+            refresh_tree(&window, &tree_state);
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        window.on_tree_edit_cancelled(move || {
+            if let Some(window) = weak_window.upgrade() {
+                window.set_tree_edit_path("".into());
+                window.set_tree_edit_text("".into());
+                window.set_tree_edit_mode(0);
+            }
         });
     }
 
