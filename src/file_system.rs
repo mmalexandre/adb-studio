@@ -69,6 +69,9 @@ pub fn read_dir_sorted(path: &Path) -> Vec<DirEntryInfo> {
                 kind,
             }
         })
+        .filter(|entry| {
+            !entry.name.starts_with('.') && entry.name != "/" && entry.name != "\\"
+        })
         .collect();
 
     entries.sort_by(|a, b| {
@@ -132,7 +135,24 @@ pub struct VisibleRow {
 
 pub fn build_visible_rows(state: &TreeState) -> Vec<VisibleRow> {
     let mut rows = Vec::new();
-    push_children(&state.root, 0, state, &mut rows);
+    let is_selected = state.selected.as_deref() == Some(state.root.as_path());
+    rows.push(VisibleRow {
+        path: state.root.clone(),
+        name: state
+            .root
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or_else(|| state.root.to_str().unwrap_or("Workspace"))
+            .to_string(),
+        depth: 0,
+        is_dir: true,
+        is_expanded: state.expanded.contains(&state.root),
+        is_selected: is_selected,
+        kind: FileKind::Directory,
+    });
+    if state.expanded.contains(&state.root) {
+        push_children(&state.root, 1, state, &mut rows);
+    }
     rows
 }
 

@@ -11,8 +11,9 @@ use std::{
 };
 
 use audio::playback::PlaybackEngine;
+use display_info::DisplayInfo;
 use serde::{Deserialize, Serialize};
-use slint::{Model, ModelRc, VecModel};
+use slint::{ComponentHandle, Model, ModelRc, VecModel};
 
 mod audio;
 mod file_system;
@@ -59,6 +60,20 @@ struct AppSettings {
     metadata_pane_height: f32,
     #[serde(default)]
     metadata_visible: bool,
+    #[serde(default = "default_comment_background_color")]
+    comment_background_color: String,
+    #[serde(default = "default_comment_text_color")]
+    comment_text_color: String,
+    #[serde(default)]
+    window_width: Option<u32>,
+    #[serde(default)]
+    window_height: Option<u32>,
+    #[serde(default)]
+    window_x: Option<i32>,
+    #[serde(default)]
+    window_y: Option<i32>,
+    #[serde(default)]
+    window_maximized: bool,
 }
 
 fn default_left_pane_width() -> f32 {
@@ -67,6 +82,14 @@ fn default_left_pane_width() -> f32 {
 
 fn default_metadata_pane_height() -> f32 {
     190.0
+}
+
+fn default_comment_background_color() -> String {
+    "#000000".to_owned()
+}
+
+fn default_comment_text_color() -> String {
+    "#ffffff".to_owned()
 }
 
 impl Default for AppSettings {
@@ -79,6 +102,13 @@ impl Default for AppSettings {
             left_pane_width: default_left_pane_width(),
             metadata_pane_height: default_metadata_pane_height(),
             metadata_visible: false,
+            comment_background_color: default_comment_background_color(),
+            comment_text_color: default_comment_text_color(),
+            window_width: None,
+            window_height: None,
+            window_x: None,
+            window_y: None,
+            window_maximized: false,
         }
     }
 }
@@ -87,6 +117,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let window = MainWindow::new()?;
     slint::set_xdg_app_id("com.adbstudio.AdbStudio")?;
     let settings = Rc::new(RefCell::new(load_settings()));
+    restore_window_state(&window, &mut settings.borrow_mut());
     let tree_state: Rc<RefCell<Option<TreeState>>> = Rc::new(RefCell::new(None));
     let audio_folder: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(None));
     let workflow_files: Rc<RefCell<Vec<(String, String)>>> = Rc::new(RefCell::new(Vec::new()));
@@ -115,10 +146,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }));
     window.set_build_number(BUILD_NUMBER.into());
     window.set_light_theme(settings.borrow().light_theme);
+    window.set_theme_index(if settings.borrow().light_theme { 1 } else { 0 });
     window.set_loop_enabled(settings.borrow().loop_enabled);
     window.set_left_pane_width(settings.borrow().left_pane_width.into());
     window.set_metadata_pane_height(settings.borrow().metadata_pane_height.into());
     window.set_metadata_visible(settings.borrow().metadata_visible);
+    window.set_comment_background_hex(settings.borrow().comment_background_color.clone().into());
+    window.set_comment_text_hex(settings.borrow().comment_text_color.clone().into());
+    window.set_comment_background_color(parse_color(&settings.borrow().comment_background_color, slint::Color::from_argb_u8(255, 0, 0, 0)));
+    window.set_comment_text_color(parse_color(&settings.borrow().comment_text_color, slint::Color::from_argb_u8(255, 255, 255, 255)));
 
     {
         let weak_window = window.as_weak();
@@ -249,6 +285,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         window.on_lora_cancel(move || {
             if let Some(window) = weak_window.upgrade() {
                 window.set_lora_editor_visible(false);
+            }
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        let settings = Rc::clone(&settings);
+        window.on_comment_colors_selected(move |background, text| {
+            let background = background.to_string();
+            let text = text.to_string();
+            let Some(background_color) = parse_hex_color(&background) else {
+                return;
+            };
+            let Some(text_color) = parse_hex_color(&text) else {
+                return;
+            };
+            {
+                let mut settings = settings.borrow_mut();
+                settings.comment_background_color = background.clone();
+                settings.comment_text_color = text.clone();
+            }
+            let settings_snapshot = settings.borrow().clone();
+            save_settings(&settings_snapshot);
+            if let Some(window) = weak_window.upgrade() {
+                window.set_comment_background_hex(background.into());
+                window.set_comment_text_hex(text.into());
+                window.set_comment_background_color(background_color);
+                window.set_comment_text_color(text_color);
             }
         });
     }
@@ -767,6 +831,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let audio_folder = Rc::clone(&audio_folder);
         let audio_model = Rc::clone(&audio_model);
         let audio_load_state = Arc::clone(&audio_load_state);
+        let playback = Rc::clone(&playback);
         window.on_row_clicked(move |path| {
             let Some(window) = weak_window.upgrade() else {
                 return;
@@ -780,7 +845,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if path.is_dir() {
                 state.toggle(&path);
             }
-            state.select(&path);
+            if path.is_dir() {
+                state.select(&path);
+            } else {
+                state.select_and_expand(&path);
+            }
             let selected_name = path
                 .file_name()
                 .and_then(|name| name.to_str())
@@ -801,6 +870,36 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     &audio_load_state,
                     path,
                 );
+            } else if file_system::FileKind::from_path(&path) == file_system::FileKind::Audio {
+                let mut playback_ref = playback.borrow_mut();
+                let Some(engine) = playback_ref.as_mut() else {
+                    return;
+                };
+                if let Err(error) = engine.play(&path, Duration::ZERO) {
+                    window.set_audio_error(error.into());
+                    return;
+                }
+                window.set_audio_error("".into());
+                window.set_active_audio_path(path.to_string_lossy().into_owned().into());
+                window.set_audio_file_name(
+                    path.file_name()
+                        .and_then(|name| name.to_str())
+                        .unwrap_or_default()
+                        .into(),
+                );
+                window.set_audio_playing(engine.is_playing());
+                update_audio_rows(
+                    &audio_model,
+                    engine.path(),
+                    engine.is_playing(),
+                    engine.position(),
+                    engine.duration(),
+                );
+                scroll_audio_to_path(&window, &audio_model, &path);
+                if let Some(folder) = audio_folder.borrow().clone() {
+                    load_workflow_for_audio(&window, &folder, &path);
+                    save_playback_position(&folder, engine);
+                }
             }
         });
     }
@@ -874,6 +973,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let audio_model = Rc::clone(&audio_model);
         let audio_folder = Rc::clone(&audio_folder);
         let last_button_click = Rc::clone(&last_button_click);
+        let tree_state = Rc::clone(&tree_state);
+        let settings = Rc::clone(&settings);
         window.on_audio_play(move |path| {
             let Some(window) = weak_window.upgrade() else {
                 return;
@@ -909,6 +1010,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     return;
                 }
             }
+            select_tree_path(&window, &tree_state, &settings, &path);
             window.set_audio_error("".into());
             window.set_active_audio_path(path.to_string_lossy().into_owned().into());
             window.set_audio_file_name(
@@ -925,6 +1027,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 engine.position(),
                 engine.duration(),
             );
+            scroll_audio_to_path(&window, &audio_model, &path);
             if let Some(folder) = audio_folder.borrow().clone() {
                 load_workflow_for_audio(&window, &folder, &path);
                 save_playback_position(&folder, engine);
@@ -1008,6 +1111,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let settings_snapshot = settings.borrow().clone();
             save_settings(&settings_snapshot);
             if let Some(window) = weak_window.upgrade() {
+                window.set_theme_index(if light_theme { 1 } else { 0 });
                 window.set_light_theme(light_theme);
             }
         });
@@ -1015,7 +1119,54 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Adb Studio {APP_VERSION} ({BUILD_NUMBER})");
     window.run()?;
+    save_window_state(&window, &mut settings.borrow_mut());
+    save_settings(&settings.borrow());
     Ok(())
+}
+
+fn restore_window_state(window: &MainWindow, settings: &mut AppSettings) {
+    let (Some(width), Some(height), Some(x), Some(y)) = (
+        settings.window_width,
+        settings.window_height,
+        settings.window_x,
+        settings.window_y,
+    ) else {
+        return;
+    };
+
+    let position_is_visible = DisplayInfo::all().map_or(false, |displays| {
+        displays.iter().any(|display| {
+            x >= display.x
+                && y >= display.y
+                && i64::from(x) < i64::from(display.x) + i64::from(display.width)
+                && i64::from(y) < i64::from(display.y) + i64::from(display.height)
+        })
+    });
+
+    if !position_is_visible {
+        settings.window_width = None;
+        settings.window_height = None;
+        settings.window_x = None;
+        settings.window_y = None;
+        settings.window_maximized = false;
+        return;
+    }
+
+    window.window().set_size(slint::PhysicalSize::new(width, height));
+    window
+        .window()
+        .set_position(slint::PhysicalPosition::new(x, y));
+    window.window().set_maximized(settings.window_maximized);
+}
+
+fn save_window_state(window: &MainWindow, settings: &mut AppSettings) {
+    let size = window.window().size();
+    let position = window.window().position();
+    settings.window_width = Some(size.width);
+    settings.window_height = Some(size.height);
+    settings.window_x = Some(position.x);
+    settings.window_y = Some(position.y);
+    settings.window_maximized = window.window().is_maximized();
 }
 
 fn set_workspace(
@@ -1502,6 +1653,48 @@ fn save_playback_position(folder: &Path, engine: &PlaybackEngine) {
     metadata::save_index(folder, &index);
 }
 
+fn select_tree_path(
+    window: &MainWindow,
+    tree_state: &Rc<RefCell<Option<TreeState>>>,
+    settings: &Rc<RefCell<AppSettings>>,
+    path: &Path,
+) {
+    let mut state_ref = tree_state.borrow_mut();
+    let Some(state) = state_ref.as_mut() else {
+        return;
+    };
+    state.select_and_expand(path);
+    settings.borrow_mut().last_selected_path = Some(path.to_string_lossy().into_owned());
+    let settings_snapshot = settings.borrow().clone();
+    save_settings(&settings_snapshot);
+    window.set_selected_name(
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or_default()
+            .into(),
+    );
+    drop(state_ref);
+    refresh_tree(window, tree_state);
+}
+
+fn scroll_audio_to_path(
+    window: &MainWindow,
+    audio_model: &Rc<RefCell<Option<Rc<VecModel<AudioRow>>>>>,
+    path: &Path,
+) {
+    let Some(model) = audio_model.borrow().clone() else {
+        return;
+    };
+    let Some(index) = (0..model.row_count()).find(|index| {
+        model
+            .row_data(*index)
+            .is_some_and(|row| Path::new(row.path.as_str()) == path)
+    }) else {
+        return;
+    };
+    window.set_audio_scroll_to_index(index as i32);
+}
+
 fn request_audio_generation(audio_load_state: &Arc<Mutex<AudioLoadState>>, start_index: usize) {
     let mut state = audio_load_state.lock().unwrap();
     let start = start_index.saturating_sub(AUDIO_PREFETCH_BEFORE);
@@ -1633,4 +1826,19 @@ fn save_settings(settings: &AppSettings) {
     };
 
     let _ = fs::write(path, contents);
+}
+
+fn parse_hex_color(value: &str) -> Option<slint::Color> {
+    let value = value.strip_prefix('#').unwrap_or(value);
+    if value.len() != 6 {
+        return None;
+    }
+    let red = u8::from_str_radix(&value[0..2], 16).ok()?;
+    let green = u8::from_str_radix(&value[2..4], 16).ok()?;
+    let blue = u8::from_str_radix(&value[4..6], 16).ok()?;
+    Some(slint::Color::from_argb_u8(255, red, green, blue))
+}
+
+fn parse_color(value: &str, fallback: slint::Color) -> slint::Color {
+    parse_hex_color(value).unwrap_or(fallback)
 }

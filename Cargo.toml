@@ -7,6 +7,7 @@ authors = ["Alexandre Dupuis-Belin"]
 description = "A cross-platform workspace for organizing and annotating generated audio."
 
 [dependencies]
+display-info = "0.5"
 dirs = "6"
 rfd = "0.15"
 sha2 = "0.10"

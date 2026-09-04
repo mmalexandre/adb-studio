@@ -1,4 +1,4 @@
-import { Button, LineEdit, ListView, ScrollView, TextEdit, VerticalBox } from "std-widgets.slint";
+import { Button, ComboBox, LineEdit, ListView, ScrollView, TextEdit, VerticalBox } from "std-widgets.slint";
 
 export struct TreeRow {
     path: string,
@@ -102,6 +102,8 @@ component Waveform inherits Rectangle {
     height: 58px;
     background: transparent;
     in property <bool> light-theme;
+    in property <color> comment-background-color: #000000;
+    in property <color> comment-text-color: #ffffff;
     in property <bool> is-active;
     in property <[float]> peaks;
     in property <[CommentRow]> comments: [];
@@ -277,14 +279,14 @@ component Waveform inherits Rectangle {
             width: comment-touch.has-hover ? (comment-text.preferred-width + 8px).min(root.width * (1 - comment.start) - 2px).max(parent.width - 2px).max(8px) : (comment-text.preferred-width + 8px).min(parent.width - 2px).max(8px);
             height: 17px;
             visible: !comment-touch.has-hover;
-            background: root.light-theme ? #e1e5ea : #3b4655;
-            border-color: root.light-theme ? #b8c0ca : #566171;
+            background: root.comment-background-color;
+            border-color: root.comment-text-color;
             border-width: 1px;
             comment-text := Text {
                 text: comment.text;
                 x: 4px;
                 width: parent.width - 8px;
-                color: root.light-theme ? #202833 : #f1f4f8;
+                color: root.comment-text-color;
                 font-size: 10px;
                 overflow: elide;
                 vertical-alignment: center;
@@ -345,14 +347,14 @@ component Waveform inherits Rectangle {
         width: (hovered-label.preferred-width + 8px).min(parent.width - self.x - 2px).max(8px);
         height: 17px;
         z: 10;
-        background: root.light-theme ? #e1e5ea : #3b4655;
-        border-color: root.light-theme ? #b8c0ca : #566171;
+        background: root.comment-background-color;
+        border-color: root.comment-text-color;
         border-width: 1px;
         hovered-label := Text {
             text: root.comments[root.hovered-comment].text;
             x: 4px;
             width: parent.width - 8px;
-            color: root.light-theme ? #202833 : #f1f4f8;
+            color: root.comment-text-color;
             font-size: 10px;
             overflow: elide;
             vertical-alignment: center;
@@ -366,6 +368,8 @@ component AudioRowView inherits Rectangle {
     border-color: root.light-theme ? #d9dee6 : #2a3340;
     border-width: 1px;
     in property <bool> light-theme;
+    in property <color> comment-background-color: #000000;
+    in property <color> comment-text-color: #ffffff;
     in property <string> name;
     in property <string> modified-date;
     in property <[float]> peaks;
@@ -464,6 +468,8 @@ component AudioRowView inherits Rectangle {
             Waveform {
                 width: parent.width - 204px;
                 light-theme: root.light-theme;
+                comment-background-color: root.comment-background-color;
+                comment-text-color: root.comment-text-color;
                 is-active: root.is-active;
                 peaks: root.peaks;
                 comments: root.comments;
@@ -484,7 +490,10 @@ component AudioRowView inherits Rectangle {
 
 component AudioList inherits ListView {
     in property <bool> light-theme;
+    in property <color> comment-background-color: #000000;
+    in property <color> comment-text-color: #ffffff;
     in property <[AudioRow]> rows;
+    in property <int> scroll-to-index: -1;
     callback viewport-changed(int);
     callback seek-requested(string, float);
     callback play-requested(string);
@@ -498,8 +507,16 @@ component AudioList inherits ListView {
         root.viewport-changed((0px - root.viewport-y) / 86px);
     }
 
+    changed scroll-to-index => {
+        if root.scroll-to-index >= 0 {
+            root.viewport-y = 0px - root.scroll-to-index * 86px;
+        }
+    }
+
     for row in root.rows : AudioRowView {
         light-theme: root.light-theme;
+        comment-background-color: root.comment-background-color;
+        comment-text-color: root.comment-text-color;
         name: row.name;
         modified-date: row.modified-date;
         peaks: row.peaks;
@@ -621,6 +638,14 @@ export component MainWindow inherits Window {
     background: #11151b;
 
     in-out property <bool> light-theme: false;
+    in-out property <color> comment-background-color: #000000;
+    in-out property <color> comment-text-color: #ffffff;
+    in-out property <string> comment-background-hex: "#000000";
+    in-out property <string> comment-text-hex: "#ffffff";
+    in-out property <int> theme-index: 0;
+    in-out property <bool> color-picker-visible: false;
+    in-out property <int> color-picker-target: 0;
+    in-out property <string> color-picker-value: "#000000";
     in-out property <bool> has-folder: false;
     in-out property <string> folder-name: "";
     in-out property <string> build-number: "development";
@@ -634,6 +659,7 @@ export component MainWindow inherits Window {
     callback left-pane-width-changed(length);
     in-out property <[TreeRow]> tree-rows: [];
     in-out property <[AudioRow]> audio-rows: [];
+    in-out property <int> audio-scroll-to-index: -1;
     in-out property <string> audio-filter: "";
     in-out property <string> selected-name: "";
     in-out property <bool> audio-loading: false;
@@ -667,6 +693,7 @@ export component MainWindow inherits Window {
     callback close-about();
     callback close-settings();
     callback theme-selected(bool);
+    callback comment-colors-selected(string, string);
     callback row-clicked(string);
     callback filter-changed(string);
     callback audio-viewport-changed(int);
@@ -966,7 +993,10 @@ export component MainWindow inherits Window {
                             }
                             if root.audio-rows.length > 0 : AudioList {
                                 light-theme: root.light-theme;
+                                comment-background-color: root.comment-background-color;
+                                comment-text-color: root.comment-text-color;
                                 rows: root.audio-rows;
+                                scroll-to-index: root.audio-scroll-to-index;
                                 width: 100%;
                                 height: 100%;
                                 viewport-changed(start-index) => { root.audio-viewport-changed(start-index); }
@@ -1247,41 +1277,168 @@ export component MainWindow inherits Window {
             height: parent.height;
 
             Rectangle {
-                width: 430px;
-                height: 230px;
+                width: 700px;
+                height: 390px;
                 x: (parent.width - self.width) / 2;
                 y: (parent.height - self.height) / 2;
                 background: root.light-theme ? #ffffff : #202832;
                 border-color: root.light-theme ? #cbd2dc : #435064;
                 border-width: 1px;
 
-                VerticalBox {
-                    padding: 24px;
-                    spacing: 14px;
-                    Text {
-                        text: "Settings";
-                        color: root.light-theme ? #202833 : #f1f4f8;
-                        font-size: 22px;
-                    }
-                    Text {
-                        text: "Appearance";
-                        color: root.light-theme ? #5c6878 : #c4ccd8;
-                    }
-                    HorizontalLayout {
-                        spacing: 10px;
-                        Button {
-                            text: "Light theme";
-                            clicked => { root.theme-selected(true); }
+                HorizontalLayout {
+                    Rectangle {
+                        width: 170px;
+                        background: root.light-theme ? #eef1f5 : #171c24;
+                        VerticalBox {
+                            padding: 20px;
+                            spacing: 12px;
+                            Text {
+                                text: "Settings";
+                                color: root.light-theme ? #202833 : #f1f4f8;
+                                font-size: 22px;
+                            }
+                            Rectangle {
+                                height: 38px;
+                                background: root.light-theme ? #d7e3f3 : #2a3546;
+                                border-color: root.light-theme ? #8ea9c6 : #5d7898;
+                                border-width: 1px;
+                                Text {
+                                    text: "Look Feel";
+                                    x: 12px;
+                                    color: root.light-theme ? #202833 : #f1f4f8;
+                                    vertical-alignment: center;
+                                }
+                            }
+                            Rectangle { vertical-stretch: 1; }
                         }
-                        Button {
-                            text: "Dark theme";
-                            clicked => { root.theme-selected(false); }
+                    }
+                    Rectangle {
+                        horizontal-stretch: 1;
+                        VerticalBox {
+                            padding: 24px;
+                            spacing: 14px;
+                            Text {
+                                text: "Look Feel";
+                                color: root.light-theme ? #202833 : #f1f4f8;
+                                font-size: 22px;
+                            }
+                            Text {
+                                text: "Theme";
+                                color: root.light-theme ? #5c6878 : #c4ccd8;
+                            }
+                            ComboBox {
+                                model: ["Dark theme", "Light theme"];
+                                current-index: root.theme-index;
+                                changed current-index => { root.theme-selected(self.current-index == 1); }
+                            }
+                            Text {
+                                text: "Comment bubbles";
+                                color: root.light-theme ? #5c6878 : #c4ccd8;
+                            }
+                            HorizontalLayout {
+                                spacing: 12px;
+                                Text { text: "Background"; width: 100px; color: root.light-theme ? #202833 : #e3e8ef; vertical-alignment: center; }
+                                Rectangle {
+                                    width: 42px;
+                                    height: 28px;
+                                    background: root.comment-background-color;
+                                    border-color: root.comment-text-color;
+                                    border-width: 1px;
+                                    TouchArea {
+                                        clicked => {
+                                            root.color-picker-target = 0;
+                                            root.color-picker-value = root.comment-background-hex;
+                                            root.color-picker-visible = true;
+                                        }
+                                    }
+                                }
+                                Text { text: root.comment-background-hex; color: root.light-theme ? #5c6878 : #aeb8c6; vertical-alignment: center; }
+                            }
+                            HorizontalLayout {
+                                spacing: 12px;
+                                Text { text: "Text"; width: 100px; color: root.light-theme ? #202833 : #e3e8ef; vertical-alignment: center; }
+                                Rectangle {
+                                    width: 42px;
+                                    height: 28px;
+                                    background: root.comment-text-color;
+                                    border-color: root.comment-background-color;
+                                    border-width: 1px;
+                                    TouchArea {
+                                        clicked => {
+                                            root.color-picker-target = 1;
+                                            root.color-picker-value = root.comment-text-hex;
+                                            root.color-picker-visible = true;
+                                        }
+                                    }
+                                }
+                                Text { text: root.comment-text-hex; color: root.light-theme ? #5c6878 : #aeb8c6; vertical-alignment: center; }
+                            }
+                            Rectangle { vertical-stretch: 1; }
+                            HorizontalLayout {
+                                alignment: end;
+                                spacing: 8px;
+                                Button { text: "Close"; clicked => { root.close-settings(); } }
+                            }
                         }
                     }
-                    Rectangle { vertical-stretch: 1; }
+                }
+            }
+        }
+
+        if root.settings-visible && root.color-picker-visible : Rectangle {
+            x: (parent.width - 360px) / 2;
+            y: (parent.height - 300px) / 2;
+            width: 360px;
+            height: 300px;
+            z: 20;
+            background: root.light-theme ? #ffffff : #202832;
+            border-color: root.light-theme ? #cbd2dc : #435064;
+            border-width: 1px;
+            VerticalBox {
+                padding: 20px;
+                spacing: 12px;
+                Text {
+                    text: root.color-picker-target == 0 ? "Background color" : "Text color";
+                    color: root.light-theme ? #202833 : #f1f4f8;
+                    font-size: 18px;
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    Text { text: "Hex"; width: 50px; color: root.light-theme ? #202833 : #e3e8ef; vertical-alignment: center; }
+                    LineEdit { text <=> root.color-picker-value; width: 140px; }
+                    Rectangle { width: 42px; height: 28px; background: root.color-picker-target == 0 ? root.comment-background-color : root.comment-text-color; border-color: root.color-picker-target == 0 ? root.comment-text-color : root.comment-background-color; border-width: 1px; }
+                }
+                Text { text: "Palette"; color: root.light-theme ? #5c6878 : #c4ccd8; }
+                HorizontalLayout {
+                    spacing: 6px;
+                    Rectangle { width: 28px; height: 28px; background: #000000; TouchArea { clicked => { root.color-picker-value = "#000000"; } } }
+                    Rectangle { width: 28px; height: 28px; background: #ffffff; border-color: #8b96a7; border-width: 1px; TouchArea { clicked => { root.color-picker-value = "#ffffff"; } } }
+                    Rectangle { width: 28px; height: 28px; background: #d46b32; TouchArea { clicked => { root.color-picker-value = "#d46b32"; } } }
+                    Rectangle { width: 28px; height: 28px; background: #e58a4d; TouchArea { clicked => { root.color-picker-value = "#e58a4d"; } } }
+                    Rectangle { width: 28px; height: 28px; background: #2f80ed; TouchArea { clicked => { root.color-picker-value = "#2f80ed"; } } }
+                    Rectangle { width: 28px; height: 28px; background: #27ae60; TouchArea { clicked => { root.color-picker-value = "#27ae60"; } } }
+                    Rectangle { width: 28px; height: 28px; background: #f2c94c; TouchArea { clicked => { root.color-picker-value = "#f2c94c"; } } }
+                    Rectangle { width: 28px; height: 28px; background: #eb5757; TouchArea { clicked => { root.color-picker-value = "#eb5757"; } } }
+                }
+                Rectangle { vertical-stretch: 1; }
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 8px;
                     Button {
-                        text: "Close";
-                        clicked => { root.close-settings(); }
+                        text: "Cancel";
+                        clicked => { root.color-picker-visible = false; }
+                    }
+                    Button {
+                        text: "Use Color";
+                        clicked => {
+                            if root.color-picker-target == 0 {
+                                root.comment-background-hex = root.color-picker-value;
+                            } else {
+                                root.comment-text-hex = root.color-picker-value;
+                            }
+                            root.color-picker-visible = false;
+                            root.comment-colors-selected(root.comment-background-hex, root.comment-text-hex);
+                        }
                     }
                 }
             }
