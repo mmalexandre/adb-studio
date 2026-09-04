@@ -365,7 +365,7 @@ component Waveform inherits Rectangle {
 component AudioRowView inherits Rectangle {
     height: 86px;
     background: root.light-theme ? #ffffff : #1a2029;
-    border-color: root.light-theme ? #d9dee6 : #2a3340;
+    border-color: root.is-active ? #000000 : (root.light-theme ? #d9dee6 : #2a3340);
     border-width: 1px;
     in property <bool> light-theme;
     in property <color> comment-background-color: #000000;

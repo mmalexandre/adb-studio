@@ -1040,6 +1040,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let playback = Rc::clone(&playback);
         let audio_model = Rc::clone(&audio_model);
         let audio_folder = Rc::clone(&audio_folder);
+        let tree_state = Rc::clone(&tree_state);
+        let settings = Rc::clone(&settings);
         window.on_audio_seek(move |path, progress| {
             let Some(window) = weak_window.upgrade() else {
                 return;
@@ -1062,6 +1064,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return;
             }
             window.set_audio_error("".into());
+            select_tree_path(&window, &tree_state, &settings, &path);
             window.set_active_audio_path(path.to_string_lossy().into_owned().into());
             window.set_audio_file_name(
                 path.file_name()
