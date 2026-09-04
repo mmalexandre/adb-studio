@@ -328,6 +328,72 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     {
         let weak_window = window.as_weak();
+        let tree_state = Rc::clone(&tree_state);
+        let settings = Rc::clone(&settings);
+        window.on_tree_drop_requested(move |source, source_index, pointer_y| {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            let source = PathBuf::from(source.as_str());
+            let target = {
+                let state_ref = tree_state.borrow();
+                let Some(state) = state_ref.as_ref() else {
+                    return;
+                };
+                let rows = file_system::build_visible_rows(state);
+                let target_index = (source_index as f32 + ((pointer_y - 13.0) / 26.0).round())
+                    .clamp(0.0, (rows.len() - 1) as f32) as usize;
+                let Some(row) = rows.get(target_index) else {
+                    return;
+                };
+                PathBuf::from(&row.path)
+            };
+            let Some(name) = source.file_name() else {
+                return;
+            };
+            let Some(parent) = source.parent() else {
+                return;
+            };
+            if !source.exists() || !target.is_dir() || source == target || parent == target {
+                return;
+            }
+            if source.is_dir() && target.strip_prefix(&source).is_ok() {
+                window.set_audio_error("File operation: cannot move a folder into itself".into());
+                return;
+            }
+            let destination = target.join(name);
+            if destination.exists() {
+                window.set_audio_error("File operation: destination already exists".into());
+                return;
+            }
+            if let Err(error) = fs::rename(&source, &destination) {
+                window.set_audio_error(format!("File operation: {error}").into());
+                return;
+            }
+            {
+                let mut state_ref = tree_state.borrow_mut();
+                let Some(state) = state_ref.as_mut() else {
+                    return;
+                };
+                state.select_and_expand(&destination);
+            }
+            settings.borrow_mut().last_selected_path = Some(destination.to_string_lossy().into_owned());
+            let settings_snapshot = settings.borrow().clone();
+            save_settings(&settings_snapshot);
+            window.set_selected_name(
+                destination
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_default()
+                    .into(),
+            );
+            window.set_audio_error("".into());
+            refresh_tree(&window, &tree_state);
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
         window.on_tree_edit_cancelled(move || {
             if let Some(window) = weak_window.upgrade() {
                 window.set_tree_edit_path("".into());

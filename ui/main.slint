@@ -543,6 +543,7 @@ component ExplorerRow inherits Rectangle {
     background: root.is-selected ? (root.light-theme ? #d7e3f3 : #2a3546) : transparent;
     callback clicked();
     callback right-clicked();
+    callback drag-finished(bool, float);
     callback edit-accepted(string);
     callback edit-cancelled();
     in property <bool> light-theme;
@@ -555,6 +556,11 @@ component ExplorerRow inherits Rectangle {
     in property <string> kind;
     in property <bool> editing;
     in-out property <string> edit-text: "";
+    property <bool> dragging: false;
+    property <bool> dragged: false;
+    property <length> drag-start-y: 0px;
+    property <length> drag-pointer-x: 0px;
+    property <length> drag-pointer-y: 0px;
 
     function icon-source() -> image {
         if root.kind == "dir" && root.is-expanded {
@@ -604,12 +610,66 @@ component ExplorerRow inherits Rectangle {
         }
     }
     if !root.editing : TouchArea {
-        clicked => { root.clicked(); }
+        clicked => {
+            if !root.dragged {
+                root.clicked();
+            }
+        }
         pointer-event(event) => {
             if event.kind == PointerEventKind.down && event.button == PointerEventButton.right {
                 root.right-clicked();
+            } else if event.kind == PointerEventKind.down && event.button == PointerEventButton.left {
+                root.dragging = true;
+                root.dragged = false;
+                root.drag-start-y = self.mouse-y;
+            } else if event.kind == PointerEventKind.move && root.dragging {
+                root.drag-pointer-x = self.mouse-x;
+                root.drag-pointer-y = self.mouse-y;
+                if (self.mouse-y - root.drag-start-y).abs() > 4px {
+                    root.dragged = true;
+                }
+            } else if event.kind == PointerEventKind.up && root.dragging {
+                root.drag-finished(root.dragged, self.mouse-y / 1px);
+                root.dragging = false;
             }
         }
+    }
+    if root.dragging && root.dragged : Rectangle {
+        x: root.drag-pointer-x - 12px;
+        y: root.drag-pointer-y - 13px;
+        width: 240px;
+        height: 26px;
+        z: 100;
+        background: root.light-theme ? #f7f9fcf0 : #252d39f0;
+        border-color: root.light-theme ? #9aa8ba : #66758a;
+        border-width: 1px;
+        HorizontalLayout {
+            padding-left: 8px;
+            padding-right: 8px;
+            spacing: 6px;
+            Image {
+                source: root.icon-source();
+                width: 16px;
+                height: 16px;
+                vertical-alignment: center;
+            }
+            Text {
+                text: root.name;
+                color: root.light-theme ? #202833 : #e3e8ef;
+                font-size: 13px;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+        }
+    }
+    if root.dragging && root.dragged : Rectangle {
+        x: 0px;
+        y: root.drag-pointer-y + 12px;
+        width: parent.width;
+        height: 3px;
+        z: 101;
+        background: root.light-theme ? #3b78c4 : #79b8ff;
+        border-radius: 1.5px;
     }
 }
 
@@ -723,6 +783,7 @@ export component MainWindow inherits Window {
     callback comment-colors-selected(string, string);
     callback row-clicked(string);
     callback tree-context-menu(string);
+    callback tree-drop-requested(string, int, float);
     callback rename-requested();
     callback new-folder-requested(string);
     callback tree-edit-accepted(string, string, int);
@@ -891,7 +952,7 @@ export component MainWindow inherits Window {
                             ListView {
                                 width: 100%;
                                 height: 100%;
-                            for row in root.tree-rows : ExplorerRow {
+                            for row[index] in root.tree-rows : ExplorerRow {
                                 light-theme: root.light-theme;
                                 path: row.path;
                                 name: row.name;
@@ -902,6 +963,11 @@ export component MainWindow inherits Window {
                                 kind: row.kind;
                                 editing: root.tree-edit-path == row.path;
                                 edit-text <=> root.tree-edit-text;
+                                drag-finished(was-dragged, pointer-y) => {
+                                    if was-dragged {
+                                        root.tree-drop-requested(row.path, index, pointer-y);
+                                    }
+                                }
                                 clicked => {
                                     if root.tree-edit-path != "" && root.tree-edit-path != row.path {
                                         root.tree-edit-cancelled();
