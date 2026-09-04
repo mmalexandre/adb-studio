@@ -186,7 +186,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
             match metadata::comfyui::parse_file(Path::new(path.as_str())) {
-                Ok(workflow) => apply_workflow(&window, path.as_str(), workflow),
+                Ok(workflow) => apply_workflow(&window, &folder, path.as_str(), workflow),
                 Err(error) => window.set_audio_error(format!("Workflow JSON: {error}").into()),
             }
         });
@@ -206,6 +206,50 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 })
                 .collect::<Vec<_>>();
             window.set_workflow_json_files(ModelRc::new(VecModel::from(rows)));
+        });
+        let weak_window = window.as_weak();
+        window.on_lora_edit_requested(move |filename, tag| {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            window.set_lora_editor_filename(filename);
+            window.set_lora_editor_tag(tag);
+            window.set_lora_editor_visible(true);
+        });
+        let weak_window = window.as_weak();
+        let audio_folder = Rc::clone(&audio_folder);
+        window.on_lora_save(move |filename, tag| {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            let Some(folder) = audio_folder.borrow().clone() else {
+                return;
+            };
+            let mut index = metadata::load_index(&folder);
+            if let Some(lora) = index
+                .loras
+                .iter_mut()
+                .find(|lora| lora.filename == filename.as_str())
+            {
+                lora.custom_tag = tag.to_string();
+            } else {
+                index.loras.push(metadata::LoraMetadata {
+                    filename: filename.to_string(),
+                    custom_tag: tag.to_string(),
+                });
+            }
+            metadata::save_index(&folder, &index);
+            window.set_lora_editor_visible(false);
+            let audio_path = window.get_active_audio_path().to_string();
+            if !audio_path.is_empty() {
+                load_workflow_for_audio(&window, &folder, Path::new(&audio_path));
+            }
+        });
+        let weak_window = window.as_weak();
+        window.on_lora_cancel(move || {
+            if let Some(window) = weak_window.upgrade() {
+                window.set_lora_editor_visible(false);
+            }
         });
     }
 
@@ -1096,7 +1140,12 @@ fn clear_workflow(window: &MainWindow) {
     window.set_workflow_loras(ModelRc::new(VecModel::from(Vec::<WorkflowLoraRow>::new())));
 }
 
-fn apply_workflow(window: &MainWindow, path: &str, workflow: metadata::comfyui::ComfyUIWorkflow) {
+fn apply_workflow(
+    window: &MainWindow,
+    folder: &Path,
+    path: &str,
+    workflow: metadata::comfyui::ComfyUIWorkflow,
+) {
     let display_name = Path::new(path)
         .file_name()
         .and_then(|name| name.to_str())
@@ -1107,11 +1156,19 @@ fn apply_workflow(window: &MainWindow, path: &str, workflow: metadata::comfyui::
     window.set_workflow_seed(workflow.seed.into());
     window.set_workflow_prompt(workflow.prompt.into());
     window.set_workflow_lyrics(workflow.lyrics.into());
+    let index = metadata::load_index(folder);
     window.set_workflow_loras(ModelRc::new(VecModel::from(
         workflow
             .loras
             .into_iter()
             .map(|lora| WorkflowLoraRow {
+                custom_tag: index
+                    .loras
+                    .iter()
+                    .find(|stored| stored.filename == lora.filename)
+                    .map(|stored| stored.custom_tag.clone())
+                    .unwrap_or_default()
+                    .into(),
                 filename: lora.filename.into(),
                 strength: lora.strength.into(),
             })
@@ -1132,7 +1189,7 @@ fn load_workflow_for_audio(window: &MainWindow, folder: &Path, path: &Path) {
         return;
     };
     match metadata::comfyui::parse_file(Path::new(&workflow_path)) {
-        Ok(workflow) => apply_workflow(window, &workflow_path, workflow),
+        Ok(workflow) => apply_workflow(window, folder, &workflow_path, workflow),
         Err(error) => window.set_audio_error(format!("Workflow JSON: {error}").into()),
     }
 }

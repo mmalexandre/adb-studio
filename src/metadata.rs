@@ -41,6 +41,13 @@ pub struct AudioFileMetadata {
     pub workflow_json_path: Option<String>,
 }
 
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct LoraMetadata {
+    pub filename: String,
+    #[serde(default)]
+    pub custom_tag: String,
+}
+
 impl AudioFileMetadata {
     pub fn normalized_rating(&self) -> u8 {
         self.rating.min(5)
@@ -50,6 +57,8 @@ impl AudioFileMetadata {
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct MetadataIndex {
     pub audio_files: Vec<AudioFileMetadata>,
+    #[serde(default)]
+    pub loras: Vec<LoraMetadata>,
 }
 
 pub fn load_index(folder: &Path) -> MetadataIndex {

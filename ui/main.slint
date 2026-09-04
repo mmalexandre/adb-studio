@@ -35,6 +35,7 @@ export struct AudioRow {
 export struct WorkflowLoraRow {
     filename: string,
     strength: string,
+    custom-tag: string,
 }
 
 export struct WorkflowFileRow {
@@ -659,6 +660,9 @@ export component MainWindow inherits Window {
     in-out property <string> workflow-prompt: "";
     in-out property <string> workflow-lyrics: "";
     in-out property <[WorkflowLoraRow]> workflow-loras: [];
+    in-out property <bool> lora-editor-visible: false;
+    in-out property <string> lora-editor-filename: "";
+    in-out property <string> lora-editor-tag: "";
     callback open-folder();
     callback close-about();
     callback close-settings();
@@ -682,6 +686,9 @@ export component MainWindow inherits Window {
     callback metadata-pane-height-changed(length);
     callback workflow-selected(string);
     callback workflow-search-changed(string);
+    callback lora-edit-requested(string, string);
+    callback lora-save(string, string);
+    callback lora-cancel();
     in-out property <bool> comment-editor-visible: false;
     in-out property <string> comment-editor-path: "";
     in-out property <string> comment-editor-start: "0";
@@ -1063,10 +1070,25 @@ export component MainWindow inherits Window {
                                     ListView {
                                         height: 100%;
                                         vertical-scrollbar-policy: always-on;
-                                        for lora in root.workflow-loras : Text {
-                                            text: lora.filename + (lora.strength == "" ? "" : "  x" + lora.strength);
-                                            color: root.light-theme ? #5c6878 : #aeb8c6;
-                                            overflow: elide;
+                                        for lora in root.workflow-loras : HorizontalLayout {
+                                            height: 26px;
+                                            spacing: 4px;
+                                            Text {
+                                                text: lora.filename + (lora.strength == "" ? "" : "  x" + lora.strength);
+                                                color: root.light-theme ? #5c6878 : #aeb8c6;
+                                                horizontal-stretch: 1;
+                                                overflow: elide;
+                                            }
+                                            Text {
+                                                text: lora.custom-tag;
+                                                color: root.light-theme ? #202833 : #e3e8ef;
+                                                width: 90px;
+                                                overflow: elide;
+                                            }
+                                            Button {
+                                                text: "Edit";
+                                                clicked => { root.lora-edit-requested(lora.filename, lora.custom-tag); }
+                                            }
                                         }
                                     }
                                 }
@@ -1292,6 +1314,36 @@ export component MainWindow inherits Window {
                         Button { text: "Save"; clicked => { root.comment-save(root.comment-editor-path, root.comment-editor-start, root.comment-editor-end, root.comment-editor-text); } }
                         Button { text: "Cancel"; clicked => { root.comment-cancel(); } }
                         Button { text: "Delete"; enabled: root.comment-editor-path != ""; clicked => { root.comment-delete(root.comment-editor-path, root.comment-editor-start, root.comment-editor-end, root.comment-editor-text); } }
+                    }
+                }
+            }
+        }
+
+        if root.lora-editor-visible : Rectangle {
+            background: #00000080;
+            x: 0px;
+            y: 0px;
+            width: parent.width;
+            height: parent.height;
+            Rectangle {
+                width: 430px;
+                height: 210px;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                background: root.light-theme ? #ffffff : #202832;
+                border-color: root.light-theme ? #cbd2dc : #435064;
+                border-width: 1px;
+                VerticalBox {
+                    padding: 24px;
+                    spacing: 12px;
+                    Text { text: "LoRA Info"; color: root.light-theme ? #202833 : #f1f4f8; font-size: 22px; }
+                    Text { text: root.lora-editor-filename; color: root.light-theme ? #5c6878 : #c4ccd8; overflow: elide; }
+                    LineEdit { placeholder-text: "Custom tag"; text <=> root.lora-editor-tag; }
+                    Rectangle { vertical-stretch: 1; }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Button { text: "Save"; clicked => { root.lora-save(root.lora-editor-filename, root.lora-editor-tag); } }
+                        Button { text: "Cancel"; clicked => { root.lora-cancel(); } }
                     }
                 }
             }
