@@ -5,6 +5,7 @@ use rodio::{Decoder, DeviceSinkBuilder, MixerDeviceSink, Player, Source};
 pub struct PlaybackEngine {
     stream: MixerDeviceSink,
     player: Option<Player>,
+    volume: f32,
     path: Option<PathBuf>,
     duration: Duration,
     position: Duration,
@@ -18,6 +19,7 @@ impl PlaybackEngine {
         Ok(Self {
             stream,
             player: None,
+            volume: 1.0,
             path: None,
             duration: Duration::ZERO,
             position: Duration::ZERO,
@@ -33,6 +35,7 @@ impl PlaybackEngine {
         let duration = decoder.total_duration().unwrap_or(Duration::ZERO);
         let position = position.min(duration);
         let player = Player::connect_new(self.stream.mixer());
+        player.set_volume(self.volume);
         player.append(decoder);
         if position > Duration::ZERO {
             player.try_seek(position)
@@ -101,5 +104,12 @@ impl PlaybackEngine {
 
     pub fn can_resume(&self) -> bool {
         self.player.as_ref().is_some_and(|player| !player.empty())
+    }
+
+    pub fn set_volume(&mut self, volume: f32) {
+        self.volume = volume.clamp(0.0, 1.0);
+        if let Some(player) = &self.player {
+            player.set_volume(self.volume);
+        }
     }
 }
