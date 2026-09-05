@@ -877,14 +877,13 @@ export component MainWindow inherits Window {
     }
 
     keyboard-focus := FocusScope {
-        key-pressed(event) => {
+        capture-key-pressed(event) => {
             if event.text == Key.F11 {
                 root.toggle-fullscreen();
                 accept;
             }
             reject;
         }
-    }
 
     Rectangle {
         background: root.light-theme ? #f5f7fa : #11151b;
@@ -1802,5 +1801,6 @@ export component MainWindow inherits Window {
                 }
             }
         }
+    }
     }
 }
