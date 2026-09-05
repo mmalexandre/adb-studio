@@ -1,5 +1,6 @@
 use std::{
     cell::RefCell,
+    collections::{HashMap, HashSet},
     fs,
     path::{Path, PathBuf},
     process::Command,
@@ -1966,14 +1967,16 @@ fn refresh_workspace(
             .collect::<Vec<_>>(),
     )));
     if changed_paths.iter().any(|path| {
-        path == &audio_view_folder || path.parent() == Some(audio_view_folder.as_path())
+        path.parent() == Some(audio_view_folder.as_path())
+            && file_system::FileKind::from_path(path) == file_system::FileKind::Audio
     }) {
-        refresh_audio(
+        refresh_audio_for_changes(
             window,
             audio_folder,
             audio_model,
             audio_load_state,
             audio_view_folder,
+            changed_paths,
         );
     }
 }
@@ -1990,12 +1993,74 @@ fn refresh_audio(
     audio_load_state: &Arc<Mutex<AudioLoadState>>,
     folder: PathBuf,
 ) {
+    refresh_audio_with_changes(
+        window,
+        audio_folder,
+        audio_model,
+        audio_load_state,
+        folder,
+        None,
+    );
+}
+
+fn refresh_audio_for_changes(
+    window: &MainWindow,
+    audio_folder: &Rc<RefCell<Option<PathBuf>>>,
+    audio_model: &Rc<RefCell<Option<Rc<VecModel<AudioRow>>>>>,
+    audio_load_state: &Arc<Mutex<AudioLoadState>>,
+    folder: PathBuf,
+    changed_paths: &[PathBuf],
+) {
+    refresh_audio_with_changes(
+        window,
+        audio_folder,
+        audio_model,
+        audio_load_state,
+        folder,
+        Some(changed_paths),
+    );
+}
+
+fn refresh_audio_with_changes(
+    window: &MainWindow,
+    audio_folder: &Rc<RefCell<Option<PathBuf>>>,
+    audio_model: &Rc<RefCell<Option<Rc<VecModel<AudioRow>>>>>,
+    audio_load_state: &Arc<Mutex<AudioLoadState>>,
+    folder: PathBuf,
+    changed_paths: Option<&[PathBuf]>,
+) {
     let filter = window.get_audio_filter().to_string();
+    let reload_all = changed_paths.is_none();
+    let changed_audio_paths = changed_paths
+        .into_iter()
+        .flat_map(|paths| paths.iter())
+        .filter(|path| path.parent() == Some(folder.as_path()))
+        .filter(|path| file_system::FileKind::from_path(path) == file_system::FileKind::Audio)
+        .cloned()
+        .collect::<HashSet<_>>();
+    let existing_rows = audio_model
+        .borrow()
+        .clone()
+        .map(|model| {
+            (0..model.row_count())
+                .filter_map(|index| model.row_data(index))
+                .map(|row| (PathBuf::from(row.path.as_str()), row))
+                .collect::<HashMap<_, _>>()
+        })
+        .unwrap_or_default();
+    let index = metadata::load_index(&folder);
     let mut rows = Vec::new();
     for entry in file_system::read_dir_sorted(&folder) {
         if entry.kind != file_system::FileKind::Audio || !matches_audio_filter(&entry.name, &filter)
         {
             continue;
+        }
+        let should_reload = reload_all || changed_audio_paths.contains(&entry.path);
+        if !should_reload {
+            if let Some(row) = existing_rows.get(&entry.path) {
+                rows.push(row.clone());
+                continue;
+            }
         }
         let modified_date = fs::metadata(&entry.path)
             .and_then(|metadata| metadata.modified())
@@ -2004,13 +2069,13 @@ fn refresh_audio(
             .map(|time| time.as_secs())
             .unwrap_or_default();
         let path_string = entry.path.to_string_lossy().into_owned();
-        let stored_position = metadata::load_index(&folder)
+        let stored_position = index
             .audio_files
-            .into_iter()
+            .iter()
             .find(|item| item.file_path == path_string);
         let comments = stored_position
             .as_ref()
-            .map(comment_rows)
+            .map(|item| comment_rows(item))
             .unwrap_or_else(|| ModelRc::new(VecModel::from(Vec::new())));
         let progress = stored_position
             .as_ref()
@@ -2048,9 +2113,16 @@ fn refresh_audio(
         let mut state = audio_load_state.lock().unwrap();
         state.folder = audio_folder.borrow().clone().unwrap_or_default();
         state.paths = paths;
-        state.generated.clear();
+        if reload_all {
+            state.generated.clear();
+        } else {
+            let current_paths = state.paths.iter().cloned().collect::<HashSet<_>>();
+            state
+                .generated
+                .retain(|path| current_paths.contains(path) && !changed_audio_paths.contains(path));
+        }
         state.generation += 1;
-        state.completed = 0;
+        state.completed = state.generated.len();
         state.total = total;
         state.requested_range = None;
     }
