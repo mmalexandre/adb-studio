@@ -47,7 +47,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let audio_folder: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(None));
     let workflow_files: Rc<RefCell<Vec<(String, String)>>> = Rc::new(RefCell::new(Vec::new()));
     let workspace_watcher: Rc<RefCell<Option<RecommendedWatcher>>> = Rc::new(RefCell::new(None));
-    let (workspace_change_sender, workspace_change_receiver) = mpsc::channel();
+    let (workspace_change_sender, workspace_change_receiver) = mpsc::channel::<Vec<PathBuf>>();
     let audio_model: Rc<RefCell<Option<Rc<VecModel<AudioRow>>>>> = Rc::new(RefCell::new(None));
     let sync_controller = Rc::new(RefCell::new(SyncController::new()));
     let comment_editor_original: Rc<RefCell<Option<AudioComment>>> = Rc::new(RefCell::new(None));
@@ -937,6 +937,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &audio_load_state,
                 &workflow_files,
                 &sync_controller,
+                &workspace_watcher,
+                &workspace_change_sender,
             );
         }
     }
@@ -952,14 +954,45 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let last_persisted_position_for_timer = Rc::clone(&last_persisted_position);
         let audio_result_receiver = Rc::new(RefCell::new(audio_result_receiver));
         let sync_controller = Rc::clone(&sync_controller);
+        let workspace_change_receiver = Rc::new(RefCell::new(workspace_change_receiver));
+        let tree_state = Rc::clone(&tree_state);
+        let workflow_files = Rc::clone(&workflow_files);
         let mut spinner_frame = 0usize;
         let mut sync_spinner_frame = 0usize;
+        let mut workspace_change_pending = false;
+        let mut last_workspace_refresh = Instant::now();
+        let mut workspace_change_paths = Vec::new();
         let timer = slint::Timer::default();
         timer.start(
             slint::TimerMode::Repeated,
             Duration::from_millis(40),
             move || {
                 if let Some(window) = weak_window.upgrade() {
+                    let mut workspace_changed = false;
+                    while let Ok(paths) = workspace_change_receiver.borrow_mut().try_recv() {
+                        workspace_changed = true;
+                        workspace_change_paths.extend(paths);
+                    }
+                    if workspace_changed {
+                        workspace_change_pending = true;
+                        last_workspace_refresh = Instant::now();
+                    }
+                    if workspace_change_pending
+                        && last_workspace_refresh.elapsed() >= Duration::from_millis(150)
+                    {
+                        workspace_change_pending = false;
+                        last_workspace_refresh = Instant::now();
+                        refresh_workspace(
+                            &window,
+                            &audio_folder,
+                            &audio_model,
+                            &audio_load_state,
+                            &tree_state,
+                            &workflow_files,
+                            &workspace_change_paths,
+                        );
+                        workspace_change_paths.clear();
+                    }
                     if let Some(engine) = playback.borrow_mut().as_mut() {
                         engine.update_position();
                         let selected_loop = engine
@@ -1103,6 +1136,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let audio_load_state = Arc::clone(&audio_load_state);
         let sync_controller = Rc::clone(&sync_controller);
         let workflow_files = Rc::clone(&workflow_files);
+        let workspace_watcher = Rc::clone(&workspace_watcher);
+        let workspace_change_sender = workspace_change_sender.clone();
         window.on_open_folder(move || {
             let Some(window) = weak_window.upgrade() else {
                 return;
@@ -1122,6 +1157,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     &audio_load_state,
                     &workflow_files,
                     &sync_controller,
+                    &workspace_watcher,
+                    &workspace_change_sender,
                 );
             }
         });
@@ -1137,6 +1174,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let workflow_files = Rc::clone(&workflow_files);
         let sync_controller = Rc::clone(&sync_controller);
         let playback = Rc::clone(&playback);
+        let workspace_watcher = Rc::clone(&workspace_watcher);
         window.on_close_folder(move || {
             let Some(window) = weak_window.upgrade() else {
                 return;
@@ -1151,6 +1189,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &workflow_files,
                 &sync_controller,
                 &playback,
+                &workspace_watcher,
             );
         });
     }
@@ -1686,7 +1725,35 @@ fn set_workspace(
     audio_load_state: &Arc<Mutex<AudioLoadState>>,
     workflow_files: &Rc<RefCell<Vec<(String, String)>>>,
     sync_controller: &Rc<RefCell<SyncController>>,
+    workspace_watcher: &Rc<RefCell<Option<RecommendedWatcher>>>,
+    workspace_change_sender: &mpsc::Sender<Vec<PathBuf>>,
 ) {
+    *workspace_watcher.borrow_mut() = None;
+    match notify::recommended_watcher({
+        let workspace_change_sender = workspace_change_sender.clone();
+        move |result: notify::Result<notify::Event>| {
+            let Ok(event) = result else {
+                return;
+            };
+            let changed_paths = event
+                .paths
+                .into_iter()
+                .filter(|path| !is_internal_path(path))
+                .collect::<Vec<_>>();
+            if !changed_paths.is_empty() {
+                let _ = workspace_change_sender.send(changed_paths);
+            }
+        }
+    }) {
+        Ok(mut watcher) => {
+            if watcher.watch(&folder, RecursiveMode::Recursive).is_ok() {
+                *workspace_watcher.borrow_mut() = Some(watcher);
+            } else {
+                window.set_audio_error("Unable to watch workspace files".into());
+            }
+        }
+        Err(_) => window.set_audio_error("Unable to watch workspace files".into()),
+    }
     *audio_folder.borrow_mut() = Some(folder.clone());
     let folder_name = folder
         .file_name()
@@ -1798,7 +1865,9 @@ fn close_workspace(
     workflow_files: &Rc<RefCell<Vec<(String, String)>>>,
     sync_controller: &Rc<RefCell<SyncController>>,
     playback: &Rc<RefCell<Option<PlaybackEngine>>>,
+    workspace_watcher: &Rc<RefCell<Option<RecommendedWatcher>>>,
 ) {
+    *workspace_watcher.borrow_mut() = None;
     sync_controller.borrow_mut().stop();
     if let Some(engine) = playback.borrow_mut().as_mut() {
         engine.stop();
@@ -1846,6 +1915,72 @@ fn close_workspace(
     window.set_comfyui_sync_status("Not configured".into());
     window.set_comfyui_sync_present(0);
     window.set_comfyui_sync_total(0);
+}
+
+fn refresh_workspace(
+    window: &MainWindow,
+    audio_folder: &Rc<RefCell<Option<PathBuf>>>,
+    audio_model: &Rc<RefCell<Option<Rc<VecModel<AudioRow>>>>>,
+    audio_load_state: &Arc<Mutex<AudioLoadState>>,
+    tree_state: &Rc<RefCell<Option<TreeState>>>,
+    workflow_files: &Rc<RefCell<Vec<(String, String)>>>,
+    changed_paths: &[PathBuf],
+) {
+    let Some(folder) = audio_folder.borrow().clone() else {
+        return;
+    };
+    let audio_view_folder = {
+        let mut state_ref = tree_state.borrow_mut();
+        let Some(state) = state_ref.as_mut() else {
+            return;
+        };
+        for path in state.selected_paths() {
+            if !path.exists() {
+                state.remove_path(&path);
+            }
+        }
+        state
+            .selected
+            .as_ref()
+            .filter(|path| path.exists() && path.strip_prefix(&folder).is_ok())
+            .map(|path| {
+                if path.is_dir() {
+                    path.clone()
+                } else {
+                    path.parent().unwrap_or(&folder).to_path_buf()
+                }
+            })
+            .unwrap_or_else(|| folder.clone())
+    };
+    refresh_tree(window, tree_state);
+
+    let scanned_workflows = scan_json_files(&folder);
+    *workflow_files.borrow_mut() = scanned_workflows.clone();
+    window.set_workflow_json_files(ModelRc::new(VecModel::from(
+        scanned_workflows
+            .into_iter()
+            .map(|(name, path)| WorkflowFileRow {
+                name: name.into(),
+                path: path.into(),
+            })
+            .collect::<Vec<_>>(),
+    )));
+    if changed_paths.iter().any(|path| {
+        path == &audio_view_folder || path.parent() == Some(audio_view_folder.as_path())
+    }) {
+        refresh_audio(
+            window,
+            audio_folder,
+            audio_model,
+            audio_load_state,
+            audio_view_folder,
+        );
+    }
+}
+
+fn is_internal_path(path: &Path) -> bool {
+    path.components()
+        .any(|component| component.as_os_str() == ".adbstudio")
 }
 
 fn refresh_audio(
