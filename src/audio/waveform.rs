@@ -1,6 +1,9 @@
 use sha2::{Digest, Sha256};
 use std::{fs, path::Path};
-use symphonia::core::{audio::SampleBuffer, codecs::DecoderOptions, formats::FormatOptions, io::MediaSourceStream, meta::MetadataOptions, probe::Hint};
+use symphonia::core::{
+    audio::SampleBuffer, codecs::DecoderOptions, formats::FormatOptions, io::MediaSourceStream,
+    meta::MetadataOptions, probe::Hint,
+};
 
 pub const PEAK_COUNT: usize = 4096;
 pub const DISPLAY_PEAK_COUNT: usize = 160;
@@ -13,14 +16,20 @@ pub fn aggregate_peaks(peaks: &[f32]) -> Vec<f32> {
         .map(|bucket| {
             let start = bucket * peaks.len() / DISPLAY_PEAK_COUNT;
             let end = ((bucket + 1) * peaks.len() / DISPLAY_PEAK_COUNT).max(start + 1);
-            peaks[start..end.min(peaks.len())].iter().copied().fold(0.0, f32::max)
+            peaks[start..end.min(peaks.len())]
+                .iter()
+                .copied()
+                .fold(0.0, f32::max)
         })
         .collect()
 }
 
 pub fn load_or_generate(path: &Path, workspace: &Path) -> (String, Vec<f32>) {
     let cache_key = cache_key(path);
-    let cache_path = workspace.join(".adbstudio").join("waveforms").join(format!("{cache_key}.json"));
+    let cache_path = workspace
+        .join(".adbstudio")
+        .join("waveforms")
+        .join(format!("{cache_key}.json"));
     if let Ok(contents) = fs::read_to_string(&cache_path) {
         if let Ok(peaks) = serde_json::from_str::<Vec<f32>>(&contents) {
             return (cache_key, peaks);
@@ -56,12 +65,18 @@ fn decode_peaks(path: &Path) -> Result<Vec<f32>, Box<dyn std::error::Error>> {
     if let Some(extension) = path.extension().and_then(|value| value.to_str()) {
         hint.with_extension(extension);
     }
-    let probed = symphonia::default::get_probe().format(&hint, source, &FormatOptions::default(), &MetadataOptions::default())?;
+    let probed = symphonia::default::get_probe().format(
+        &hint,
+        source,
+        &FormatOptions::default(),
+        &MetadataOptions::default(),
+    )?;
     let mut format = probed.format;
     let track = format.default_track().ok_or("audio has no default track")?;
     let codec_params = track.codec_params.clone();
     let track_id = track.id;
-    let mut decoder = symphonia::default::get_codecs().make(&codec_params, &DecoderOptions::default())?;
+    let mut decoder = symphonia::default::get_codecs()
+        .make(&codec_params, &DecoderOptions::default())?;
     let mut samples = Vec::new();
 
     while let Ok(packet) = format.next_packet() {
@@ -79,6 +94,13 @@ fn decode_peaks(path: &Path) -> Result<Vec<f32>, Box<dyn std::error::Error>> {
     }
     let bucket_size = (samples.len() / PEAK_COUNT).max(1);
     Ok((0..PEAK_COUNT)
-        .map(|bucket| samples.iter().skip(bucket * bucket_size).take(bucket_size).copied().fold(0.0, f32::max))
+        .map(|bucket| {
+            samples
+                .iter()
+                .skip(bucket * bucket_size)
+                .take(bucket_size)
+                .copied()
+                .fold(0.0, f32::max)
+        })
         .collect())
-    }
+}

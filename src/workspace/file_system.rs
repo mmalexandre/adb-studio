@@ -147,7 +147,7 @@ pub fn build_visible_rows(state: &TreeState) -> Vec<VisibleRow> {
         depth: 0,
         is_dir: true,
         is_expanded: state.expanded.contains(&state.root),
-        is_selected: is_selected,
+        is_selected,
         kind: FileKind::Directory,
     });
     if state.expanded.contains(&state.root) {

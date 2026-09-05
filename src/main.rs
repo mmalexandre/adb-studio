@@ -1,123 +1,43 @@
 use std::{
     cell::RefCell,
-    collections::HashSet,
     fs,
     path::{Path, PathBuf},
     rc::Rc,
-    sync::mpsc::{self, Sender},
+    sync::mpsc,
     sync::{Arc, Mutex},
-    thread,
     time::{Duration, Instant},
 };
 
 use audio::playback::PlaybackEngine;
-use display_info::DisplayInfo;
-use serde::{Deserialize, Serialize};
 use slint::{ComponentHandle, Model, ModelRc, VecModel};
 
 mod audio;
-mod file_system;
 mod metadata;
-mod waveform;
-use file_system::TreeState;
+mod settings;
+mod workspace;
+use audio::{loader, waveform};
 use metadata::AudioComment;
+use workspace::file_system::{self, TreeState};
 
 slint::include_modules!();
 
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 const BUILD_NUMBER: &str = env!("ADB_BUILD_NUMBER");
-const AUDIO_PREFETCH_ROWS: usize = 32;
-const AUDIO_PREFETCH_BEFORE: usize = 4;
-struct AudioLoadState {
-    folder: PathBuf,
-    paths: Vec<PathBuf>,
-    requested_range: Option<(usize, usize)>,
-    generated: HashSet<PathBuf>,
-    generation: u64,
-    running: bool,
-    completed: usize,
-    total: usize,
-    result_sender: Sender<AudioResult>,
-}
-
-struct AudioResult {
-    generation: u64,
-    index: usize,
-    path: String,
-    peaks: Vec<f32>,
-}
-
-#[derive(Clone, Deserialize, Serialize)]
-struct AppSettings {
-    last_folder: Option<String>,
-    last_selected_path: Option<String>,
-    light_theme: bool,
-    #[serde(default)]
-    loop_enabled: bool,
-    #[serde(default = "default_left_pane_width")]
-    left_pane_width: f32,
-    #[serde(default = "default_metadata_pane_height")]
-    metadata_pane_height: f32,
-    #[serde(default)]
-    metadata_visible: bool,
-    #[serde(default = "default_comment_background_color")]
-    comment_background_color: String,
-    #[serde(default = "default_comment_text_color")]
-    comment_text_color: String,
-    #[serde(default)]
-    window_width: Option<u32>,
-    #[serde(default)]
-    window_height: Option<u32>,
-    #[serde(default)]
-    window_x: Option<i32>,
-    #[serde(default)]
-    window_y: Option<i32>,
-    #[serde(default)]
-    window_maximized: bool,
-}
-
-fn default_left_pane_width() -> f32 {
-    280.0
-}
-
-fn default_metadata_pane_height() -> f32 {
-    190.0
-}
-
-fn default_comment_background_color() -> String {
-    "#000000".to_owned()
-}
-
-fn default_comment_text_color() -> String {
-    "#ffffff".to_owned()
-}
-
-impl Default for AppSettings {
-    fn default() -> Self {
-        Self {
-            last_folder: None,
-            last_selected_path: None,
-            light_theme: false,
-            loop_enabled: false,
-            left_pane_width: default_left_pane_width(),
-            metadata_pane_height: default_metadata_pane_height(),
-            metadata_visible: false,
-            comment_background_color: default_comment_background_color(),
-            comment_text_color: default_comment_text_color(),
-            window_width: None,
-            window_height: None,
-            window_x: None,
-            window_y: None,
-            window_maximized: false,
-        }
-    }
-}
+use audio::loader::State as AudioLoadState;
+use audio::view::{
+    comment_rows, format_duration, format_seconds, scroll_to_path as scroll_audio_to_path,
+    select_comment, selected_loop_range, update_audio_rows, update_comment_model,
+};
+use settings::AppSettings;
+use workspace::workflow::{
+    apply_workflow, clear_workflow, load_workflow_for_audio, scan_json_files,
+};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let window = MainWindow::new()?;
     slint::set_xdg_app_id("com.adbstudio.AdbStudio")?;
-    let settings = Rc::new(RefCell::new(load_settings()));
-    restore_window_state(&window, &mut settings.borrow_mut());
+    let settings = Rc::new(RefCell::new(settings::load()));
+    settings::restore_window(&window, &mut settings.borrow_mut());
     let tree_state: Rc<RefCell<Option<TreeState>>> = Rc::new(RefCell::new(None));
     let audio_folder: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(None));
     let workflow_files: Rc<RefCell<Vec<(String, String)>>> = Rc::new(RefCell::new(Vec::new()));
@@ -137,7 +57,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         folder: PathBuf::new(),
         paths: Vec::new(),
         requested_range: None,
-        generated: HashSet::new(),
+        generated: std::collections::HashSet::new(),
         generation: 0,
         running: false,
         completed: 0,
@@ -154,8 +74,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     window.set_metadata_visible(settings.borrow().metadata_visible);
     window.set_comment_background_hex(settings.borrow().comment_background_color.clone().into());
     window.set_comment_text_hex(settings.borrow().comment_text_color.clone().into());
-    window.set_comment_background_color(parse_color(&settings.borrow().comment_background_color, slint::Color::from_argb_u8(255, 0, 0, 0)));
-    window.set_comment_text_color(parse_color(&settings.borrow().comment_text_color, slint::Color::from_argb_u8(255, 255, 255, 255)));
+    window.set_comment_background_color(settings::parse_color(
+        &settings.borrow().comment_background_color,
+        slint::Color::from_argb_u8(255, 0, 0, 0),
+    ));
+    window.set_comment_text_color(settings::parse_color(
+        &settings.borrow().comment_text_color,
+        slint::Color::from_argb_u8(255, 255, 255, 255),
+    ));
 
     {
         let playback = Rc::clone(&playback);
@@ -276,7 +202,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if name.is_empty()
                 || name == "."
                 || name == ".."
-                || name.chars().any(|character| character == '/' || character == '\\')
+                || name
+                    .chars()
+                    .any(|character| character == '/' || character == '\\')
             {
                 window.set_tree_edit_path("".into());
                 window.set_tree_edit_text("".into());
@@ -308,9 +236,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 };
                 state.select_and_expand(&destination);
             }
-            settings.borrow_mut().last_selected_path = Some(destination.to_string_lossy().into_owned());
+            settings.borrow_mut().last_selected_path =
+                Some(destination.to_string_lossy().into_owned());
             let settings_snapshot = settings.borrow().clone();
-            save_settings(&settings_snapshot);
+            settings::save(&settings_snapshot);
             window.set_selected_name(
                 destination
                     .file_name()
@@ -342,7 +271,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 };
                 let rows = file_system::build_visible_rows(state);
                 let target_index = (source_index as f32 + ((pointer_y - 13.0) / 26.0).round())
-                    .clamp(0.0, (rows.len() - 1) as f32) as usize;
+                    .clamp(0.0, (rows.len() - 1) as f32)
+                    as usize;
                 let Some(row) = rows.get(target_index) else {
                     return;
                 };
@@ -377,9 +307,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 };
                 state.select_and_expand(&destination);
             }
-            settings.borrow_mut().last_selected_path = Some(destination.to_string_lossy().into_owned());
+            settings.borrow_mut().last_selected_path =
+                Some(destination.to_string_lossy().into_owned());
             let settings_snapshot = settings.borrow().clone();
-            save_settings(&settings_snapshot);
+            settings::save(&settings_snapshot);
             window.set_selected_name(
                 destination
                     .file_name()
@@ -414,7 +345,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 window.set_metadata_visible(visible);
                 let mut settings = settings.borrow_mut();
                 settings.metadata_visible = visible;
-                save_settings(&settings);
+                settings::save(&settings);
             }
         });
         let weak_window = window.as_weak();
@@ -511,10 +442,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         window.on_comment_colors_selected(move |background, text| {
             let background = background.to_string();
             let text = text.to_string();
-            let Some(background_color) = parse_hex_color(&background) else {
+            let Some(background_color) = settings::parse_hex_color(&background) else {
                 return;
             };
-            let Some(text_color) = parse_hex_color(&text) else {
+            let Some(text_color) = settings::parse_hex_color(&text) else {
                 return;
             };
             {
@@ -523,7 +454,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 settings.comment_text_color = text.clone();
             }
             let settings_snapshot = settings.borrow().clone();
-            save_settings(&settings_snapshot);
+            settings::save(&settings_snapshot);
             if let Some(window) = weak_window.upgrade() {
                 window.set_comment_background_hex(background.into());
                 window.set_comment_text_hex(text.into());
@@ -854,7 +785,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         window.on_left_pane_width_changed(move |width| {
             settings.borrow_mut().left_pane_width = width;
             let settings_snapshot = settings.borrow().clone();
-            save_settings(&settings_snapshot);
+            settings::save(&settings_snapshot);
         });
     }
 
@@ -863,7 +794,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         window.on_metadata_pane_height_changed(move |height| {
             settings.borrow_mut().metadata_pane_height = height;
             let settings_snapshot = settings.borrow().clone();
-            save_settings(&settings_snapshot);
+            settings::save(&settings_snapshot);
         });
     }
 
@@ -1033,7 +964,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         window.on_loop_changed(move |enabled| {
             settings.borrow_mut().loop_enabled = enabled;
             let settings_snapshot = settings.borrow().clone();
-            save_settings(&settings_snapshot);
+            settings::save(&settings_snapshot);
             if let Some(window) = weak_window.upgrade() {
                 window.set_loop_enabled(enabled);
             }
@@ -1073,7 +1004,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .to_string();
             settings.borrow_mut().last_selected_path = Some(path.to_string_lossy().into_owned());
             let settings_snapshot = settings.borrow().clone();
-            save_settings(&settings_snapshot);
+            settings::save(&settings_snapshot);
             drop(state_ref);
 
             window.set_selected_name(selected_name.into());
@@ -1329,7 +1260,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 settings.borrow_mut().light_theme = light_theme;
             }
             let settings_snapshot = settings.borrow().clone();
-            save_settings(&settings_snapshot);
+            settings::save(&settings_snapshot);
             if let Some(window) = weak_window.upgrade() {
                 window.set_theme_index(if light_theme { 1 } else { 0 });
                 window.set_light_theme(light_theme);
@@ -1339,54 +1270,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Adb Studio {APP_VERSION} ({BUILD_NUMBER})");
     window.run()?;
-    save_window_state(&window, &mut settings.borrow_mut());
-    save_settings(&settings.borrow());
+    settings::save_window(&window, &mut settings.borrow_mut());
+    settings::save(&settings.borrow());
     Ok(())
-}
-
-fn restore_window_state(window: &MainWindow, settings: &mut AppSettings) {
-    let (Some(width), Some(height), Some(x), Some(y)) = (
-        settings.window_width,
-        settings.window_height,
-        settings.window_x,
-        settings.window_y,
-    ) else {
-        return;
-    };
-
-    let position_is_visible = DisplayInfo::all().map_or(false, |displays| {
-        displays.iter().any(|display| {
-            x >= display.x
-                && y >= display.y
-                && i64::from(x) < i64::from(display.x) + i64::from(display.width)
-                && i64::from(y) < i64::from(display.y) + i64::from(display.height)
-        })
-    });
-
-    if !position_is_visible {
-        settings.window_width = None;
-        settings.window_height = None;
-        settings.window_x = None;
-        settings.window_y = None;
-        settings.window_maximized = false;
-        return;
-    }
-
-    window.window().set_size(slint::PhysicalSize::new(width, height));
-    window
-        .window()
-        .set_position(slint::PhysicalPosition::new(x, y));
-    window.window().set_maximized(settings.window_maximized);
-}
-
-fn save_window_state(window: &MainWindow, settings: &mut AppSettings) {
-    let size = window.window().size();
-    let position = window.window().position();
-    settings.window_width = Some(size.width);
-    settings.window_height = Some(size.height);
-    settings.window_x = Some(position.x);
-    settings.window_y = Some(position.y);
-    settings.window_maximized = window.window().is_maximized();
 }
 
 fn set_workspace(
@@ -1427,7 +1313,7 @@ fn set_workspace(
         settings.borrow_mut().last_folder = Some(folder.to_string_lossy().into_owned());
     }
     let settings_snapshot = settings.borrow().clone();
-    save_settings(&settings_snapshot);
+    settings::save(&settings_snapshot);
 
     let mut new_tree_state = TreeState::new(folder.clone());
     if let Some(selected_path) = settings_snapshot
@@ -1481,90 +1367,6 @@ fn set_workspace(
     );
 }
 
-fn scan_json_files(folder: &Path) -> Vec<(String, String)> {
-    fn visit(folder: &Path, files: &mut Vec<(String, String)>) {
-        for entry in file_system::read_dir_sorted(folder) {
-            if entry.is_dir {
-                if entry.name != ".adbstudio" {
-                    visit(&entry.path, files);
-                }
-            } else if entry.kind == file_system::FileKind::Json {
-                files.push((
-                    entry.name,
-                    entry.path.to_string_lossy().into_owned(),
-                ));
-            }
-        }
-    }
-    let mut files = Vec::new();
-    visit(folder, &mut files);
-    files.sort_by_key(|(name, _)| name.to_ascii_lowercase());
-    files
-}
-
-fn clear_workflow(window: &MainWindow) {
-    window.set_workflow_bpm("".into());
-    window.set_workflow_key("".into());
-    window.set_workflow_seed("".into());
-    window.set_workflow_prompt("".into());
-    window.set_workflow_lyrics("".into());
-    window.set_workflow_loras(ModelRc::new(VecModel::from(Vec::<WorkflowLoraRow>::new())));
-}
-
-fn apply_workflow(
-    window: &MainWindow,
-    folder: &Path,
-    path: &str,
-    workflow: metadata::comfyui::ComfyUIWorkflow,
-) {
-    let display_name = Path::new(path)
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or(path);
-    window.set_selected_workflow(display_name.into());
-    window.set_workflow_bpm(workflow.bpm.into());
-    window.set_workflow_key(workflow.key.into());
-    window.set_workflow_seed(workflow.seed.into());
-    window.set_workflow_prompt(workflow.prompt.into());
-    window.set_workflow_lyrics(workflow.lyrics.into());
-    let index = metadata::load_index(folder);
-    window.set_workflow_loras(ModelRc::new(VecModel::from(
-        workflow
-            .loras
-            .into_iter()
-            .map(|lora| WorkflowLoraRow {
-                custom_tag: index
-                    .loras
-                    .iter()
-                    .find(|stored| stored.filename == lora.filename)
-                    .map(|stored| stored.custom_tag.clone())
-                    .unwrap_or_default()
-                    .into(),
-                filename: lora.filename.into(),
-                strength: lora.strength.into(),
-            })
-            .collect::<Vec<_>>(),
-    )));
-}
-
-fn load_workflow_for_audio(window: &MainWindow, folder: &Path, path: &Path) {
-    let path_string = path.to_string_lossy();
-    let workflow_path = metadata::load_index(folder)
-        .audio_files
-        .iter()
-        .find(|file| file.file_path == path_string)
-        .and_then(|file| file.workflow_json_path.clone());
-    let Some(workflow_path) = workflow_path else {
-        window.set_selected_workflow("".into());
-        clear_workflow(window);
-        return;
-    };
-    match metadata::comfyui::parse_file(Path::new(&workflow_path)) {
-        Ok(workflow) => apply_workflow(window, folder, &workflow_path, workflow),
-        Err(error) => window.set_audio_error(format!("Workflow JSON: {error}").into()),
-    }
-}
-
 fn refresh_audio(
     window: &MainWindow,
     audio_folder: &Rc<RefCell<Option<PathBuf>>>,
@@ -1575,8 +1377,7 @@ fn refresh_audio(
     let filter = window.get_audio_filter().to_string();
     let mut rows = Vec::new();
     for entry in file_system::read_dir_sorted(&folder) {
-        if entry.kind != file_system::FileKind::Audio
-            || !matches_audio_filter(&entry.name, &filter)
+        if entry.kind != file_system::FileKind::Audio || !matches_audio_filter(&entry.name, &filter)
         {
             continue;
         }
@@ -1658,105 +1459,6 @@ mod tests {
     }
 }
 
-fn comment_rows(item: &metadata::AudioFileMetadata) -> ModelRc<CommentRow> {
-    let duration = item.duration_seconds.max(0.001);
-    let mut normalized: Vec<(f32, f32, String)> = item
-        .comments
-        .iter()
-        .map(|comment| {
-            (
-                (comment.start_seconds / duration).clamp(0.0, 1.0),
-                (comment.end_seconds / duration).clamp(0.0, 1.0),
-                comment.text.clone(),
-            )
-        })
-        .collect();
-    normalized.sort_by(|left, right| left.0.total_cmp(&right.0));
-    let rows = normalized
-        .iter()
-        .enumerate()
-        .map(|(index, (start, end, text))| CommentRow {
-            start: *start,
-            end: *end,
-            bubble_end: normalized
-                .get(index + 1)
-                .map(|next| next.0)
-                .unwrap_or(1.0)
-                .max(*start),
-            text: text.clone().into(),
-        })
-        .collect::<Vec<_>>();
-    ModelRc::new(VecModel::from(rows))
-}
-
-fn update_comment_model(
-    audio_model: &Rc<RefCell<Option<Rc<VecModel<AudioRow>>>>>,
-    path: &Path,
-    comments: ModelRc<CommentRow>,
-) {
-    let Some(model) = audio_model.borrow().clone() else {
-        return;
-    };
-    for index in 0..model.row_count() {
-        let Some(row) = model.row_data(index) else {
-            continue;
-        };
-        if Path::new(row.path.as_str()) == path {
-            if let Some(comment_model) =
-                row.comments.as_any().downcast_ref::<VecModel<CommentRow>>()
-            {
-                comment_model.set_vec(comments.iter().collect::<Vec<_>>());
-            }
-            break;
-        }
-    }
-}
-
-fn update_audio_rows(
-    audio_model: &Rc<RefCell<Option<Rc<VecModel<AudioRow>>>>>,
-    active_path: Option<&Path>,
-    is_playing: bool,
-    position: Duration,
-    duration: Duration,
-) {
-    let Some(model) = audio_model.borrow().clone() else {
-        return;
-    };
-    let progress = if duration.is_zero() {
-        0.0
-    } else {
-        (position.as_secs_f32() / duration.as_secs_f32()).clamp(0.0, 1.0)
-    };
-    for index in 0..model.row_count() {
-        let Some(row) = model.row_data(index) else {
-            continue;
-        };
-        let is_active = active_path.is_some_and(|path| path == Path::new(row.path.as_str()));
-        if row.is_active != is_active
-            || row.is_playing != (is_active && is_playing)
-            || (is_active && (row.progress - progress).abs() > 0.001)
-        {
-            model.set_row_data(
-                index,
-                AudioRow {
-                    path: row.path,
-                    name: row.name,
-                    modified_date: row.modified_date,
-                    peaks: row.peaks,
-                    comments: row.comments,
-                    rating: row.rating,
-                    is_active,
-                    is_playing: is_active && is_playing,
-                    progress: if is_active { progress } else { row.progress },
-                    loop_enabled: row.loop_enabled,
-                    selected_comment_start: row.selected_comment_start,
-                    selected_comment_end: row.selected_comment_end,
-                },
-            );
-        }
-    }
-}
-
 fn comment_duration(
     folder: &Path,
     path: &Path,
@@ -1800,72 +1502,6 @@ fn comment_duration(
     duration
 }
 
-fn selected_loop_range(
-    audio_model: &Rc<RefCell<Option<Rc<VecModel<AudioRow>>>>>,
-    path: &Path,
-) -> Option<(f32, f32)> {
-    let model = audio_model.borrow().clone()?;
-    (0..model.row_count()).find_map(|index| {
-        let row = model.row_data(index)?;
-        if Path::new(row.path.as_str()) == path
-            && row.selected_comment_start >= 0.0
-            && row.selected_comment_end > row.selected_comment_start
-        {
-            Some((
-                row.selected_comment_start.clamp(0.0, 1.0),
-                row.selected_comment_end.clamp(0.0, 1.0),
-            ))
-        } else {
-            None
-        }
-    })
-}
-
-fn select_comment(
-    audio_model: &Rc<RefCell<Option<Rc<VecModel<AudioRow>>>>>,
-    path: &Path,
-    start: f32,
-    end: f32,
-) {
-    let Some(model) = audio_model.borrow().clone() else {
-        return;
-    };
-    for index in 0..model.row_count() {
-        let Some(row) = model.row_data(index) else {
-            continue;
-        };
-        let selected = Path::new(row.path.as_str()) == path;
-        if selected || row.selected_comment_start >= 0.0 || row.selected_comment_end >= 0.0 {
-            model.set_row_data(
-                index,
-                AudioRow {
-                    path: row.path,
-                    name: row.name,
-                    modified_date: row.modified_date,
-                    peaks: row.peaks,
-                    comments: row.comments,
-                    rating: row.rating,
-                    is_active: row.is_active,
-                    is_playing: row.is_playing,
-                    progress: row.progress,
-                    loop_enabled: row.loop_enabled,
-                    selected_comment_start: if selected { start } else { -1.0 },
-                    selected_comment_end: if selected { end } else { -1.0 },
-                },
-            );
-        }
-    }
-}
-
-fn format_seconds(seconds: f32) -> String {
-    format!("{seconds:.3}")
-}
-
-fn format_duration(duration: Duration) -> String {
-    let total_seconds = duration.as_secs();
-    format!("{:02}:{:02}", total_seconds / 60, total_seconds % 60)
-}
-
 fn save_playback_position(folder: &Path, engine: &PlaybackEngine) {
     let Some(path) = engine.path() else {
         return;
@@ -1903,7 +1539,7 @@ fn select_tree_path(
     state.select_and_expand(path);
     settings.borrow_mut().last_selected_path = Some(path.to_string_lossy().into_owned());
     let settings_snapshot = settings.borrow().clone();
-    save_settings(&settings_snapshot);
+    settings::save(&settings_snapshot);
     window.set_selected_name(
         path.file_name()
             .and_then(|name| name.to_str())
@@ -1914,99 +1550,8 @@ fn select_tree_path(
     refresh_tree(window, tree_state);
 }
 
-fn scroll_audio_to_path(
-    window: &MainWindow,
-    audio_model: &Rc<RefCell<Option<Rc<VecModel<AudioRow>>>>>,
-    path: &Path,
-) {
-    let Some(model) = audio_model.borrow().clone() else {
-        return;
-    };
-    let Some(index) = (0..model.row_count()).find(|index| {
-        model
-            .row_data(*index)
-            .is_some_and(|row| Path::new(row.path.as_str()) == path)
-    }) else {
-        return;
-    };
-    window.set_audio_scroll_to_index(index as i32);
-}
-
 fn request_audio_generation(audio_load_state: &Arc<Mutex<AudioLoadState>>, start_index: usize) {
-    let mut state = audio_load_state.lock().unwrap();
-    let start = start_index.saturating_sub(AUDIO_PREFETCH_BEFORE);
-    let end = start_index
-        .saturating_add(AUDIO_PREFETCH_ROWS)
-        .min(state.paths.len());
-    state.requested_range = Some((start, end));
-    if state.running {
-        return;
-    }
-    state.running = true;
-    let shared_state = Arc::clone(audio_load_state);
-    thread::spawn(move || generate_audio_ranges(shared_state));
-}
-
-fn generate_audio_ranges(audio_load_state: Arc<Mutex<AudioLoadState>>) {
-    loop {
-        let (folder, paths, range, generation) = {
-            let mut state = audio_load_state.lock().unwrap();
-            let Some(range) = state.requested_range.take() else {
-                state.running = false;
-                return;
-            };
-            (
-                state.folder.clone(),
-                state.paths.clone(),
-                range,
-                state.generation,
-            )
-        };
-        let end = range.1.min(paths.len());
-        for index in range.0.min(end)..end {
-            let path = paths[index].clone();
-            {
-                let state = audio_load_state.lock().unwrap();
-                if state.generation != generation || state.generated.contains(&path) {
-                    continue;
-                }
-            }
-            let (cache_key, peaks) = waveform::load_or_generate(&path, &folder);
-            let mut metadata_index = metadata::load_index(&folder);
-            let path_string = path.to_string_lossy().into_owned();
-            if let Some(stored) = metadata_index
-                .audio_files
-                .iter_mut()
-                .find(|item| item.file_path == path_string)
-            {
-                stored.waveform_cache_key = cache_key;
-            } else {
-                metadata_index
-                    .audio_files
-                    .push(metadata::AudioFileMetadata {
-                        file_path: path_string.clone(),
-                        waveform_cache_key: cache_key,
-                        ..Default::default()
-                    });
-            }
-            metadata::save_index(&folder, &metadata_index);
-            {
-                let mut state = audio_load_state.lock().unwrap();
-                if state.generation != generation {
-                    continue;
-                }
-                state.generated.insert(path);
-                state.completed += 1;
-            }
-            let state = audio_load_state.lock().unwrap();
-            let _ = state.result_sender.send(AudioResult {
-                generation,
-                index,
-                path: path_string,
-                peaks,
-            });
-        }
-    }
+    loader::request(audio_load_state, start_index);
 }
 
 fn refresh_tree(window: &MainWindow, tree_state: &Rc<RefCell<Option<TreeState>>>) {
@@ -2029,53 +1574,4 @@ fn refresh_tree(window: &MainWindow, tree_state: &Rc<RefCell<Option<TreeState>>>
         .collect();
 
     window.set_tree_rows(ModelRc::new(VecModel::from(rows)));
-}
-
-fn settings_path() -> Option<PathBuf> {
-    dirs::config_dir().map(|directory| directory.join("adb-studio").join("settings.json"))
-}
-
-fn load_settings() -> AppSettings {
-    let Some(path) = settings_path() else {
-        return AppSettings::default();
-    };
-
-    fs::read_to_string(path)
-        .ok()
-        .and_then(|contents| serde_json::from_str(&contents).ok())
-        .unwrap_or_default()
-}
-
-fn save_settings(settings: &AppSettings) {
-    let Some(path) = settings_path() else {
-        return;
-    };
-    let Some(directory) = path.parent() else {
-        return;
-    };
-
-    if fs::create_dir_all(directory).is_err() {
-        return;
-    }
-
-    let Ok(contents) = serde_json::to_string_pretty(settings) else {
-        return;
-    };
-
-    let _ = fs::write(path, contents);
-}
-
-fn parse_hex_color(value: &str) -> Option<slint::Color> {
-    let value = value.strip_prefix('#').unwrap_or(value);
-    if value.len() != 6 {
-        return None;
-    }
-    let red = u8::from_str_radix(&value[0..2], 16).ok()?;
-    let green = u8::from_str_radix(&value[2..4], 16).ok()?;
-    let blue = u8::from_str_radix(&value[4..6], 16).ok()?;
-    Some(slint::Color::from_argb_u8(255, red, green, blue))
-}
-
-fn parse_color(value: &str, fallback: slint::Color) -> slint::Color {
-    parse_hex_color(value).unwrap_or(fallback)
 }
