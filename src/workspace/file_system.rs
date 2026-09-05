@@ -167,6 +167,22 @@ impl TreeState {
         self.selection_anchor = self.selected.clone();
     }
 
+    pub fn remove_path(&mut self, path: &Path) -> bool {
+        let selection_removed = self
+            .selected
+            .as_ref()
+            .is_some_and(|selected| selected == path || selected.starts_with(path));
+        self.selected_paths
+            .retain(|selected| selected != path && !selected.starts_with(path));
+        self.expanded
+            .retain(|expanded| expanded != path && !expanded.starts_with(path));
+        if selection_removed {
+            self.selected = None;
+            self.selection_anchor = None;
+        }
+        selection_removed
+    }
+
     pub fn select_and_expand(&mut self, path: &Path) {
         self.select(path);
         self.expand_to(path);

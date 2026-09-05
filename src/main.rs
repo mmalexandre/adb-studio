@@ -10,6 +10,7 @@ use std::{
 };
 
 use audio::playback::PlaybackEngine;
+use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use slint::{ComponentHandle, Model, ModelRc, VecModel};
 
 mod audio;
@@ -45,6 +46,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tree_state: Rc<RefCell<Option<TreeState>>> = Rc::new(RefCell::new(None));
     let audio_folder: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(None));
     let workflow_files: Rc<RefCell<Vec<(String, String)>>> = Rc::new(RefCell::new(Vec::new()));
+    let workspace_watcher: Rc<RefCell<Option<RecommendedWatcher>>> = Rc::new(RefCell::new(None));
+    let (workspace_change_sender, workspace_change_receiver) = mpsc::channel();
     let audio_model: Rc<RefCell<Option<Rc<VecModel<AudioRow>>>>> = Rc::new(RefCell::new(None));
     let sync_controller = Rc::new(RefCell::new(SyncController::new()));
     let comment_editor_original: Rc<RefCell<Option<AudioComment>>> = Rc::new(RefCell::new(None));
@@ -137,6 +140,40 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return;
             };
             select_tree_path(&window, &tree_state, &settings, Path::new(path.as_str()));
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        let tree_state = Rc::clone(&tree_state);
+        let settings = Rc::clone(&settings);
+        window.on_tree_trash_requested(move |path| {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            let source = PathBuf::from(path.as_str());
+            if !source.exists() {
+                return;
+            }
+            if let Err(error) = trash::delete(&source) {
+                window.set_audio_error(format!("File operation: {error}").into());
+                return;
+            }
+            let selection_removed = {
+                let mut state_ref = tree_state.borrow_mut();
+                let Some(state) = state_ref.as_mut() else {
+                    return;
+                };
+                state.remove_path(&source)
+            };
+            if selection_removed {
+                settings.borrow_mut().last_selected_path = None;
+                let settings_snapshot = settings.borrow().clone();
+                settings::save(&settings_snapshot);
+                window.set_selected_name("".into());
+            }
+            window.set_audio_error("".into());
+            refresh_tree(&window, &tree_state);
         });
     }
 
