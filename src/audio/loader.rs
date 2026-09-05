@@ -70,35 +70,59 @@ pub fn request(state: &Arc<Mutex<State>>, start_index: usize, visible_rows: usiz
 
 fn generate(state: Arc<Mutex<State>>) {
     loop {
-        let (folder, paths, range, generation) = {
+        let (folder, paths, requested_range, idle_jobs, generation) = {
             let mut state_ref = state.lock().unwrap();
-            let Some(range) = state_ref.requested_range.take() else {
-                state_ref.running = false;
-                return;
+            let paths = state_ref.paths.clone();
+            let requested_range = state_ref.requested_range.take();
+            let idle_jobs = if requested_range.is_none() {
+                let idle_jobs = paths
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, path)| {
+                        !state_ref.generated.contains(*path) && !state_ref.loading.contains(*path)
+                    })
+                    .map(|(index, path)| (index, path.clone()))
+                    .collect::<Vec<_>>();
+                state_ref
+                    .loading
+                    .extend(idle_jobs.iter().map(|(_, path)| path.clone()));
+                idle_jobs
+            } else {
+                Vec::new()
             };
             (
                 state_ref.folder.clone(),
-                state_ref.paths.clone(),
-                range,
+                paths,
+                requested_range,
+                idle_jobs,
                 state_ref.generation,
             )
         };
-        let end = range.1.min(paths.len());
-        let jobs = (range.0.min(end)..end)
-            .filter_map(|index| {
-                let path = paths[index].clone();
-                let state_ref = state.lock().unwrap();
-                (state_ref.generation == generation
-                    && !state_ref.generated.contains(&path)
-                    && state_ref.loading.contains(&path))
-                .then_some((index, path))
-            })
-            .collect::<Vec<_>>();
+        let jobs = if let Some(range) = requested_range {
+            let end = range.1.min(paths.len());
+            (range.0.min(end)..end)
+                .filter_map(|index| {
+                    let path = paths[index].clone();
+                    let state_ref = state.lock().unwrap();
+                    (state_ref.generation == generation
+                        && !state_ref.generated.contains(&path)
+                        && state_ref.loading.contains(&path))
+                    .then_some((index, path))
+                })
+                .collect::<Vec<_>>()
+        } else {
+            idle_jobs
+        };
         let worker_count = std::thread::available_parallelism()
             .map(|count| count.get())
             .unwrap_or(1)
             .min(jobs.len().max(1));
         if jobs.is_empty() {
+            let mut state_ref = state.lock().unwrap();
+            if state_ref.requested_range.is_none() {
+                state_ref.running = false;
+                return;
+            }
             continue;
         }
         let job_count = jobs.len();
