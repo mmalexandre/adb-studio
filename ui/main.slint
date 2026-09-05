@@ -413,12 +413,14 @@ component AudioRowView inherits Rectangle {
                 for star-index in 5 : Rectangle {
                     width: 24px;
                     height: 32px;
-                    Text {
-                        text: star-index < (root.hovered-rating >= 0 ? root.hovered-rating : root.rating) ? "★" : "☆";
-                        color: star-index < (root.hovered-rating >= 0 ? root.hovered-rating : root.rating) ? #e58a4d : (root.light-theme ? #8b96a7 : #566171);
-                        font-size: 24px;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
+                    Image {
+                        source: star-index < (root.hovered-rating >= 0 ? root.hovered-rating : root.rating)
+                            ? @image-url("../assets/icons/star-filled.svg")
+                            : @image-url("../assets/icons/star.svg");
+                        x: (parent.width - self.width) / 2;
+                        y: (parent.height - self.height) / 2;
+                        width: 20px;
+                        height: 20px;
                     }
                     TouchArea {
                         clicked => { root.rating-requested(star-index + 1); }
@@ -428,7 +430,13 @@ component AudioRowView inherits Rectangle {
                 Rectangle {
                     width: 24px;
                     height: 32px;
-                    Text { text: "x"; color: root.light-theme ? #8b96a7 : #566171; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; }
+                    Image {
+                        source: @image-url("../assets/icons/x.svg");
+                        x: (parent.width - self.width) / 2;
+                        y: (parent.height - self.height) / 2;
+                        width: 16px;
+                        height: 16px;
+                    }
                     TouchArea {
                         clicked => { root.rating-requested(0); }
                         changed has-hover => { root.hovered-rating = self.has-hover ? 0 : -1; }
@@ -447,13 +455,15 @@ component AudioRowView inherits Rectangle {
                         background: #ffffff;
                         border-color: root.light-theme ? (play-area.has-hover ? #b8c0ca : #b8c0ca80) : (play-area.has-hover ? #566171 : #56617180);
                         border-width: 2px;
-                        Text {
-                            text: root.is-playing ? "||" : "▶";
-                            color: root.light-theme ? #b8c0ca : #566171;
+                        Image {
+                            source: root.is-playing
+                                ? @image-url("../assets/icons/pause.svg")
+                                : @image-url("../assets/icons/play.svg");
+                            x: (parent.width - self.width) / 2;
+                            y: (parent.height - self.height) / 2;
+                            width: 18px;
+                            height: 18px;
                             opacity: play-area.has-hover ? 1 : 0.5;
-                            font-size: root.is-playing ? 14px : 17px;
-                            horizontal-alignment: center;
-                            vertical-alignment: center;
                         }
                         play-area := TouchArea {
                             clicked => { root.play-requested(); }
@@ -574,13 +584,13 @@ component ExplorerRow inherits Rectangle {
             return @image-url("../assets/icons/folder.svg");
         }
         if root.kind == "audio" {
-            return @image-url("../assets/icons/audio.svg");
+            return @image-url("../assets/icons/file-audio.svg");
         }
         if root.kind == "safetensors" {
-            return @image-url("../assets/icons/safetensors.svg");
+            return @image-url("../assets/icons/file-code-2.svg");
         }
         if root.kind == "json" {
-            return @image-url("../assets/icons/json.svg");
+            return @image-url("../assets/icons/file-json.svg");
         }
         return @image-url("../assets/icons/file.svg");
     }
@@ -744,15 +754,38 @@ component ToolButton inherits Rectangle {
     background: root.light-theme ? #e7ebf0 : #171c24;
     callback clicked();
     in property <bool> light-theme;
-    in property <string> label;
-    Text {
-        text: root.label;
-        color: root.light-theme ? #455160 : #b7c0ce;
-        font-size: 22px;
-        horizontal-alignment: center;
-        vertical-alignment: center;
+    in property <image> icon;
+    Image {
+        source: root.icon;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: 22px;
+        height: 22px;
     }
     TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+component IconButton inherits Rectangle {
+    width: 40px;
+    height: 40px;
+    background: #ffffff;
+    border-radius: 4px;
+    callback clicked();
+    in property <image> icon;
+    in property <bool> enabled: true;
+    in property <bool> active: false;
+    Image {
+        source: root.icon;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: 20px;
+        height: 20px;
+        opacity: root.enabled ? (root.active ? 1 : 0.45) : 0.35;
+    }
+    TouchArea {
+        enabled: root.enabled;
         clicked => { root.clicked(); }
     }
 }
@@ -984,7 +1017,7 @@ export component MainWindow inherits Window {
                     VerticalBox {
                         alignment: start;
                         ToolButton {
-                            label: "▤";
+                            icon: @image-url("../assets/icons/panel-left.svg");
                             light-theme: root.light-theme;
                             clicked => { root.left-pane-visible = !root.left-pane-visible; }
                         }
@@ -1319,13 +1352,14 @@ export component MainWindow inherits Window {
                         text: root.metadata-visible ? "Hide Metadata" : "Show Metadata";
                         clicked => { root.metadata-toggle(); }
                     }
-                    Button {
-                        text: root.audio-playing ? "Pause" : "Play";
+                    IconButton {
+                        icon: root.audio-playing ? @image-url("../assets/icons/pause.svg") : @image-url("../assets/icons/play.svg");
                         enabled: root.active-audio-path != "" && root.audio-error == "";
                         clicked => { root.audio-play-pause(); }
                     }
-                    Button {
-                        text: root.loop-enabled ? "Loop: On" : "Loop: Off";
+                    IconButton {
+                        icon: @image-url("../assets/icons/repeat-2.svg");
+                        active: root.loop-enabled;
                         clicked => {
                             root.loop-enabled = !root.loop-enabled;
                             root.loop-changed(root.loop-enabled);
@@ -1336,9 +1370,10 @@ export component MainWindow inherits Window {
                         color: root.light-theme ? #5c6878 : #aeb8c6;
                         vertical-alignment: center;
                     }
-                    Text {
-                        text: "Volume";
-                        color: root.light-theme ? #5c6878 : #aeb8c6;
+                    Image {
+                        source: @image-url("../assets/icons/volume-2.svg");
+                        width: 20px;
+                        height: 20px;
                         vertical-alignment: center;
                     }
                     Slider {

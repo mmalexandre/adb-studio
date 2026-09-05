@@ -132,6 +132,7 @@ version = "0.1.0"
 dependencies = [
  "dirs",
  "display-info",
+ "lucide-icons",
  "rfd",
  "rodio",
  "serde",
@@ -3002,6 +3003,12 @@ checksum = "0fae87c125b03c1d2c0150c90365d7d6bcc53fb73a9acaef207d2d065860f062"
 dependencies = [
  "imgref",
 ]
+
+[[package]]
+name = "lucide-icons"
+version = "1.41.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "891da3868b0da895a737f816bbc7cb64e67d7f7ce01b9f45478843bd98db31bc"
 
 [[package]]
 name = "lyon_algorithms"
