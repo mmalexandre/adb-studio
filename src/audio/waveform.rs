@@ -8,6 +8,12 @@ use symphonia::core::{
 pub const PEAK_COUNT: usize = 4096;
 pub const DISPLAY_PEAK_COUNT: usize = 160;
 
+#[derive(serde::Deserialize, serde::Serialize)]
+struct CacheEntry {
+    source_path: String,
+    peaks: Vec<f32>,
+}
+
 pub fn aggregate_peaks(peaks: &[f32]) -> Vec<f32> {
     if peaks.is_empty() {
         return vec![0.0; DISPLAY_PEAK_COUNT];
@@ -25,31 +31,57 @@ pub fn aggregate_peaks(peaks: &[f32]) -> Vec<f32> {
 }
 
 pub fn load_or_generate(path: &Path, workspace: &Path) -> (String, Vec<f32>) {
-    let cache_key = cache_key(path);
-    let cache_path = workspace
-        .join(".adbstudio")
-        .join("waveforms")
-        .join(format!("{cache_key}.json"));
+    let source_path = relative_source_path(path, workspace);
+    let cache_key = cache_key(path, &source_path);
+    let cache_path = cache_path(&cache_key, workspace);
     if let Ok(contents) = fs::read_to_string(&cache_path) {
-        if let Ok(peaks) = serde_json::from_str::<Vec<f32>>(&contents) {
-            return (cache_key, peaks);
+        if let Ok(entry) = serde_json::from_str::<CacheEntry>(&contents) {
+            if entry.source_path == source_path {
+                return (cache_key, entry.peaks);
+            }
         }
     }
 
     let peaks = decode_peaks(path).unwrap_or_default();
-    if let Some(parent) = cache_path.parent() {
-        let _ = fs::create_dir_all(parent);
-    }
-    if let Ok(contents) = serde_json::to_string(&peaks) {
-        let _ = fs::write(cache_path, contents);
-    }
+    write_cache(&cache_path, &source_path, &peaks);
     (cache_key, peaks)
 }
 
-fn cache_key(path: &Path) -> String {
+fn cache_path(cache_key: &str, workspace: &Path) -> std::path::PathBuf {
+    workspace
+        .join(".adbstudio")
+        .join("waveforms")
+        .join(format!("{cache_key}.json"))
+}
+
+fn write_cache(path: &Path, source_path: &str, peaks: &[f32]) {
+    let Some(parent) = path.parent() else {
+        return;
+    };
+    if fs::create_dir_all(parent).is_err() {
+        return;
+    }
+    let entry = CacheEntry {
+        source_path: source_path.to_owned(),
+        peaks: peaks.to_vec(),
+    };
+    if let Ok(contents) = serde_json::to_string(&entry) {
+        let _ = fs::write(path, contents);
+    }
+}
+
+fn relative_source_path(path: &Path, workspace: &Path) -> String {
+    path.strip_prefix(workspace)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .replace('\\', "/")
+}
+
+fn cache_key(path: &Path, source_path: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(env!("CARGO_PKG_VERSION").as_bytes());
     hasher.update(PEAK_COUNT.to_le_bytes());
+    hasher.update(source_path.as_bytes());
     if let Ok(contents) = fs::read(path) {
         hasher.update(contents);
     } else {
