@@ -87,6 +87,8 @@ pub struct TreeState {
     pub root: PathBuf,
     expanded: HashSet<PathBuf>,
     pub selected: Option<PathBuf>,
+    selected_paths: HashSet<PathBuf>,
+    selection_anchor: Option<PathBuf>,
 }
 
 impl TreeState {
@@ -97,6 +99,8 @@ impl TreeState {
             root,
             expanded,
             selected: None,
+            selected_paths: HashSet::new(),
+            selection_anchor: None,
         }
     }
 
@@ -108,10 +112,67 @@ impl TreeState {
 
     pub fn select(&mut self, path: &Path) {
         self.selected = Some(path.to_path_buf());
+        self.selected_paths.clear();
+        self.selected_paths.insert(path.to_path_buf());
+        self.selection_anchor = Some(path.to_path_buf());
+    }
+
+    pub fn select_with_shift(&mut self, path: &Path, shift: bool) {
+        if !shift {
+            self.select(path);
+            return;
+        }
+
+        let Some(anchor) = self.selection_anchor.as_ref() else {
+            self.select(path);
+            return;
+        };
+        let Some(parent) = path.parent() else {
+            self.select(path);
+            return;
+        };
+        if anchor.parent() != Some(parent) {
+            self.select(path);
+            return;
+        }
+
+        let siblings = read_dir_sorted(parent);
+        let Some(anchor_index) = siblings.iter().position(|entry| entry.path == *anchor) else {
+            self.select(path);
+            return;
+        };
+        let Some(path_index) = siblings.iter().position(|entry| entry.path == path) else {
+            self.select(path);
+            return;
+        };
+        let (start, end) = if anchor_index <= path_index {
+            (anchor_index, path_index)
+        } else {
+            (path_index, anchor_index)
+        };
+        self.selected_paths = siblings[start..=end]
+            .iter()
+            .map(|entry| entry.path.clone())
+            .collect();
+        self.selected = Some(path.to_path_buf());
+    }
+
+    pub fn selected_paths(&self) -> Vec<PathBuf> {
+        self.selected_paths.iter().cloned().collect()
+    }
+
+    pub fn select_paths(&mut self, paths: Vec<PathBuf>, primary: PathBuf) {
+        self.selected_paths = paths.into_iter().collect();
+        self.selected = Some(primary);
+        self.selection_anchor = self.selected.clone();
     }
 
     pub fn select_and_expand(&mut self, path: &Path) {
         self.select(path);
+        self.expand_to(path);
+    }
+
+    pub fn expand_to(&mut self, path: &Path) {
         let mut ancestor = path.parent();
         while let Some(path) = ancestor {
             self.expanded.insert(path.to_path_buf());
@@ -135,7 +196,7 @@ pub struct VisibleRow {
 
 pub fn build_visible_rows(state: &TreeState) -> Vec<VisibleRow> {
     let mut rows = Vec::new();
-    let is_selected = state.selected.as_deref() == Some(state.root.as_path());
+    let is_selected = state.selected_paths.contains(&state.root);
     rows.push(VisibleRow {
         path: state.root.clone(),
         name: state
@@ -159,7 +220,7 @@ pub fn build_visible_rows(state: &TreeState) -> Vec<VisibleRow> {
 fn push_children(dir: &Path, depth: i32, state: &TreeState, rows: &mut Vec<VisibleRow>) {
     for entry in read_dir_sorted(dir) {
         let is_expanded = entry.is_dir && state.expanded.contains(&entry.path);
-        let is_selected = state.selected.as_deref() == Some(entry.path.as_path());
+        let is_selected = state.selected_paths.contains(&entry.path);
         rows.push(VisibleRow {
             path: entry.path.clone(),
             name: entry.name,

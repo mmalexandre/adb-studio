@@ -543,7 +543,7 @@ component ExplorerRow inherits Rectangle {
     width: 100%;
     height: 26px;
     background: root.is-selected ? (root.light-theme ? #d7e3f3 : #2a3546) : transparent;
-    callback clicked();
+    callback clicked(bool);
     callback right-clicked();
     callback drag-finished(bool, float);
     callback edit-accepted(string);
@@ -556,6 +556,7 @@ component ExplorerRow inherits Rectangle {
     in property <bool> is-expanded;
     in property <bool> is-selected;
     in property <string> kind;
+    in property <int> drag-count: 1;
     in property <bool> editing;
     in-out property <string> edit-text: "";
     property <bool> dragging: false;
@@ -563,6 +564,7 @@ component ExplorerRow inherits Rectangle {
     property <length> drag-start-y: 0px;
     property <length> drag-pointer-x: 0px;
     property <length> drag-pointer-y: 0px;
+    property <bool> click-shift: false;
 
     function icon-source() -> image {
         if root.kind == "dir" && root.is-expanded {
@@ -621,13 +623,14 @@ component ExplorerRow inherits Rectangle {
     if !root.editing : TouchArea {
         clicked => {
             if !root.dragged {
-                root.clicked();
+                root.clicked(root.click-shift);
             }
         }
         pointer-event(event) => {
             if event.kind == PointerEventKind.down && event.button == PointerEventButton.right {
                 root.right-clicked();
             } else if event.kind == PointerEventKind.down && event.button == PointerEventButton.left {
+                root.click-shift = event.modifiers.shift;
                 root.dragging = true;
                 root.dragged = false;
                 root.drag-start-y = self.mouse-y;
@@ -644,31 +647,19 @@ component ExplorerRow inherits Rectangle {
         }
     }
     if root.dragging && root.dragged : Rectangle {
-        x: root.drag-pointer-x - 12px;
-        y: root.drag-pointer-y - 13px;
-        width: 240px;
-        height: 26px;
+        x: root.drag-pointer-x + 8px;
+        y: root.drag-pointer-y + 8px;
+        width: 30px;
+        height: 30px;
         z: 100;
-        background: root.light-theme ? #f7f9fcf0 : #252d39f0;
-        border-color: root.light-theme ? #9aa8ba : #66758a;
-        border-width: 1px;
-        HorizontalLayout {
-            padding-left: 8px;
-            padding-right: 8px;
-            spacing: 6px;
-            Image {
-                source: root.icon-source();
-                width: 16px;
-                height: 16px;
-                vertical-alignment: center;
-            }
-            Text {
-                text: root.name;
-                color: root.light-theme ? #202833 : #e3e8ef;
-                font-size: 13px;
-                vertical-alignment: center;
-                overflow: elide;
-            }
+        border-radius: 15px;
+        background: root.light-theme ? #3b78c4 : #79b8ff;
+        Text {
+            text: root.drag-count;
+            color: #ffffff;
+            font-size: 13px;
+            horizontal-alignment: center;
+            vertical-alignment: center;
         }
     }
     if root.dragging && root.dragged : Rectangle {
@@ -688,9 +679,10 @@ component ExplorerList inherits ListView {
     in property <string> edit-path;
     in-out property <string> edit-text: "";
     in property <int> scroll-to-index: -1;
+    in property <int> selected-count: 1;
     property <length> row-top: root.scroll-to-index * 26px;
     property <length> viewport-top: 0px - root.viewport-y;
-    callback row-clicked(string);
+    callback row-clicked(string, bool);
     callback tree-context-menu(string);
     callback tree-drop-requested(string, int, float);
     callback edit-accepted(string, string);
@@ -713,6 +705,7 @@ component ExplorerList inherits ListView {
         is-expanded: row.is-expanded;
         is-selected: row.is-selected;
         kind: row.kind;
+        drag-count: root.selected-count;
         editing: root.edit-path == row.path;
         edit-text <=> root.edit-text;
         drag-finished(was-dragged, pointer-y) => {
@@ -720,7 +713,7 @@ component ExplorerList inherits ListView {
                 root.tree-drop-requested(row.path, index, pointer-y);
             }
         }
-        clicked => { root.row-clicked(row.path); }
+        clicked(shift) => { root.row-clicked(row.path, shift); }
         right-clicked => { root.tree-context-menu(row.path); }
         edit-accepted(text) => { root.edit-accepted(row.path, text); }
         edit-cancelled => { root.edit-cancelled(); }
@@ -800,6 +793,7 @@ export component MainWindow inherits Window {
     in-out property <length> left-pane-width: 280px;
     callback left-pane-width-changed(length);
     in-out property <[TreeRow]> tree-rows: [];
+    in-out property <int> tree-selection-count: 1;
     in-out property <int> tree-scroll-to-index: -1;
     in-out property <[AudioRow]> audio-rows: [];
     in-out property <int> audio-scroll-to-index: -1;
@@ -839,7 +833,7 @@ export component MainWindow inherits Window {
     callback toggle-fullscreen();
     callback theme-selected(bool);
     callback comment-colors-selected(string, string);
-    callback row-clicked(string);
+    callback row-clicked(string, bool);
     callback audio-row-selected(string);
     callback tree-context-menu(string);
     callback tree-drop-requested(string, int, float);
@@ -1039,15 +1033,16 @@ export component MainWindow inherits Window {
                                 height: 100%;
                                 light-theme: root.light-theme;
                                 rows: root.tree-rows;
+                                selected-count: root.tree-selection-count;
                                 edit-path: root.tree-edit-path;
                                 edit-text <=> root.tree-edit-text;
                                 scroll-to-index: root.tree-scroll-to-index;
-                                row-clicked(path) => {
+                                row-clicked(path, shift) => {
                                     if root.tree-edit-path != "" && root.tree-edit-path != path {
                                         root.tree-edit-cancelled();
                                     } else {
                                         tree-focus.focus();
-                                        root.row-clicked(path);
+                                        root.row-clicked(path, shift);
                                     }
                                 }
                                 tree-context-menu(path) => {

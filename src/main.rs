@@ -276,7 +276,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return;
             };
             let source = PathBuf::from(source.as_str());
-            let target = {
+            let (sources, target) = {
                 let state_ref = tree_state.borrow();
                 let Some(state) = state_ref.as_ref() else {
                     return;
@@ -288,43 +288,58 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let Some(row) = rows.get(target_index) else {
                     return;
                 };
-                PathBuf::from(&row.path)
+                let mut sources = state.selected_paths();
+                if !sources.iter().any(|path| path == &source) {
+                    sources = vec![source.clone()];
+                }
+                (sources, PathBuf::from(&row.path))
             };
-            let Some(name) = source.file_name() else {
-                return;
-            };
-            let Some(parent) = source.parent() else {
-                return;
-            };
-            if !source.exists() || !target.is_dir() || source == target || parent == target {
+            if sources.is_empty() || !target.is_dir() {
                 return;
             }
-            if source.is_dir() && target.strip_prefix(&source).is_ok() {
-                window.set_audio_error("File operation: cannot move a folder into itself".into());
-                return;
+            let mut destinations = Vec::with_capacity(sources.len());
+            for source in &sources {
+                let Some(name) = source.file_name() else {
+                    return;
+                };
+                let Some(parent) = source.parent() else {
+                    return;
+                };
+                if !source.exists() || source == &target || parent == target {
+                    return;
+                }
+                if source.is_dir() && target.strip_prefix(source).is_ok() {
+                    window.set_audio_error(
+                        "File operation: cannot move a folder into itself".into(),
+                    );
+                    return;
+                }
+                let destination = target.join(name);
+                if destination.exists() || destinations.contains(&destination) {
+                    window.set_audio_error("File operation: destination already exists".into());
+                    return;
+                }
+                destinations.push(destination);
             }
-            let destination = target.join(name);
-            if destination.exists() {
-                window.set_audio_error("File operation: destination already exists".into());
-                return;
-            }
-            if let Err(error) = fs::rename(&source, &destination) {
-                window.set_audio_error(format!("File operation: {error}").into());
-                return;
+            for (source, destination) in sources.iter().zip(&destinations) {
+                if let Err(error) = fs::rename(source, destination) {
+                    window.set_audio_error(format!("File operation: {error}").into());
+                    return;
+                }
             }
             {
                 let mut state_ref = tree_state.borrow_mut();
                 let Some(state) = state_ref.as_mut() else {
                     return;
                 };
-                state.select_and_expand(&destination);
+                state.select_paths(destinations.clone(), destinations.last().cloned().unwrap());
             }
-            settings.borrow_mut().last_selected_path =
-                Some(destination.to_string_lossy().into_owned());
+            let primary = destinations.last().unwrap();
+            settings.borrow_mut().last_selected_path = Some(primary.to_string_lossy().into_owned());
             let settings_snapshot = settings.borrow().clone();
             settings::save(&settings_snapshot);
             window.set_selected_name(
-                destination
+                primary
                     .file_name()
                     .map(|name| name.to_string_lossy().into_owned())
                     .unwrap_or_default()
@@ -991,7 +1006,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let audio_model = Rc::clone(&audio_model);
         let audio_load_state = Arc::clone(&audio_load_state);
         let playback = Rc::clone(&playback);
-        window.on_row_clicked(move |path| {
+        window.on_row_clicked(move |path, shift| {
             let Some(window) = weak_window.upgrade() else {
                 return;
             };
@@ -1004,10 +1019,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if path.is_dir() {
                 state.toggle(&path);
             }
-            if path.is_dir() {
-                state.select(&path);
-            } else {
-                state.select_and_expand(&path);
+            state.select_with_shift(&path, shift);
+            if !path.is_dir() {
+                state.expand_to(&path);
             }
             let selected_name = path
                 .file_name()
@@ -1587,6 +1601,7 @@ fn refresh_tree(window: &MainWindow, tree_state: &Rc<RefCell<Option<TreeState>>>
     let Some(state) = state_ref.as_ref() else {
         return;
     };
+    window.set_tree_selection_count(state.selected_paths().len() as i32);
 
     let rows: Vec<TreeRow> = file_system::build_visible_rows(state)
         .into_iter()
