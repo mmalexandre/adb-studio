@@ -2,6 +2,7 @@ use std::{
     cell::RefCell,
     fs,
     path::{Path, PathBuf},
+    process::Command,
     rc::Rc,
     sync::mpsc,
     sync::{Arc, Mutex},
@@ -34,6 +35,7 @@ use workspace::workflow::{
 };
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    sync_cursor_environment();
     let window = MainWindow::new()?;
     slint::set_xdg_app_id("com.adbstudio.AdbStudio")?;
     let settings = Rc::new(RefCell::new(settings::load()));
@@ -1309,6 +1311,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     settings::save_window(&window, &mut settings.borrow_mut());
     settings::save(&settings.borrow());
     Ok(())
+}
+
+fn sync_cursor_environment() {
+    if std::env::var_os("XCURSOR_THEME").is_none() {
+        if let Some(theme) = gsettings_value("org.gnome.desktop.interface", "cursor-theme") {
+            std::env::set_var("XCURSOR_THEME", theme);
+        }
+    }
+    if std::env::var_os("XCURSOR_SIZE").is_none() {
+        if let Some(size) = gsettings_value("org.gnome.desktop.interface", "cursor-size") {
+            std::env::set_var("XCURSOR_SIZE", size);
+        }
+    }
+}
+
+fn gsettings_value(schema: &str, key: &str) -> Option<String> {
+    let output = Command::new("gsettings")
+        .args(["get", schema, key])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let value = String::from_utf8(output.stdout).ok()?.trim().to_owned();
+    Some(value.trim_matches('\'').to_owned())
 }
 
 fn set_workspace(

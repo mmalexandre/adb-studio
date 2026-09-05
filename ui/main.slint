@@ -1140,6 +1140,7 @@ export component MainWindow inherits Window {
 
                     if root.has-folder : VerticalBox {
                         padding: 24px;
+                        padding-bottom: 0px;
                         spacing: 18px;
                         HorizontalLayout {
                             spacing: 12px;
@@ -1148,46 +1149,6 @@ export component MainWindow inherits Window {
                                 color: root.light-theme ? #202833 : #e3e8ef;
                                 font-size: 24px;
                                 vertical-alignment: center;
-                            }
-                            Button {
-                                text: root.metadata-visible ? "Hide Metadata" : "Show Metadata";
-                                clicked => { root.metadata-toggle(); }
-                            }
-                            Button {
-                                text: root.audio-playing ? "Pause" : "Play";
-                                enabled: root.active-audio-path != "" && root.audio-error == "";
-                                clicked => { root.audio-play-pause(); }
-                            }
-                            Button {
-                                text: root.loop-enabled ? "Loop: On" : "Loop: Off";
-                                clicked => {
-                                    root.loop-enabled = !root.loop-enabled;
-                                    root.loop-changed(root.loop-enabled);
-                                }
-                            }
-                            Text {
-                                text: root.audio-current-time + " / " + root.audio-total-duration;
-                                color: root.light-theme ? #5c6878 : #aeb8c6;
-                                vertical-alignment: center;
-                            }
-                            Text {
-                                text: "Volume";
-                                color: root.light-theme ? #5c6878 : #aeb8c6;
-                                vertical-alignment: center;
-                            }
-                            Slider {
-                                value <=> root.audio-volume;
-                                minimum: 0;
-                                maximum: 1;
-                                width: 110px;
-                                changed => { root.volume-changed(self.value); }
-                            }
-                            Text {
-                                text: root.audio-error;
-                                color: #d46b32;
-                                vertical-alignment: center;
-                                overflow: elide;
-                                width: 260px;
                             }
                             Rectangle { horizontal-stretch: 1; }
                             LineEdit {
@@ -1342,6 +1303,57 @@ export component MainWindow inherits Window {
                                 }
                             }
                         }
+                    }
+                }
+            }
+
+            Rectangle {
+                height: 80px;
+                background: #ffffff;
+                HorizontalLayout {
+                    height: 100%;
+                    padding-left: 24px;
+                    padding-right: 24px;
+                    spacing: 12px;
+                    Button {
+                        text: root.metadata-visible ? "Hide Metadata" : "Show Metadata";
+                        clicked => { root.metadata-toggle(); }
+                    }
+                    Button {
+                        text: root.audio-playing ? "Pause" : "Play";
+                        enabled: root.active-audio-path != "" && root.audio-error == "";
+                        clicked => { root.audio-play-pause(); }
+                    }
+                    Button {
+                        text: root.loop-enabled ? "Loop: On" : "Loop: Off";
+                        clicked => {
+                            root.loop-enabled = !root.loop-enabled;
+                            root.loop-changed(root.loop-enabled);
+                        }
+                    }
+                    Text {
+                        text: root.audio-current-time + " / " + root.audio-total-duration;
+                        color: root.light-theme ? #5c6878 : #aeb8c6;
+                        vertical-alignment: center;
+                    }
+                    Text {
+                        text: "Volume";
+                        color: root.light-theme ? #5c6878 : #aeb8c6;
+                        vertical-alignment: center;
+                    }
+                    Slider {
+                        value <=> root.audio-volume;
+                        minimum: 0;
+                        maximum: 1;
+                        width: 110px;
+                        changed => { root.volume-changed(self.value); }
+                    }
+                    Text {
+                        text: root.audio-error;
+                        color: #d46b32;
+                        vertical-alignment: center;
+                        overflow: elide;
+                        width: 260px;
                     }
                 }
             }
