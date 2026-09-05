@@ -2,17 +2,20 @@ use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashSet,
-    fs, io,
+    fs,
+    io::{self, Write},
     path::{Component, Path, PathBuf},
+    sync::atomic::{AtomicU64, Ordering},
     sync::mpsc::{self, Receiver, Sender},
     thread,
-    time::Duration,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 pub const DEFAULT_REMOTE_DIRECTORY: &str = "output/audio";
 pub const DEFAULT_LOCAL_DIRECTORY: &str = "downloads";
 pub const DEFAULT_INTERVAL_MS: u64 = 4000;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
+static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct SyncConfig {
@@ -338,18 +341,46 @@ impl ComfyUiClient {
                 SyncError::Response("ComfyUI returned an invalid filename".to_string())
             })?;
         fs::create_dir_all(destination).map_err(SyncError::Io)?;
-        let bytes = self
-            .client
-            .get(format!("{}/adb-music-player/audio-download", config.url))
-            .query(&[("path", file.path.as_str())])
-            .send()
-            .map_err(SyncError::Request)?
-            .error_for_status()
-            .map_err(SyncError::Request)?
-            .bytes()
-            .map_err(SyncError::Request)?;
-        fs::write(destination.join(filename), bytes).map_err(SyncError::Io)
+        let final_path = destination.join(filename);
+        let temporary_path = temporary_download_path(destination, filename);
+        let result = (|| {
+            let mut response = self
+                .client
+                .get(format!("{}/adb-music-player/audio-download", config.url))
+                .query(&[("path", file.path.as_str())])
+                .send()
+                .map_err(SyncError::Request)?
+                .error_for_status()
+                .map_err(SyncError::Request)?;
+            let mut temporary_file = fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&temporary_path)
+                .map_err(SyncError::Io)?;
+            response
+                .copy_to(&mut temporary_file)
+                .map_err(SyncError::Request)?;
+            temporary_file.flush().map_err(SyncError::Io)?;
+            temporary_file.sync_all().map_err(SyncError::Io)?;
+            fs::rename(&temporary_path, &final_path).map_err(SyncError::Io)
+        })();
+        if result.is_err() {
+            let _ = fs::remove_file(&temporary_path);
+        }
+        result
     }
+}
+
+fn temporary_download_path(destination: &Path, filename: &str) -> PathBuf {
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or_default();
+    let counter = TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    destination.join(format!(
+        ".{filename}.{}.{timestamp}.{counter}",
+        std::process::id()
+    ))
 }
 
 pub fn progress(files: &[RemoteFile], destination: &Path) -> Result<SyncProgress, SyncError> {
@@ -398,8 +429,8 @@ fn validate_request_config(config: &SyncConfig) -> Result<(), SyncError> {
 #[cfg(test)]
 mod tests {
     use super::{
-        ensure_destination, progress, RemoteFile, SyncConfig, DEFAULT_INTERVAL_MS,
-        DEFAULT_LOCAL_DIRECTORY, DEFAULT_REMOTE_DIRECTORY,
+        ensure_destination, progress, temporary_download_path, RemoteFile, SyncConfig,
+        DEFAULT_INTERVAL_MS, DEFAULT_LOCAL_DIRECTORY, DEFAULT_REMOTE_DIRECTORY,
     };
     use std::{fs, path::Path};
 
@@ -439,7 +470,16 @@ mod tests {
         let destination = ensure_destination(&workspace, &config).unwrap();
         assert!(destination.is_dir());
         assert_eq!(destination, workspace.join(DEFAULT_LOCAL_DIRECTORY));
+        fs::remove_dir_all(destination).unwrap();
         fs::remove_dir_all(workspace).unwrap();
+    }
+
+    #[test]
+    fn temporary_download_name_is_hidden_and_keeps_original_name() {
+        let path = temporary_download_path(Path::new("/workspace/downloads"), "myfile.opus");
+        let filename = path.file_name().unwrap().to_string_lossy();
+        assert!(filename.starts_with(".myfile.opus."));
+        assert_ne!(filename, "myfile.opus");
     }
 
     #[test]
