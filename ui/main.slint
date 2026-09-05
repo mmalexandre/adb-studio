@@ -599,6 +599,21 @@ component ExplorerRow inherits Rectangle {
         padding-left: 8px + root.depth * 16px;
         padding-right: 8px;
         spacing: 6px;
+        if root.kind == "dir" : Image {
+            source: @image-url("../assets/icons/chevron-right.svg");
+            width: 20px;
+            height: 20px;
+            transform-rotation: root.is-expanded ? 90deg : 0deg;
+            animate transform-rotation {
+                duration: 200ms;
+                easing: ease-in-out;
+            }
+            vertical-alignment: center;
+        }
+        if root.kind != "dir" : Rectangle {
+            width: 20px;
+            height: 20px;
+        }
         Image {
             source: root.icon-source();
             width: 16px;
@@ -1352,12 +1367,31 @@ export component MainWindow inherits Window {
                         text: root.metadata-visible ? "Hide Metadata" : "Show Metadata";
                         clicked => { root.metadata-toggle(); }
                     }
-                    IconButton {
-                        icon: root.audio-playing ? @image-url("../assets/icons/pause.svg") : @image-url("../assets/icons/play.svg");
-                        enabled: root.active-audio-path != "" && root.audio-error == "";
-                        clicked => { root.audio-play-pause(); }
+                    Rectangle {
+                        width: 40px;
+                        height: 40px;
+                        y: (parent.height - self.height) / 2;
+                        border-radius: 20px;
+                        background: #ffffff;
+                        border-color: root.light-theme ? (play-area.has-hover ? #b8c0ca : #b8c0ca80) : (play-area.has-hover ? #566171 : #56617180);
+                        border-width: 2px;
+                        Image {
+                            source: root.audio-playing
+                                ? @image-url("../assets/icons/pause.svg")
+                                : @image-url("../assets/icons/play.svg");
+                            x: (parent.width - self.width) / 2;
+                            y: (parent.height - self.height) / 2;
+                            width: 18px;
+                            height: 18px;
+                            opacity: root.active-audio-path != "" && root.audio-error == "" ? (play-area.has-hover ? 1 : 0.5) : 0.35;
+                        }
+                        play-area := TouchArea {
+                            enabled: root.active-audio-path != "" && root.audio-error == "";
+                            clicked => { root.audio-play-pause(); }
+                        }
                     }
                     IconButton {
+                        y: (parent.height - self.height) / 2;
                         icon: @image-url("../assets/icons/repeat-2.svg");
                         active: root.loop-enabled;
                         clicked => {
@@ -1371,6 +1405,7 @@ export component MainWindow inherits Window {
                         vertical-alignment: center;
                     }
                     Image {
+                        y: (parent.height - self.height) / 2;
                         source: @image-url("../assets/icons/volume-2.svg");
                         width: 20px;
                         height: 20px;
