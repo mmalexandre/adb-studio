@@ -596,6 +596,13 @@ component ExplorerRow inherits Rectangle {
         if root.editing : LineEdit {
             text <=> root.edit-text;
             horizontal-stretch: 1;
+            key-pressed(event) => {
+                if event.text == Key.Escape {
+                    root.edit-cancelled();
+                    accept;
+                }
+                reject;
+            }
             changed has-focus => {
                 if !self.has-focus {
                     root.edit-cancelled();
@@ -880,6 +887,10 @@ export component MainWindow inherits Window {
         capture-key-pressed(event) => {
             if event.text == Key.F11 {
                 root.toggle-fullscreen();
+                accept;
+            }
+            if event.text == Key.Escape && root.tree-edit-path != "" {
+                root.tree-edit-cancelled();
                 accept;
             }
             reject;
