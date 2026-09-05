@@ -539,6 +539,7 @@ component AudioList inherits ListView {
 }
 
 component ExplorerRow inherits Rectangle {
+    width: 100%;
     height: 26px;
     background: root.is-selected ? (root.light-theme ? #d7e3f3 : #2a3546) : transparent;
     callback clicked();
