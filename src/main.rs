@@ -126,6 +126,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         let weak_window = window.as_weak();
         let tree_state = Rc::clone(&tree_state);
+        let settings = Rc::clone(&settings);
+        window.on_audio_row_selected(move |path| {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            select_tree_path(&window, &tree_state, &settings, Path::new(path.as_str()));
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        let tree_state = Rc::clone(&tree_state);
         window.on_rename_requested(move || {
             let Some(window) = weak_window.upgrade() else {
                 return;
@@ -1254,6 +1266,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     {
         let weak_window = window.as_weak();
+        window.on_toggle_fullscreen(move || {
+            if let Some(window) = weak_window.upgrade() {
+                let fullscreen = window.window().is_fullscreen();
+                window.window().set_fullscreen(!fullscreen);
+            }
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
         let settings = Rc::clone(&settings);
         window.on_theme_selected(move |light_theme| {
             {
@@ -1537,6 +1559,10 @@ fn select_tree_path(
         return;
     };
     state.select_and_expand(path);
+    let tree_index = file_system::build_visible_rows(state)
+        .iter()
+        .position(|row| row.path == path)
+        .map(|index| index as i32);
     settings.borrow_mut().last_selected_path = Some(path.to_string_lossy().into_owned());
     let settings_snapshot = settings.borrow().clone();
     settings::save(&settings_snapshot);
@@ -1548,6 +1574,8 @@ fn select_tree_path(
     );
     drop(state_ref);
     refresh_tree(window, tree_state);
+    window.set_tree_scroll_to_index(-1);
+    window.set_tree_scroll_to_index(tree_index.unwrap_or(-1));
 }
 
 fn request_audio_generation(audio_load_state: &Arc<Mutex<AudioLoadState>>, start_index: usize) {

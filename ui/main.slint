@@ -494,6 +494,7 @@ component AudioList inherits ListView {
     in property <color> comment-text-color: #ffffff;
     in property <[AudioRow]> rows;
     in property <int> scroll-to-index: -1;
+    callback row-selected(string);
     callback viewport-changed(int);
     callback seek-requested(string, float);
     callback play-requested(string);
@@ -528,13 +529,13 @@ component AudioList inherits ListView {
         loop-enabled: row.loop-enabled;
         selected-comment-start: row.selected-comment-start;
         selected-comment-end: row.selected-comment-end;
-        seek-requested(progress) => { root.seek-requested(row.path, progress); }
-        play-requested => { root.play-requested(row.path); }
-        comment-range-requested(start, end) => { root.comment-range-requested(row.path, start, end); }
-        comment-selected(start, end, text) => { root.comment-selected(row.path, start, end, text); }
-        comment-edit-requested(start, end, text) => { root.comment-edit-requested(row.path, start, end, text); }
-        comment-range-moved(old-start, old-end, start, end, text) => { root.comment-range-moved(row.path, old-start, old-end, start, end, text); }
-        rating-requested(rating) => { root.rating-requested(row.path, rating); }
+        seek-requested(progress) => { root.row-selected(row.path); root.seek-requested(row.path, progress); }
+        play-requested => { root.row-selected(row.path); root.play-requested(row.path); }
+        comment-range-requested(start, end) => { root.row-selected(row.path); root.comment-range-requested(row.path, start, end); }
+        comment-selected(start, end, text) => { root.row-selected(row.path); root.comment-selected(row.path, start, end, text); }
+        comment-edit-requested(start, end, text) => { root.row-selected(row.path); root.comment-edit-requested(row.path, start, end, text); }
+        comment-range-moved(old-start, old-end, start, end, text) => { root.row-selected(row.path); root.comment-range-moved(row.path, old-start, old-end, start, end, text); }
+        rating-requested(rating) => { root.row-selected(row.path); root.rating-requested(row.path, rating); }
     }
 }
 
@@ -674,6 +675,51 @@ component ExplorerRow inherits Rectangle {
     }
 }
 
+component ExplorerList inherits ListView {
+    in property <bool> light-theme;
+    in property <[TreeRow]> rows;
+    in property <string> edit-path;
+    in-out property <string> edit-text: "";
+    in property <int> scroll-to-index: -1;
+    property <length> row-top: root.scroll-to-index * 26px;
+    property <length> viewport-top: 0px - root.viewport-y;
+    callback row-clicked(string);
+    callback tree-context-menu(string);
+    callback tree-drop-requested(string, int, float);
+    callback edit-accepted(string, string);
+    callback edit-cancelled();
+
+    changed scroll-to-index => {
+        if root.scroll-to-index >= 0 {
+            if root.row-top < root.viewport-top || root.row-top + 26px > root.viewport-top + root.height {
+                root.viewport-y = 0px - (root.row-top - (root.height - 26px) / 2);
+            }
+        }
+    }
+
+    for row[index] in root.rows : ExplorerRow {
+        light-theme: root.light-theme;
+        path: row.path;
+        name: row.name;
+        depth: row.depth;
+        is-dir: row.is-dir;
+        is-expanded: row.is-expanded;
+        is-selected: row.is-selected;
+        kind: row.kind;
+        editing: root.edit-path == row.path;
+        edit-text <=> root.edit-text;
+        drag-finished(was-dragged, pointer-y) => {
+            if was-dragged {
+                root.tree-drop-requested(row.path, index, pointer-y);
+            }
+        }
+        clicked => { root.row-clicked(row.path); }
+        right-clicked => { root.tree-context-menu(row.path); }
+        edit-accepted(text) => { root.edit-accepted(row.path, text); }
+        edit-cancelled => { root.edit-cancelled(); }
+    }
+}
+
 component MenuButton inherits Rectangle {
     width: 70px;
     height: 40px;
@@ -718,6 +764,7 @@ export component MainWindow inherits Window {
     min-width: 900px;
     min-height: 560px;
     background: #11151b;
+    forward-focus: keyboard-focus;
 
     in-out property <bool> light-theme: false;
     in-out property <color> comment-background-color: #000000;
@@ -735,6 +782,7 @@ export component MainWindow inherits Window {
     in-out property <bool> settings-visible: false;
     in-out property <bool> file-menu-visible: false;
     in-out property <bool> edit-menu-visible: false;
+    in-out property <bool> view-menu-visible: false;
     in-out property <bool> help-menu-visible: false;
     in-out property <bool> tree-menu-visible: false;
     in-out property <string> tree-menu-path: "";
@@ -745,6 +793,7 @@ export component MainWindow inherits Window {
     in-out property <length> left-pane-width: 280px;
     callback left-pane-width-changed(length);
     in-out property <[TreeRow]> tree-rows: [];
+    in-out property <int> tree-scroll-to-index: -1;
     in-out property <[AudioRow]> audio-rows: [];
     in-out property <int> audio-scroll-to-index: -1;
     in-out property <string> audio-filter: "";
@@ -780,9 +829,11 @@ export component MainWindow inherits Window {
     callback open-folder();
     callback close-about();
     callback close-settings();
+    callback toggle-fullscreen();
     callback theme-selected(bool);
     callback comment-colors-selected(string, string);
     callback row-clicked(string);
+    callback audio-row-selected(string);
     callback tree-context-menu(string);
     callback tree-drop-requested(string, int, float);
     callback rename-requested();
@@ -825,6 +876,16 @@ export component MainWindow inherits Window {
         root.metadata-pane-height-changed(root.metadata-pane-height);
     }
 
+    keyboard-focus := FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.F11 {
+                root.toggle-fullscreen();
+                accept;
+            }
+            reject;
+        }
+    }
+
     Rectangle {
         background: root.light-theme ? #f5f7fa : #11151b;
 
@@ -857,6 +918,7 @@ export component MainWindow inherits Window {
                         clicked => {
                             root.file-menu-visible = !root.file-menu-visible;
                             root.edit-menu-visible = false;
+                            root.view-menu-visible = false;
                             root.help-menu-visible = false;
                         }
                     }
@@ -866,6 +928,17 @@ export component MainWindow inherits Window {
                         clicked => {
                             root.edit-menu-visible = !root.edit-menu-visible;
                             root.file-menu-visible = false;
+                            root.view-menu-visible = false;
+                            root.help-menu-visible = false;
+                        }
+                    }
+                    MenuButton {
+                        label: "View";
+                        light-theme: root.light-theme;
+                        clicked => {
+                            root.view-menu-visible = !root.view-menu-visible;
+                            root.file-menu-visible = false;
+                            root.edit-menu-visible = false;
                             root.help-menu-visible = false;
                         }
                     }
@@ -876,6 +949,7 @@ export component MainWindow inherits Window {
                             root.help-menu-visible = !root.help-menu-visible;
                             root.file-menu-visible = false;
                             root.edit-menu-visible = false;
+                            root.view-menu-visible = false;
                         }
                     }
                     Rectangle { horizontal-stretch: 1; }
@@ -950,46 +1024,35 @@ export component MainWindow inherits Window {
                                 }
                                 reject;
                             }
-                            ListView {
+                            tree-list := ExplorerList {
                                 width: 100%;
                                 height: 100%;
-                            for row[index] in root.tree-rows : ExplorerRow {
                                 light-theme: root.light-theme;
-                                path: row.path;
-                                name: row.name;
-                                depth: row.depth;
-                                is-dir: row.is-dir;
-                                is-expanded: row.is-expanded;
-                                is-selected: row.is-selected;
-                                kind: row.kind;
-                                editing: root.tree-edit-path == row.path;
+                                rows: root.tree-rows;
+                                edit-path: root.tree-edit-path;
                                 edit-text <=> root.tree-edit-text;
-                                drag-finished(was-dragged, pointer-y) => {
-                                    if was-dragged {
-                                        root.tree-drop-requested(row.path, index, pointer-y);
-                                    }
-                                }
-                                clicked => {
-                                    if root.tree-edit-path != "" && root.tree-edit-path != row.path {
+                                scroll-to-index: root.tree-scroll-to-index;
+                                row-clicked(path) => {
+                                    if root.tree-edit-path != "" && root.tree-edit-path != path {
                                         root.tree-edit-cancelled();
                                     } else {
                                         tree-focus.focus();
-                                        root.row-clicked(row.path);
+                                        root.row-clicked(path);
                                     }
                                 }
-                                right-clicked => {
-                                    if root.tree-edit-path != "" && root.tree-edit-path != row.path {
+                                tree-context-menu(path) => {
+                                    if root.tree-edit-path != "" && root.tree-edit-path != path {
                                         root.tree-edit-cancelled();
                                     }
                                     tree-focus.focus();
-                                    root.tree-menu-path = row.path;
+                                    root.tree-menu-path = path;
                                     root.tree-menu-visible = true;
                                 }
-                                edit-accepted(text) => { root.tree-edit-accepted(row.path, text, root.tree-edit-mode); }
+                                tree-drop-requested(path, index, pointer-y) => { root.tree-drop-requested(path, index, pointer-y); }
+                                edit-accepted(path, text) => { root.tree-edit-accepted(path, text, root.tree-edit-mode); }
                                 edit-cancelled => { root.tree-edit-cancelled(); }
                             }
                             }
-                        }
                     }
 
                     if !root.has-folder : VerticalBox {
@@ -1149,6 +1212,7 @@ export component MainWindow inherits Window {
                                 width: 100%;
                                 height: 100%;
                                 viewport-changed(start-index) => { root.audio-viewport-changed(start-index); }
+                                row-selected(path) => { root.audio-row-selected(path); }
                                 seek-requested(path, progress) => { root.audio-seek(path, progress); }
                                 play-requested(path) => { root.audio-play(path); }
                                 comment-range-requested(path, start, end) => { root.comment-range-requested(path, start, end); }
@@ -1359,8 +1423,44 @@ export component MainWindow inherits Window {
             }
         }
 
-        if root.help-menu-visible : Rectangle {
+        if root.view-menu-visible : Rectangle {
             x: 140px;
+            y: 40px;
+            width: 210px;
+            height: 42px;
+            background: root.light-theme ? #ffffff : #202832;
+            border-color: root.light-theme ? #cbd2dc : #435064;
+            border-width: 1px;
+            Rectangle {
+                width: 100%;
+                height: 100%;
+                background: fullscreen-touch.has-hover ? (root.light-theme ? #e7ebf0 : #2a3546) : transparent;
+                Text {
+                    text: "Toggle full screen";
+                    color: root.light-theme ? #202833 : #f1f4f8;
+                    x: 14px;
+                    width: parent.width - 70px;
+                    vertical-alignment: center;
+                }
+                Text {
+                    text: "F11";
+                    color: root.light-theme ? #5c6878 : #aeb8c6;
+                    x: parent.width - 56px;
+                    width: 42px;
+                    horizontal-alignment: right;
+                    vertical-alignment: center;
+                }
+                fullscreen-touch := TouchArea {
+                    clicked => {
+                        root.view-menu-visible = false;
+                        root.toggle-fullscreen();
+                    }
+                }
+            }
+        }
+
+        if root.help-menu-visible : Rectangle {
+            x: 210px;
             y: 40px;
             width: 210px;
             height: 42px;
