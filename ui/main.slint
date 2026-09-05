@@ -1,5 +1,5 @@
 import { ComboBox, LineEdit, ListView, ScrollView, Slider, TextEdit, VerticalBox } from "std-widgets.slint";
-import { AudioRow, CommentRow, TreeRow, WorkflowFileRow, WorkflowLoraRow } from "./models.slint";
+import { AudioRow, BreadcrumbRow, CommentRow, TreeRow, WorkflowFileRow, WorkflowLoraRow } from "./models.slint";
 import { WorkflowSuggestionBox } from "./workflow_suggestion.slint";
 import { AppButton, CompactIconButton, IconButton, MenuButton, SyncIconButton, ToolButton } from "./controls.slint";
 
@@ -750,6 +750,7 @@ export component MainWindow inherits Window {
     in-out property <[TreeRow]> tree-rows: [];
     in-out property <int> tree-selection-count: 1;
     in-out property <int> tree-scroll-to-index: -1;
+    in-out property <[BreadcrumbRow]> audio-breadcrumbs: [];
     in-out property <[AudioRow]> audio-rows: [];
     in-out property <int> audio-scroll-to-index: -1;
     in-out property <string> audio-filter: "";
@@ -795,6 +796,7 @@ export component MainWindow inherits Window {
     callback theme-selected(bool);
     callback comment-colors-selected(string, string);
     callback row-clicked(string, bool);
+    callback breadcrumb-requested(string);
     callback audio-row-selected(string);
     callback tree-context-menu(string);
     callback tree-trash-requested(string);
@@ -1116,11 +1118,29 @@ export component MainWindow inherits Window {
                         spacing: 18px;
                         HorizontalLayout {
                             spacing: 12px;
-                            Text {
-                                text: "Audio Library";
-                                color: root.light-theme ? #202833 : #e3e8ef;
-                                font-size: 24px;
-                                vertical-alignment: center;
+                            HorizontalLayout {
+                                spacing: 0px;
+                                for breadcrumb[index] in root.audio-breadcrumbs : Rectangle {
+                                    height: 28px;
+                                    width: breadcrumb-name.preferred-width + (index < root.audio-breadcrumbs.length - 1 ? 42px : 0px);
+                                    breadcrumb-name := Text {
+                                        text: breadcrumb.name;
+                                        color: index < root.audio-breadcrumbs.length - 1 ? (root.light-theme ? #5c6878 : #8b96a7) : (root.light-theme ? #202833 : #e3e8ef);
+                                        font-size: 18px;
+                                        vertical-alignment: center;
+                                    }
+                                    if index < root.audio-breadcrumbs.length - 1 : Text {
+                                        text: ">";
+                                        x: breadcrumb-name.x + breadcrumb-name.width + 4px;
+                                        color: root.light-theme ? #8b96a7 : #687487;
+                                        font-size: 16px;
+                                        vertical-alignment: center;
+                                    }
+                                    if index < root.audio-breadcrumbs.length - 1 : TouchArea {
+                                        mouse-cursor: pointer;
+                                        clicked => { root.breadcrumb-requested(breadcrumb.path); }
+                                    }
+                                }
                             }
                             Rectangle { horizontal-stretch: 1; }
                             LineEdit {

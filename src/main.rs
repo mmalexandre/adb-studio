@@ -154,6 +154,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let weak_window = window.as_weak();
         let tree_state = Rc::clone(&tree_state);
         let settings = Rc::clone(&settings);
+        let audio_folder = Rc::clone(&audio_folder);
+        let audio_model = Rc::clone(&audio_model);
+        let audio_load_state = Arc::clone(&audio_load_state);
+        window.on_breadcrumb_requested(move |path| {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            let path = PathBuf::from(path.as_str());
+            if !path.is_dir() {
+                return;
+            }
+            select_tree_path(&window, &tree_state, &settings, &path);
+            refresh_audio(
+                &window,
+                &audio_folder,
+                &audio_model,
+                &audio_load_state,
+                path,
+            );
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        let tree_state = Rc::clone(&tree_state);
+        let settings = Rc::clone(&settings);
         window.on_tree_trash_requested(move |path| {
             let Some(window) = weak_window.upgrade() else {
                 return;
@@ -1913,6 +1939,7 @@ fn close_workspace(
     window.set_folder_name("".into());
     window.set_tree_rows(ModelRc::new(VecModel::from(Vec::new())));
     window.set_tree_selection_count(0);
+    window.set_audio_breadcrumbs(ModelRc::new(VecModel::from(Vec::new())));
     window.set_audio_rows(ModelRc::new(VecModel::from(Vec::new())));
     window.set_selected_name("".into());
     window.set_active_audio_path("".into());
@@ -2043,6 +2070,9 @@ fn refresh_audio_with_changes(
     folder: PathBuf,
     changed_paths: Option<&[PathBuf]>,
 ) {
+    if let Some(workspace) = audio_folder.borrow().clone() {
+        set_audio_breadcrumbs(window, &workspace, &folder);
+    }
     let filter = window.get_audio_filter().to_string();
     let reload_all = changed_paths.is_none();
     let changed_audio_paths = changed_paths
@@ -2263,6 +2293,32 @@ fn select_tree_path(
     refresh_tree(window, tree_state);
     window.set_tree_scroll_to_index(-1);
     window.set_tree_scroll_to_index(tree_index.unwrap_or(-1));
+}
+
+fn set_audio_breadcrumbs(window: &MainWindow, workspace: &Path, folder: &Path) {
+    let mut rows = Vec::new();
+    let mut path = workspace.to_path_buf();
+    let workspace_name = workspace
+        .file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| workspace.to_str().unwrap_or("Workspace"));
+    rows.push(BreadcrumbRow {
+        name: workspace_name.to_owned().into(),
+        path: path.to_string_lossy().into_owned().into(),
+    });
+
+    if let Ok(relative) = folder.strip_prefix(workspace) {
+        for component in relative.components() {
+            path.push(component.as_os_str());
+            rows.push(BreadcrumbRow {
+                name: component.as_os_str().to_string_lossy().into_owned().into(),
+                path: path.to_string_lossy().into_owned().into(),
+            });
+        }
+    }
+
+    window.set_audio_breadcrumbs(ModelRc::new(VecModel::from(rows)));
 }
 
 fn request_audio_generation(
