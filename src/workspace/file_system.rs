@@ -69,15 +69,15 @@ pub fn read_dir_sorted(path: &Path) -> Vec<DirEntryInfo> {
                 kind,
             }
         })
-        .filter(|entry| {
-            !entry.name.starts_with('.') && entry.name != "/" && entry.name != "\\"
-        })
+        .filter(|entry| !entry.name.starts_with('.') && entry.name != "/" && entry.name != "\\")
         .collect();
 
     entries.sort_by(|a, b| {
-        b.is_dir
-            .cmp(&a.is_dir)
-            .then_with(|| a.name.to_ascii_lowercase().cmp(&b.name.to_ascii_lowercase()))
+        b.is_dir.cmp(&a.is_dir).then_with(|| {
+            a.name
+                .to_ascii_lowercase()
+                .cmp(&b.name.to_ascii_lowercase())
+        })
     });
 
     entries

@@ -1,102 +1,7 @@
 import { Button, ComboBox, LineEdit, ListView, ScrollView, Slider, TextEdit, VerticalBox } from "std-widgets.slint";
-
-export struct TreeRow {
-    path: string,
-    name: string,
-    depth: int,
-    is-dir: bool,
-    is-expanded: bool,
-    is-selected: bool,
-    kind: string,
-}
-
-export struct CommentRow {
-    start: float,
-    end: float,
-    bubble-end: float,
-    text: string,
-}
-
-export struct AudioRow {
-    path: string,
-    name: string,
-    modified-date: string,
-    peaks: [float],
-    comments: [CommentRow],
-    rating: int,
-    is-active: bool,
-    is-playing: bool,
-    progress: float,
-    loop-enabled: bool,
-    selected-comment-start: float,
-    selected-comment-end: float,
-}
-
-export struct WorkflowLoraRow {
-    filename: string,
-    strength: string,
-    custom-tag: string,
-}
-
-export struct WorkflowFileRow {
-    name: string,
-    path: string,
-}
-
-component WorkflowSuggestionBox inherits Rectangle {
-    in property <[WorkflowFileRow]> files: [];
-    in-out property <string> query: "";
-    in property <bool> light-theme: false;
-    in-out property <bool> list-visible: false;
-    callback selected(string);
-    callback search-requested(string);
-    height: 28px;
-    background: transparent;
-
-    LineEdit {
-        width: 100%;
-        placeholder-text: "Search workflows...";
-        text <=> root.query;
-        changed has-focus => {
-            if self.has-focus {
-                root.list-visible = true;
-            } else {
-                root.list-visible = false;
-            }
-        }
-        edited(text) => {
-            root.list-visible = true;
-            root.search-requested(text);
-        }
-    }
-    if root.list-visible : Rectangle {
-        y: 30px;
-        width: root.width;
-        height: 150px;
-        z: 20;
-        background: root.light-theme ? #ffffff : #202832;
-        border-color: root.light-theme ? #cbd2dc : #435064;
-        border-width: 1px;
-        ListView {
-            width: 100%;
-            height: 100%;
-            for file in root.files : Rectangle {
-                height: 26px;
-                background: file-touch.has-hover ? (root.light-theme ? #e7ebf0 : #2a3546) : transparent;
-                Text { text: file.name; x: 8px; width: parent.width - 16px; color: root.light-theme ? #202833 : #f1f4f8; vertical-alignment: center; overflow: elide; }
-                file-touch := TouchArea {
-                    width: 100%;
-                    height: 100%;
-                    clicked => {
-                        root.query = file.name;
-                        root.list-visible = false;
-                        root.selected(file.path);
-                    }
-                }
-            }
-        }
-    }
-}
+import { AudioRow, CommentRow, TreeRow, WorkflowFileRow, WorkflowLoraRow } from "./models.slint";
+import { WorkflowSuggestionBox } from "./workflow_suggestion.slint";
+import { CompactIconButton, IconButton, MenuButton, SyncIconButton, ToolButton } from "./controls.slint";
 
 component Waveform inherits Rectangle {
     height: 58px;
@@ -745,86 +650,6 @@ component ExplorerList inherits ListView {
     }
 }
 
-component MenuButton inherits Rectangle {
-    width: 70px;
-    height: 40px;
-    background: root.light-theme ? #eef1f5 : #1a2029;
-    callback clicked();
-    in property <bool> light-theme;
-    in property <string> label;
-    Text {
-        text: root.label;
-        color: root.light-theme ? #202833 : #d7dce5;
-        horizontal-alignment: center;
-        vertical-alignment: center;
-    }
-    TouchArea {
-        clicked => { root.clicked(); }
-    }
-}
-
-component ToolButton inherits Rectangle {
-    width: 48px;
-    height: 48px;
-    background: root.light-theme ? #e7ebf0 : #171c24;
-    callback clicked();
-    in property <bool> light-theme;
-    in property <image> icon;
-    Image {
-        source: root.icon;
-        x: (parent.width - self.width) / 2;
-        y: (parent.height - self.height) / 2;
-        width: 22px;
-        height: 22px;
-    }
-    TouchArea {
-        clicked => { root.clicked(); }
-    }
-}
-
-component IconButton inherits Rectangle {
-    width: 40px;
-    height: 40px;
-    background: #ffffff;
-    border-radius: 4px;
-    callback clicked();
-    in property <image> icon;
-    in property <bool> enabled: true;
-    in property <bool> active: false;
-    Image {
-        source: root.icon;
-        x: (parent.width - self.width) / 2;
-        y: (parent.height - self.height) / 2;
-        width: 20px;
-        height: 20px;
-        opacity: root.enabled ? (root.active ? 1 : 0.45) : 0.35;
-    }
-    TouchArea {
-        enabled: root.enabled;
-        clicked => { root.clicked(); }
-    }
-}
-
-component CompactIconButton inherits Rectangle {
-    width: 28px;
-    height: 28px;
-    background: transparent;
-    callback clicked();
-    in property <image> icon;
-    in property <bool> active: false;
-    Image {
-        source: root.icon;
-        x: (parent.width - self.width) / 2;
-        y: (parent.height - self.height) / 2;
-        width: 16px;
-        height: 16px;
-        opacity: root.active ? 1 : 0.5;
-    }
-    TouchArea {
-        clicked => { root.clicked(); }
-    }
-}
-
 export component MainWindow inherits Window {
     title: "Adb Studio";
     preferred-width: 1280px;
@@ -848,6 +673,20 @@ export component MainWindow inherits Window {
     in-out property <string> build-number: "development";
     in-out property <bool> about-visible: false;
     in-out property <bool> settings-visible: false;
+    in-out property <bool> comfyui-sync-visible: false;
+    in-out property <string> comfyui-sync-url: "";
+    in-out property <string> comfyui-sync-remote-directory: "output/audio";
+    in-out property <string> comfyui-sync-local-directory: "downloads";
+    in-out property <string> comfyui-sync-interval: "4000";
+    in-out property <string> comfyui-sync-error: "";
+    in-out property <string> comfyui-sync-test-message: "";
+    in-out property <bool> comfyui-sync-test-success: false;
+    in-out property <string> comfyui-sync-status: "Not configured";
+    in-out property <string> comfyui-sync-spinner: "|";
+    in-out property <int> comfyui-sync-present: 0;
+    in-out property <int> comfyui-sync-total: 0;
+    in-out property <bool> comfyui-sync-active: false;
+    in-out property <bool> comfyui-sync-error-state: false;
     in-out property <bool> file-menu-visible: false;
     in-out property <bool> edit-menu-visible: false;
     in-out property <bool> view-menu-visible: false;
@@ -898,6 +737,11 @@ export component MainWindow inherits Window {
     callback open-folder();
     callback close-about();
     callback close-settings();
+    callback comfyui-sync-requested();
+    callback comfyui-sync-save(string, string, string, string);
+    callback comfyui-sync-test(string, string, string, string);
+    callback comfyui-sync-cancel();
+    callback comfyui-sync-choose-directory();
     callback toggle-fullscreen();
     callback theme-selected(bool);
     callback comment-colors-selected(string, string);
@@ -1439,6 +1283,16 @@ export component MainWindow inherits Window {
                         width: 110px;
                         changed => { root.volume-changed(self.value); }
                     }
+                    SyncIconButton {
+                        icon: root.comfyui-sync-error-state
+                            ? @image-url("../assets/icons/cloud-alert.svg")
+                            : root.comfyui-sync-active
+                                ? @image-url("../assets/icons/cloud-sync-active.svg")
+                                : @image-url("../assets/icons/cloud-sync.svg");
+                        tooltip: "ComfyUI sync";
+                        status: root.comfyui-sync-status + "  " + root.comfyui-sync-present + "/" + root.comfyui-sync-total;
+                        clicked => { root.comfyui-sync-requested(); }
+                    }
                     Text {
                         text: root.audio-error;
                         color: #d46b32;
@@ -1474,6 +1328,31 @@ export component MainWindow inherits Window {
                         color: root.light-theme ? #5c6878 : #7f8b9d;
                         font-size: 11px;
                         vertical-alignment: center;
+                    }
+                    if root.comfyui-sync-active || root.comfyui-sync-error-state : Rectangle {
+                        width: sync-status-text.preferred-width + (root.comfyui-sync-active ? 22px : 8px);
+                        height: 28px;
+                        background: transparent;
+                        if root.comfyui-sync-active : Text {
+                            text: root.comfyui-sync-spinner;
+                            x: 4px;
+                            width: 14px;
+                            color: root.light-theme ? #d46b32 : #e58a4d;
+                            font-size: 14px;
+                            vertical-alignment: center;
+                        }
+                        sync-status-text := Text {
+                            x: root.comfyui-sync-active ? 20px : 4px;
+                            text: root.comfyui-sync-error-state
+                                ? "Syncing error..."
+                                : "Syncing " + root.comfyui-sync-present + "/" + root.comfyui-sync-total;
+                            color: root.comfyui-sync-error-state
+                                ? #d46b32
+                                : (root.light-theme ? #5c6878 : #7f8b9d);
+                            font-size: 11px;
+                            vertical-alignment: center;
+                        }
+                        TouchArea { clicked => { root.comfyui-sync-requested(); } }
                     }
                     CompactIconButton {
                         icon: @image-url("../assets/icons/file-code-2.svg");
@@ -1817,6 +1696,53 @@ export component MainWindow inherits Window {
                                 Button { text: "Close"; clicked => { root.close-settings(); } }
                             }
                         }
+                    }
+                }
+            }
+        }
+
+        if root.comfyui-sync-visible : Rectangle {
+            background: #00000080;
+            x: 0px;
+            y: 0px;
+            width: parent.width;
+            height: parent.height;
+            Rectangle {
+                width: 650px;
+                height: 450px;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                background: root.light-theme ? #ffffff : #202832;
+                border-color: root.light-theme ? #cbd2dc : #435064;
+                border-width: 1px;
+                VerticalBox {
+                    padding: 24px;
+                    spacing: 12px;
+                    Text { text: "ComfyUI Sync"; color: root.light-theme ? #202833 : #f1f4f8; font-size: 22px; }
+                    Text { text: "ComfyUI URL"; color: root.light-theme ? #5c6878 : #c4ccd8; }
+                    LineEdit { text <=> root.comfyui-sync-url; placeholder-text: "https://..."; }
+                    Text { text: "Remote directory"; color: root.light-theme ? #5c6878 : #c4ccd8; }
+                    LineEdit { text <=> root.comfyui-sync-remote-directory; }
+                    Text { text: "Download directory inside workspace"; color: root.light-theme ? #5c6878 : #c4ccd8; }
+                    HorizontalLayout {
+                        LineEdit { text <=> root.comfyui-sync-local-directory; horizontal-stretch: 1; }
+                        Button { text: "Choose..."; clicked => { root.comfyui-sync-choose-directory(); } }
+                    }
+                    Text { text: "Sync frequency (milliseconds)"; color: root.light-theme ? #5c6878 : #c4ccd8; }
+                    LineEdit { text <=> root.comfyui-sync-interval; }
+                    Text { text: root.comfyui-sync-error; color: #d46b32; overflow: elide; }
+                    Text {
+                        text: root.comfyui-sync-test-message;
+                        color: root.comfyui-sync-test-success ? #27ae60 : #d46b32;
+                        overflow: elide;
+                    }
+                    Rectangle { vertical-stretch: 1; }
+                    HorizontalLayout {
+                        alignment: end;
+                        spacing: 8px;
+                        Button { text: "Test"; clicked => { root.comfyui-sync-test(root.comfyui-sync-url, root.comfyui-sync-remote-directory, root.comfyui-sync-local-directory, root.comfyui-sync-interval); } }
+                        Button { text: "Cancel"; clicked => { root.comfyui-sync-cancel(); } }
+                        Button { text: "Save and sync"; clicked => { root.comfyui-sync-save(root.comfyui-sync-url, root.comfyui-sync-remote-directory, root.comfyui-sync-local-directory, root.comfyui-sync-interval); } }
                     }
                 }
             }

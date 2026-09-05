@@ -1,4 +1,8 @@
-use std::{fs::File, path::{Path, PathBuf}, time::Duration};
+use std::{
+    fs::File,
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 use rodio::{Decoder, DeviceSinkBuilder, MixerDeviceSink, Player, Source};
 
@@ -38,7 +42,8 @@ impl PlaybackEngine {
         player.set_volume(self.volume);
         player.append(decoder);
         if position > Duration::ZERO {
-            player.try_seek(position)
+            player
+                .try_seek(position)
                 .map_err(|error| format!("Could not seek audio file: {error}"))?;
         }
         player.play();
@@ -71,7 +76,8 @@ impl PlaybackEngine {
     pub fn seek(&mut self, position: Duration) -> Result<(), String> {
         let position = position.min(self.duration);
         if let Some(player) = &self.player {
-            player.try_seek(position)
+            player
+                .try_seek(position)
                 .map_err(|error| format!("Could not seek audio file: {error}"))?;
             self.position = position;
         }

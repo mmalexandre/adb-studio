@@ -75,8 +75,8 @@ fn decode_peaks(path: &Path) -> Result<Vec<f32>, Box<dyn std::error::Error>> {
     let track = format.default_track().ok_or("audio has no default track")?;
     let codec_params = track.codec_params.clone();
     let track_id = track.id;
-    let mut decoder = symphonia::default::get_codecs()
-        .make(&codec_params, &DecoderOptions::default())?;
+    let mut decoder =
+        symphonia::default::get_codecs().make(&codec_params, &DecoderOptions::default())?;
     let mut samples = Vec::new();
 
     while let Ok(packet) = format.next_packet() {

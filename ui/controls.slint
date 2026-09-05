@@ -1,0 +1,130 @@
+export component MenuButton inherits Rectangle {
+    width: 70px;
+    height: 40px;
+    background: root.light-theme ? #eef1f5 : #1a2029;
+    callback clicked();
+    in property <bool> light-theme;
+    in property <string> label;
+    Text {
+        text: root.label;
+        color: root.light-theme ? #202833 : #d7dce5;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+export component ToolButton inherits Rectangle {
+    width: 48px;
+    height: 48px;
+    background: root.light-theme ? #e7ebf0 : #171c24;
+    callback clicked();
+    in property <bool> light-theme;
+    in property <image> icon;
+    Image {
+        source: root.icon;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: 22px;
+        height: 22px;
+    }
+    TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+export component IconButton inherits Rectangle {
+    width: 40px;
+    height: 40px;
+    background: #ffffff;
+    border-radius: 4px;
+    callback clicked();
+    in property <image> icon;
+    in property <bool> enabled: true;
+    in property <bool> active: false;
+    Image {
+        source: root.icon;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: 20px;
+        height: 20px;
+        opacity: root.enabled ? (root.active ? 1 : 0.45) : 0.35;
+    }
+    TouchArea {
+        enabled: root.enabled;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component CompactIconButton inherits Rectangle {
+    width: 28px;
+    height: 28px;
+    background: transparent;
+    callback clicked();
+    in property <image> icon;
+    in property <bool> active: false;
+    Image {
+        source: root.icon;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: 16px;
+        height: 16px;
+        opacity: root.active ? 1 : 0.5;
+    }
+    TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+export component SyncIconButton inherits Rectangle {
+    width: 40px;
+    height: 40px;
+    background: transparent;
+    callback clicked();
+    in property <image> icon;
+    in property <string> tooltip;
+    in property <string> status;
+    in property <bool> active: false;
+    in property <bool> enabled: true;
+    Image {
+        source: root.icon;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: 20px;
+        height: 20px;
+        opacity: root.enabled ? 1 : 0.35;
+    }
+    TouchArea {
+        enabled: root.enabled;
+        clicked => { root.clicked(); }
+        changed has-hover => {
+            if self.has-hover {
+                tooltip-label.visible = true;
+            } else {
+                tooltip-label.visible = false;
+            }
+        }
+    }
+    Rectangle {
+        x: -100px;
+        y: 43px;
+        width: 240px;
+        height: 42px;
+        visible: false;
+        z: 30;
+        background: #202832;
+        border-color: #435064;
+        border-width: 1px;
+        tooltip-label := Text {
+            text: root.tooltip + "\n" + root.status;
+            x: 8px;
+            width: parent.width - 16px;
+            color: #f1f4f8;
+            font-size: 11px;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+    }
+}

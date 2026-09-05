@@ -134,7 +134,10 @@ fn parse_visual_node(node: &Value, workflow: &mut ComfyUIWorkflow) {
     let Some(object) = node.as_object() else {
         return;
     };
-    let node_type = object.get("type").and_then(Value::as_str).unwrap_or_default();
+    let node_type = object
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
     let node_lower = node_type.to_ascii_lowercase();
     let widget_values = object
         .get("widgets_values")

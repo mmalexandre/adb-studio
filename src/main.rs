@@ -15,6 +15,7 @@ use slint::{ComponentHandle, Model, ModelRc, VecModel};
 mod audio;
 mod metadata;
 mod settings;
+mod sync;
 mod workspace;
 use audio::{loader, waveform};
 use metadata::AudioComment;
@@ -30,6 +31,7 @@ use audio::view::{
     select_comment, selected_loop_range, update_audio_rows, update_comment_model,
 };
 use settings::AppSettings;
+use sync::{ComfyUiClient, SyncConfig, SyncController, SyncEvent};
 use workspace::workflow::{
     apply_workflow, clear_workflow, load_workflow_for_audio, scan_json_files,
 };
@@ -44,6 +46,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let audio_folder: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(None));
     let workflow_files: Rc<RefCell<Vec<(String, String)>>> = Rc::new(RefCell::new(Vec::new()));
     let audio_model: Rc<RefCell<Option<Rc<VecModel<AudioRow>>>>> = Rc::new(RefCell::new(None));
+    let sync_controller = Rc::new(RefCell::new(SyncController::new()));
     let comment_editor_original: Rc<RefCell<Option<AudioComment>>> = Rc::new(RefCell::new(None));
     let comment_editor_duration = Rc::new(RefCell::new(0.0_f32));
     let last_button_click: Rc<RefCell<Option<(PathBuf, Instant)>>> = Rc::new(RefCell::new(None));
@@ -311,9 +314,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     return;
                 }
                 if source.is_dir() && target.strip_prefix(source).is_ok() {
-                    window.set_audio_error(
-                        "File operation: cannot move a folder into itself".into(),
-                    );
+                    window
+                        .set_audio_error("File operation: cannot move a folder into itself".into());
                     return;
                 }
                 let destination = target.join(name);
@@ -840,6 +842,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &audio_model,
                 &audio_load_state,
                 &workflow_files,
+                &sync_controller,
             );
         }
     }
@@ -854,7 +857,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let last_persisted_position = Rc::new(RefCell::new(Instant::now()));
         let last_persisted_position_for_timer = Rc::clone(&last_persisted_position);
         let audio_result_receiver = Rc::new(RefCell::new(audio_result_receiver));
+        let sync_controller = Rc::clone(&sync_controller);
         let mut spinner_frame = 0usize;
+        let mut sync_spinner_frame = 0usize;
         let timer = slint::Timer::default();
         timer.start(
             slint::TimerMode::Repeated,
@@ -919,6 +924,44 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         window.set_audio_spinner(["|", "/", "-", "\\"][spinner_frame].into());
                         spinner_frame = (spinner_frame + 1) % 4;
                     }
+                    let current_generation = sync_controller.borrow().generation();
+                    for event in sync_controller.borrow().events().try_iter() {
+                        match event {
+                            SyncEvent::Running { generation }
+                                if generation == current_generation =>
+                            {
+                                window.set_comfyui_sync_active(true);
+                                window.set_comfyui_sync_error_state(false);
+                                window.set_comfyui_sync_status("Syncing".into());
+                            }
+                            SyncEvent::Progress {
+                                generation,
+                                progress,
+                            } if generation == current_generation => {
+                                window.set_comfyui_sync_active(true);
+                                window.set_comfyui_sync_error_state(false);
+                                window.set_comfyui_sync_present(progress.present as i32);
+                                window.set_comfyui_sync_total(progress.total as i32);
+                                window.set_comfyui_sync_status("Syncing".into());
+                            }
+                            SyncEvent::Error {
+                                generation,
+                                message,
+                            } if generation == current_generation => {
+                                window.set_comfyui_sync_active(false);
+                                window.set_comfyui_sync_error_state(true);
+                                window.set_comfyui_sync_status("Sync stopped".into());
+                                window.set_comfyui_sync_error(message.into());
+                            }
+                            _ => {}
+                        }
+                    }
+                    if window.get_comfyui_sync_active() {
+                        window.set_comfyui_sync_spinner(
+                            ["|", "/", "-", "\\"][sync_spinner_frame].into(),
+                        );
+                        sync_spinner_frame = (sync_spinner_frame + 1) % 4;
+                    }
                 }
                 let Some(model) = audio_model.borrow().clone() else {
                     return;
@@ -964,6 +1007,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let audio_folder = Rc::clone(&audio_folder);
         let audio_model = Rc::clone(&audio_model);
         let audio_load_state = Arc::clone(&audio_load_state);
+        let sync_controller = Rc::clone(&sync_controller);
         window.on_open_folder(move || {
             let Some(window) = weak_window.upgrade() else {
                 return;
@@ -982,6 +1026,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     &audio_model,
                     &audio_load_state,
                     &workflow_files,
+                    &sync_controller,
                 );
             }
         });
@@ -1282,6 +1327,175 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     {
         let weak_window = window.as_weak();
+        let audio_folder = Rc::clone(&audio_folder);
+        window.on_comfyui_sync_requested(move || {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            let Some(folder) = audio_folder.borrow().clone() else {
+                window.set_comfyui_sync_error(
+                    "Open a workspace before configuring ComfyUI sync".into(),
+                );
+                window.set_comfyui_sync_visible(true);
+                return;
+            };
+            let config = sync::load_config(&folder).unwrap_or_default();
+            window.set_comfyui_sync_url(config.url.into());
+            window.set_comfyui_sync_remote_directory(config.remote_directory.into());
+            window.set_comfyui_sync_local_directory(config.local_directory.into());
+            window.set_comfyui_sync_interval(config.interval_ms.to_string().into());
+            window.set_comfyui_sync_error("".into());
+            window.set_comfyui_sync_test_message("".into());
+            window.set_comfyui_sync_test_success(false);
+            window.set_comfyui_sync_visible(true);
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        let audio_folder = Rc::clone(&audio_folder);
+        window.on_comfyui_sync_choose_directory(move || {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            let Some(folder) = audio_folder.borrow().clone() else {
+                return;
+            };
+            if let Some(directory) = rfd::FileDialog::new()
+                .set_title("Choose ComfyUI download directory")
+                .set_directory(&folder)
+                .pick_folder()
+            {
+                if let Ok(relative) = directory.strip_prefix(&folder) {
+                    window.set_comfyui_sync_local_directory(
+                        relative.to_string_lossy().into_owned().into(),
+                    );
+                    window.set_comfyui_sync_error("".into());
+                    window.set_comfyui_sync_test_message("".into());
+                } else {
+                    window.set_comfyui_sync_error(
+                        "Download directory must be inside the workspace".into(),
+                    );
+                }
+            }
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        let audio_folder = Rc::clone(&audio_folder);
+        window.on_comfyui_sync_test(move |url, remote_directory, local_directory, interval| {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            let Some(folder) = audio_folder.borrow().clone() else {
+                window.set_comfyui_sync_test_success(false);
+                window.set_comfyui_sync_test_message(
+                    "Open a workspace before testing ComfyUI sync".into(),
+                );
+                return;
+            };
+            let Ok(interval_ms) = interval.trim().parse::<u64>() else {
+                window.set_comfyui_sync_test_success(false);
+                window.set_comfyui_sync_test_message(
+                    "Sync frequency must be a number of milliseconds".into(),
+                );
+                return;
+            };
+            let config = SyncConfig {
+                url: url.to_string(),
+                remote_directory: remote_directory.to_string(),
+                local_directory: local_directory.to_string(),
+                interval_ms,
+            }
+            .normalized();
+            if let Err(error) = config.local_path(&folder) {
+                window.set_comfyui_sync_test_success(false);
+                window.set_comfyui_sync_test_message(error.to_string().into());
+                return;
+            }
+            match ComfyUiClient::new().and_then(|client| client.list_files(&config)) {
+                Ok(files) => {
+                    window.set_comfyui_sync_error("".into());
+                    window.set_comfyui_sync_test_success(true);
+                    window.set_comfyui_sync_test_message(
+                        format!("Connection successful: {} file(s) found", files.len()).into(),
+                    );
+                }
+                Err(error) => {
+                    window.set_comfyui_sync_test_success(false);
+                    window.set_comfyui_sync_test_message(error.to_string().into());
+                }
+            }
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        let audio_folder = Rc::clone(&audio_folder);
+        let sync_controller = Rc::clone(&sync_controller);
+        window.on_comfyui_sync_save(move |url, remote_directory, local_directory, interval| {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            let Some(folder) = audio_folder.borrow().clone() else {
+                window.set_comfyui_sync_error(
+                    "Open a workspace before configuring ComfyUI sync".into(),
+                );
+                return;
+            };
+            let Ok(interval_ms) = interval.trim().parse::<u64>() else {
+                window.set_comfyui_sync_error(
+                    "Sync frequency must be a number of milliseconds".into(),
+                );
+                return;
+            };
+            let config = SyncConfig {
+                url: url.to_string(),
+                remote_directory: remote_directory.to_string(),
+                local_directory: local_directory.to_string(),
+                interval_ms,
+            }
+            .normalized();
+            if let Err(error) = config.local_path(&folder) {
+                window.set_comfyui_sync_error(error.to_string().into());
+                return;
+            }
+            sync_controller.borrow_mut().stop();
+            let test_result =
+                ComfyUiClient::new().and_then(|client| client.list_files(&config).map(|_| ()));
+            if let Err(error) = test_result {
+                window.set_comfyui_sync_active(false);
+                window.set_comfyui_sync_error_state(true);
+                window.set_comfyui_sync_error(error.to_string().into());
+                return;
+            }
+            if let Err(error) = sync::ensure_destination(&folder, &config) {
+                window.set_comfyui_sync_error(error.to_string().into());
+                return;
+            }
+            if let Err(error) = sync::save_config(&folder, &config) {
+                window.set_comfyui_sync_error(error.to_string().into());
+                return;
+            }
+            sync_controller.borrow_mut().start(folder, config);
+            window.set_comfyui_sync_error("".into());
+            window.set_comfyui_sync_error_state(false);
+            window.set_comfyui_sync_visible(false);
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        window.on_comfyui_sync_cancel(move || {
+            if let Some(window) = weak_window.upgrade() {
+                window.set_comfyui_sync_visible(false);
+            }
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
         window.on_toggle_fullscreen(move || {
             if let Some(window) = weak_window.upgrade() {
                 let fullscreen = window.window().is_fullscreen();
@@ -1308,6 +1522,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Adb Studio {APP_VERSION} ({BUILD_NUMBER})");
     window.run()?;
+    sync_controller.borrow_mut().stop();
     settings::save_window(&window, &mut settings.borrow_mut());
     settings::save(&settings.borrow());
     Ok(())
@@ -1347,6 +1562,7 @@ fn set_workspace(
     audio_model: &Rc<RefCell<Option<Rc<VecModel<AudioRow>>>>>,
     audio_load_state: &Arc<Mutex<AudioLoadState>>,
     workflow_files: &Rc<RefCell<Vec<(String, String)>>>,
+    sync_controller: &Rc<RefCell<SyncController>>,
 ) {
     let folder_name = folder
         .file_name()
@@ -1377,6 +1593,24 @@ fn set_workspace(
     }
     let settings_snapshot = settings.borrow().clone();
     settings::save(&settings_snapshot);
+
+    if let Some(config) = sync::load_config(&folder) {
+        window.set_comfyui_sync_url(config.url.clone().into());
+        window.set_comfyui_sync_remote_directory(config.remote_directory.clone().into());
+        window.set_comfyui_sync_local_directory(config.local_directory.clone().into());
+        window.set_comfyui_sync_interval(config.interval_ms.to_string().into());
+        sync_controller.borrow_mut().start(folder.clone(), config);
+        window.set_comfyui_sync_active(true);
+        window.set_comfyui_sync_error_state(false);
+        window.set_comfyui_sync_status("Starting".into());
+    } else {
+        sync_controller.borrow_mut().stop();
+        window.set_comfyui_sync_active(false);
+        window.set_comfyui_sync_error_state(false);
+        window.set_comfyui_sync_status("Not configured".into());
+        window.set_comfyui_sync_present(0);
+        window.set_comfyui_sync_total(0);
+    }
 
     let mut new_tree_state = TreeState::new(folder.clone());
     if let Some(selected_path) = settings_snapshot

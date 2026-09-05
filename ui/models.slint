@@ -1,0 +1,42 @@
+export struct TreeRow {
+    path: string,
+    name: string,
+    depth: int,
+    is-dir: bool,
+    is-expanded: bool,
+    is-selected: bool,
+    kind: string,
+}
+
+export struct CommentRow {
+    start: float,
+    end: float,
+    bubble-end: float,
+    text: string,
+}
+
+export struct AudioRow {
+    path: string,
+    name: string,
+    modified-date: string,
+    peaks: [float],
+    comments: [CommentRow],
+    rating: int,
+    is-active: bool,
+    is-playing: bool,
+    progress: float,
+    loop-enabled: bool,
+    selected-comment-start: float,
+    selected-comment-end: float,
+}
+
+export struct WorkflowLoraRow {
+    filename: string,
+    strength: string,
+    custom-tag: string,
+}
+
+export struct WorkflowFileRow {
+    name: string,
+    path: string,
+}
