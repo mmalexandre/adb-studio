@@ -11,6 +11,7 @@ component Waveform inherits Rectangle {
     in property <color> comment-text-color: #ffffff;
     in property <bool> is-active;
     in property <[float]> peaks;
+    in property <bool> is-loading;
     in property <[CommentRow]> comments: [];
     in property <float> selected-comment-start: -1;
     in property <float> selected-comment-end: -1;
@@ -79,6 +80,27 @@ component Waveform inherits Rectangle {
         height: parent.height;
         background: #ffffff;
         visible: root.is-active && root.peaks.length > 0;
+    }
+    if root.is-loading : Rectangle {
+        x: (parent.width - 24px) / 2;
+        y: (parent.height - 24px) / 2;
+        width: 24px;
+        height: 24px;
+        background: root.light-theme ? #ffffffd9 : #1a2029d9;
+        border-radius: 12px;
+        Image {
+            source: @image-url("../assets/icons/refresh-cw.svg");
+            x: 4px;
+            y: 4px;
+            width: 16px;
+            height: 16px;
+            colorize: root.light-theme ? #d46b32 : #e58a4d;
+            transform-rotation: root.is-loading ? 360deg : 0deg;
+            animate transform-rotation {
+                duration: 900ms;
+                iteration-count: 1000000;
+            }
+        }
     }
     if root.selected-comment-start >= 0 && root.selected-comment-end >= root.selected-comment-start : Rectangle {
         x: root.selected-comment-start * parent.width;
@@ -278,6 +300,7 @@ component AudioRowView inherits Rectangle {
     in property <string> name;
     in property <string> modified-date;
     in property <[float]> peaks;
+    in property <bool> is-loading;
     in property <[CommentRow]> comments;
     in property <int> rating: 0;
     property <int> hovered-rating: -1;
@@ -403,6 +426,7 @@ component AudioRowView inherits Rectangle {
                 comment-background-color: root.comment-background-color;
                 comment-text-color: root.comment-text-color;
                 is-active: root.is-active;
+                is-loading: root.is-loading;
                 peaks: root.peaks;
                 comments: root.comments;
                 selected-comment-start: root.selected-comment-start;
@@ -427,7 +451,7 @@ component AudioList inherits ListView {
     in property <[AudioRow]> rows;
     in property <int> scroll-to-index: -1;
     callback row-selected(string);
-    callback viewport-changed(int);
+    callback viewport-changed(int, int);
     callback seek-requested(string, float);
     callback play-requested(string);
     callback comment-range-requested(string, float, float);
@@ -438,7 +462,10 @@ component AudioList inherits ListView {
     callback trash-requested(string);
 
     changed viewport-y => {
-        root.viewport-changed((0px - root.viewport-y) / 86px);
+        root.viewport-changed(
+            (0px - root.viewport-y) / 86px,
+            (root.height / 86px) + 1
+        );
     }
 
     changed scroll-to-index => {
@@ -459,6 +486,7 @@ component AudioList inherits ListView {
         is-active: row.is-active;
         is-playing: row.is-playing;
         progress: row.progress;
+        is-loading: row.is-loading;
         loop-enabled: row.loop-enabled;
         selected-comment-start: row.selected-comment-start;
         selected-comment-end: row.selected-comment-end;
@@ -776,7 +804,7 @@ export component MainWindow inherits Window {
     callback tree-edit-accepted(string, string, int);
     callback tree-edit-cancelled();
     callback filter-changed(string);
-    callback audio-viewport-changed(int);
+    callback audio-viewport-changed(int, int);
     callback audio-play-pause();
     callback audio-seek(string, float);
     callback audio-play(string);
@@ -1121,7 +1149,7 @@ export component MainWindow inherits Window {
                                 scroll-to-index: root.audio-scroll-to-index;
                                 width: 100%;
                                 height: 100%;
-                                viewport-changed(start-index) => { root.audio-viewport-changed(start-index); }
+                                viewport-changed(start-index, visible-rows) => { root.audio-viewport-changed(start-index, visible-rows); }
                                 row-selected(path) => { root.audio-row-selected(path); }
                                 seek-requested(path, progress) => { root.audio-seek(path, progress); }
                                 play-requested(path) => { root.audio-play(path); }

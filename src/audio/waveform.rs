@@ -1,5 +1,9 @@
 use sha2::{Digest, Sha256};
-use std::{fs, path::Path};
+use std::{
+    fs,
+    path::Path,
+    sync::atomic::{AtomicU64, Ordering},
+};
 use symphonia::core::{
     audio::SampleBuffer, codecs::DecoderOptions, formats::FormatOptions, io::MediaSourceStream,
     meta::MetadataOptions, probe::Hint,
@@ -7,6 +11,8 @@ use symphonia::core::{
 
 pub const PEAK_COUNT: usize = 4096;
 pub const DISPLAY_PEAK_COUNT: usize = 160;
+
+static CACHE_TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[derive(serde::Deserialize, serde::Serialize)]
 struct CacheEntry {
@@ -30,21 +36,31 @@ pub fn aggregate_peaks(peaks: &[f32]) -> Vec<f32> {
         .collect()
 }
 
-pub fn load_or_generate(path: &Path, workspace: &Path) -> (String, Vec<f32>) {
+pub fn load_or_generate_cancelable(
+    path: &Path,
+    workspace: &Path,
+    should_cancel: impl Fn() -> bool,
+) -> Option<(String, Vec<f32>)> {
     let source_path = relative_source_path(path, workspace);
     let cache_key = cache_key(path, &source_path);
     let cache_path = cache_path(&cache_key, workspace);
     if let Ok(contents) = fs::read_to_string(&cache_path) {
         if let Ok(entry) = serde_json::from_str::<CacheEntry>(&contents) {
             if entry.source_path == source_path {
-                return (cache_key, entry.peaks);
+                return Some((cache_key, entry.peaks));
             }
         }
     }
 
-    let peaks = decode_peaks(path).unwrap_or_default();
+    if should_cancel() {
+        return None;
+    }
+    let peaks = decode_peaks(path, &should_cancel).unwrap_or_default();
+    if should_cancel() {
+        return None;
+    }
     write_cache(&cache_path, &source_path, &peaks);
-    (cache_key, peaks)
+    Some((cache_key, peaks))
 }
 
 fn cache_path(cache_key: &str, workspace: &Path) -> std::path::PathBuf {
@@ -66,7 +82,16 @@ fn write_cache(path: &Path, source_path: &str, peaks: &[f32]) {
         peaks: peaks.to_vec(),
     };
     if let Ok(contents) = serde_json::to_string(&entry) {
-        let _ = fs::write(path, contents);
+        let temp_path = path.with_extension(format!(
+            "json.tmp-{}-{}",
+            std::process::id(),
+            CACHE_TEMP_COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
+        if fs::write(&temp_path, contents).is_ok() {
+            if fs::rename(&temp_path, path).is_err() {
+                let _ = fs::remove_file(temp_path);
+            }
+        }
     }
 }
 
@@ -90,7 +115,10 @@ fn cache_key(path: &Path, source_path: &str) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-fn decode_peaks(path: &Path) -> Result<Vec<f32>, Box<dyn std::error::Error>> {
+fn decode_peaks(
+    path: &Path,
+    should_cancel: &impl Fn() -> bool,
+) -> Result<Vec<f32>, Box<dyn std::error::Error>> {
     let file = fs::File::open(path)?;
     let source = MediaSourceStream::new(Box::new(file), Default::default());
     let mut hint = Hint::new();
@@ -112,6 +140,9 @@ fn decode_peaks(path: &Path) -> Result<Vec<f32>, Box<dyn std::error::Error>> {
     let mut samples = Vec::new();
 
     while let Ok(packet) = format.next_packet() {
+        if should_cancel() {
+            return Err("waveform generation cancelled".into());
+        }
         if packet.track_id() != track_id {
             continue;
         }

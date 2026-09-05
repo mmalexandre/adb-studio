@@ -1,7 +1,12 @@
 use std::{
-    collections::HashSet,
+    collections::{HashSet, VecDeque},
     path::PathBuf,
-    sync::{mpsc::Sender, Arc, Mutex},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        mpsc,
+        mpsc::Sender,
+        Arc, Mutex,
+    },
     thread,
 };
 
@@ -9,15 +14,14 @@ use crate::metadata;
 
 use super::waveform;
 
-pub const PREFETCH_ROWS: usize = 32;
-pub const PREFETCH_BEFORE: usize = 4;
-
 pub struct State {
     pub folder: PathBuf,
     pub paths: Vec<PathBuf>,
     pub requested_range: Option<(usize, usize)>,
     pub generated: HashSet<PathBuf>,
+    pub loading: HashSet<PathBuf>,
     pub generation: u64,
+    pub cancellation_generation: Arc<AtomicU64>,
     pub running: bool,
     pub completed: usize,
     pub total: usize,
@@ -31,13 +35,31 @@ pub struct Result {
     pub peaks: Vec<f32>,
 }
 
-pub fn request(state: &Arc<Mutex<State>>, start_index: usize) {
+pub fn request(state: &Arc<Mutex<State>>, start_index: usize, visible_rows: usize) {
     let mut state_ref = state.lock().unwrap();
-    let start = start_index.saturating_sub(PREFETCH_BEFORE);
+    let start = start_index;
     let end = start_index
-        .saturating_add(PREFETCH_ROWS)
+        .saturating_add(visible_rows)
         .min(state_ref.paths.len());
-    state_ref.requested_range = Some((start, end));
+    let requested_range = (start, end);
+    if state_ref.requested_range == Some(requested_range) {
+        return;
+    }
+    state_ref.generation += 1;
+    state_ref
+        .cancellation_generation
+        .store(state_ref.generation, Ordering::Release);
+    state_ref.requested_range = Some(requested_range);
+    let paths_to_load = state_ref.paths[start..end].to_vec();
+    let generated = state_ref.generated.clone();
+    state_ref
+        .loading
+        .retain(|path| paths_to_load.contains(path));
+    state_ref.loading.extend(
+        paths_to_load
+            .into_iter()
+            .filter(|path| !generated.contains(path)),
+    );
     if state_ref.running {
         return;
     }
@@ -62,15 +84,57 @@ fn generate(state: Arc<Mutex<State>>) {
             )
         };
         let end = range.1.min(paths.len());
-        for index in range.0.min(end)..end {
-            let path = paths[index].clone();
-            {
+        let jobs = (range.0.min(end)..end)
+            .filter_map(|index| {
+                let path = paths[index].clone();
                 let state_ref = state.lock().unwrap();
-                if state_ref.generation != generation || state_ref.generated.contains(&path) {
-                    continue;
+                (state_ref.generation == generation
+                    && !state_ref.generated.contains(&path)
+                    && state_ref.loading.contains(&path))
+                .then_some((index, path))
+            })
+            .collect::<Vec<_>>();
+        let worker_count = std::thread::available_parallelism()
+            .map(|count| count.get())
+            .unwrap_or(1)
+            .min(jobs.len().max(1));
+        if jobs.is_empty() {
+            continue;
+        }
+        let job_count = jobs.len();
+        let jobs = Arc::new(Mutex::new(VecDeque::from(jobs)));
+        let (worker_sender, worker_receiver) = mpsc::channel();
+        let worker_receiver = Arc::new(Mutex::new(worker_receiver));
+        let cancellation_generation = state.lock().unwrap().cancellation_generation.clone();
+        let mut workers = Vec::new();
+        for _ in 0..worker_count {
+            let jobs = Arc::clone(&jobs);
+            let worker_sender = worker_sender.clone();
+            let folder = folder.clone();
+            let cancellation_generation = Arc::clone(&cancellation_generation);
+            workers.push(thread::spawn(move || loop {
+                if cancellation_generation.load(Ordering::Acquire) != generation {
+                    return;
                 }
-            }
-            let (cache_key, peaks) = waveform::load_or_generate(&path, &folder);
+                let Some((index, path)) = jobs.lock().unwrap().pop_front() else {
+                    return;
+                };
+                let result = waveform::load_or_generate_cancelable(&path, &folder, || {
+                    cancellation_generation.load(Ordering::Acquire) != generation
+                });
+                if worker_sender.send((index, path, result)).is_err() {
+                    return;
+                }
+            }));
+        }
+        drop(worker_sender);
+        for _ in 0..job_count {
+            let Ok((index, path, result)) = worker_receiver.lock().unwrap().recv() else {
+                break;
+            };
+            let Some((cache_key, peaks)) = result else {
+                continue;
+            };
             let mut index_data = metadata::load_index(&folder);
             let path_string = path.to_string_lossy().into_owned();
             if let Some(stored) = index_data
@@ -91,6 +155,7 @@ fn generate(state: Arc<Mutex<State>>) {
             if state_ref.generation != generation {
                 continue;
             }
+            state_ref.loading.remove(&path);
             state_ref.generated.insert(path);
             state_ref.completed += 1;
             let _ = state_ref.result_sender.send(Result {
@@ -99,6 +164,9 @@ fn generate(state: Arc<Mutex<State>>) {
                 path: path_string,
                 peaks,
             });
+        }
+        for worker in workers {
+            let _ = worker.join();
         }
     }
 }

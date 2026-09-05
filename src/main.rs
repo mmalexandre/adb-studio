@@ -6,7 +6,10 @@ use std::{
     process::Command,
     rc::Rc,
     sync::mpsc,
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, Mutex,
+    },
     time::{Duration, Instant},
 };
 
@@ -30,7 +33,8 @@ const BUILD_NUMBER: &str = env!("ADB_BUILD_NUMBER");
 use audio::loader::State as AudioLoadState;
 use audio::view::{
     comment_rows, format_duration, format_seconds, scroll_to_path as scroll_audio_to_path,
-    select_comment, selected_loop_range, update_audio_rows, update_comment_model,
+    select_comment, selected_loop_range, update_audio_loading_rows, update_audio_rows,
+    update_comment_model,
 };
 use settings::AppSettings;
 use sync::{ComfyUiClient, SyncConfig, SyncController, SyncEvent};
@@ -67,7 +71,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         paths: Vec::new(),
         requested_range: None,
         generated: std::collections::HashSet::new(),
+        loading: std::collections::HashSet::new(),
         generation: 0,
+        cancellation_generation: Arc::new(AtomicU64::new(0)),
         running: false,
         completed: 0,
         total: 0,
@@ -573,6 +579,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 name: row.name,
                                 modified_date: row.modified_date,
                                 peaks: row.peaks,
+                                is_loading: row.is_loading,
                                 comments: row.comments,
                                 rating: rating.clamp(0, 5),
                                 is_active: row.is_active,
@@ -655,17 +662,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 window.set_audio_error("File operation: trash destination already exists".into());
                 return;
             }
-            if let Err(error) = fs::create_dir_all(&trash_folder)
-                .and_then(|_| fs::rename(&source, &destination))
+            if let Err(error) =
+                fs::create_dir_all(&trash_folder).and_then(|_| fs::rename(&source, &destination))
             {
                 window.set_audio_error(format!("File operation: {error}").into());
                 return;
             }
-            if playback
-                .borrow()
-                .as_ref()
-                .and_then(|engine| engine.path())
-                == Some(source.as_path())
+            if playback.borrow().as_ref().and_then(|engine| engine.path()) == Some(source.as_path())
             {
                 if let Some(engine) = playback.borrow_mut().as_mut() {
                     engine.stop();
@@ -1094,6 +1097,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let Some(model) = audio_model.borrow().clone() else {
                     return;
                 };
+                let loading = audio_load_state.lock().unwrap().loading.clone();
+                update_audio_loading_rows(&audio_model, &loading);
                 for result in audio_result_receiver.borrow_mut().try_iter().take(3) {
                     let current_generation = audio_load_state.lock().unwrap().generation;
                     if result.generation != current_generation || result.index >= model.row_count()
@@ -1112,6 +1117,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             peaks: ModelRc::new(VecModel::from(waveform::aggregate_peaks(
                                 &result.peaks,
                             ))),
+                            is_loading: false,
                             comments: row.comments,
                             rating: row.rating,
                             is_active: row.is_active,
@@ -1312,8 +1318,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     {
         let audio_load_state = Arc::clone(&audio_load_state);
-        window.on_audio_viewport_changed(move |start_index| {
-            request_audio_generation(&audio_load_state, start_index as usize);
+        window.on_audio_viewport_changed(move |start_index, visible_rows| {
+            request_audio_generation(
+                &audio_load_state,
+                start_index as usize,
+                visible_rows.max(1) as usize,
+            );
         });
     }
 
@@ -1879,7 +1889,11 @@ fn close_workspace(
         state.paths.clear();
         state.requested_range = None;
         state.generated.clear();
+        state.loading.clear();
         state.generation += 1;
+        state
+            .cancellation_generation
+            .store(state.generation, Ordering::Release);
         state.completed = 0;
         state.total = 0;
     }
@@ -2087,6 +2101,7 @@ fn refresh_audio_with_changes(
             name: entry.name.into(),
             modified_date: modified_date.to_string().into(),
             peaks: ModelRc::new(VecModel::from(vec![0.0; waveform::DISPLAY_PEAK_COUNT])),
+            is_loading: false,
             comments,
             rating: stored_position
                 .as_ref()
@@ -2115,18 +2130,25 @@ fn refresh_audio_with_changes(
         state.paths = paths;
         if reload_all {
             state.generated.clear();
+            state.loading.clear();
         } else {
             let current_paths = state.paths.iter().cloned().collect::<HashSet<_>>();
             state
                 .generated
                 .retain(|path| current_paths.contains(path) && !changed_audio_paths.contains(path));
+            state
+                .loading
+                .retain(|path| current_paths.contains(path) && !changed_audio_paths.contains(path));
         }
         state.generation += 1;
+        state
+            .cancellation_generation
+            .store(state.generation, Ordering::Release);
         state.completed = state.generated.len();
         state.total = total;
         state.requested_range = None;
     }
-    request_audio_generation(audio_load_state, 0);
+    request_audio_generation(audio_load_state, 0, 1);
 }
 
 fn matches_audio_filter(name: &str, filter: &str) -> bool {
@@ -2243,8 +2265,12 @@ fn select_tree_path(
     window.set_tree_scroll_to_index(tree_index.unwrap_or(-1));
 }
 
-fn request_audio_generation(audio_load_state: &Arc<Mutex<AudioLoadState>>, start_index: usize) {
-    loader::request(audio_load_state, start_index);
+fn request_audio_generation(
+    audio_load_state: &Arc<Mutex<AudioLoadState>>,
+    start_index: usize,
+    visible_rows: usize,
+) {
+    loader::request(audio_load_state, start_index, visible_rows);
 }
 
 fn refresh_tree(window: &MainWindow, tree_state: &Rc<RefCell<Option<TreeState>>>) {
