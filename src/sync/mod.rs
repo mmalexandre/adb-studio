@@ -75,6 +75,51 @@ pub struct RemoteFile {
     pub path: String,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+pub struct DownloadRecord {
+    pub url: String,
+    pub remote_path: String,
+    pub filename: String,
+    pub downloaded_at: u64,
+    pub status: String,
+    pub size: u64,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+pub struct DownloadIndex {
+    pub downloads: Vec<DownloadRecord>,
+}
+
+impl DownloadIndex {
+    fn contains_completed(&self, config: &SyncConfig, file: &RemoteFile) -> bool {
+        self.downloads.iter().any(|record| {
+            record.status == "completed"
+                && record.url == config.url
+                && record.remote_path == file.path
+        })
+    }
+
+    fn record_completed(&mut self, config: &SyncConfig, file: &RemoteFile, size: u64) {
+        self.downloads
+            .retain(|record| record.url != config.url || record.remote_path != file.path);
+        self.downloads.push(DownloadRecord {
+            url: config.url.clone(),
+            remote_path: file.path.clone(),
+            filename: Path::new(&file.name)
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or_default()
+                .to_string(),
+            downloaded_at: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|duration| duration.as_secs())
+                .unwrap_or_default(),
+            status: "completed".to_string(),
+            size,
+        });
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct SyncProgress {
     pub present: usize,
@@ -121,6 +166,7 @@ impl SyncController {
         self.stop();
         self.generation = self.generation.wrapping_add(1);
         let generation = self.generation;
+        let config = config.normalized();
         let (command_sender, command_receiver) = mpsc::channel();
         let event_sender = self.event_sender.clone();
         self.command_sender = Some(command_sender);
@@ -185,6 +231,16 @@ fn sync_loop(
         return;
     }
     let interval = Duration::from_millis(config.interval_ms.max(100));
+    let mut download_index = match load_download_index(&workspace) {
+        Ok(index) => index,
+        Err(error) => {
+            let _ = event_sender.send(SyncEvent::Error {
+                generation,
+                message: error.to_string(),
+            });
+            return;
+        }
+    };
 
     loop {
         let _ = event_sender.send(SyncEvent::Running { generation });
@@ -198,7 +254,8 @@ fn sync_loop(
                 return;
             }
         };
-        let mut current = match progress(&files, &destination) {
+        let mut current = match progress_with_index(&files, &destination, &config, &download_index)
+        {
             Ok(progress) => progress,
             Err(error) => {
                 let _ = event_sender.send(SyncEvent::Error {
@@ -221,10 +278,31 @@ fn sync_loop(
                 .file_name()
                 .and_then(|name| name.to_str())
                 .unwrap_or_default();
-            if filename.is_empty() || destination.join(filename).exists() {
+            if filename.is_empty()
+                || destination.join(filename).exists()
+                || download_index.contains_completed(&config, file)
+            {
                 continue;
             }
             if let Err(error) = client.download_file(&config, file, &destination) {
+                let _ = event_sender.send(SyncEvent::Error {
+                    generation,
+                    message: error.to_string(),
+                });
+                return;
+            }
+            let size = match fs::metadata(destination.join(filename)) {
+                Ok(metadata) => metadata.len(),
+                Err(error) => {
+                    let _ = event_sender.send(SyncEvent::Error {
+                        generation,
+                        message: SyncError::Io(error).to_string(),
+                    });
+                    return;
+                }
+            };
+            download_index.record_completed(&config, file, size);
+            if let Err(error) = save_download_index(&workspace, &download_index) {
                 let _ = event_sender.send(SyncEvent::Error {
                     generation,
                     message: error.to_string(),
@@ -267,6 +345,27 @@ impl std::error::Error for SyncError {}
 
 pub fn config_path(workspace: &Path) -> PathBuf {
     workspace.join(".adbstudio").join("sync.json")
+}
+
+pub fn download_index_path(workspace: &Path) -> PathBuf {
+    workspace.join(".adbstudio").join("sync-downloads.json")
+}
+
+fn load_download_index(workspace: &Path) -> Result<DownloadIndex, SyncError> {
+    match fs::read_to_string(download_index_path(workspace)) {
+        Ok(contents) => {
+            serde_json::from_str(&contents).map_err(|error| SyncError::Response(error.to_string()))
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(DownloadIndex::default()),
+        Err(error) => Err(SyncError::Io(error)),
+    }
+}
+
+fn save_download_index(workspace: &Path, index: &DownloadIndex) -> Result<(), SyncError> {
+    fs::create_dir_all(workspace.join(".adbstudio")).map_err(SyncError::Io)?;
+    let contents = serde_json::to_string_pretty(index)
+        .map_err(|error| SyncError::Response(error.to_string()))?;
+    fs::write(download_index_path(workspace), contents).map_err(SyncError::Io)
 }
 
 pub fn load_config(workspace: &Path) -> Option<SyncConfig> {
@@ -383,7 +482,12 @@ fn temporary_download_path(destination: &Path, filename: &str) -> PathBuf {
     ))
 }
 
-pub fn progress(files: &[RemoteFile], destination: &Path) -> Result<SyncProgress, SyncError> {
+fn progress_with_index(
+    files: &[RemoteFile],
+    destination: &Path,
+    config: &SyncConfig,
+    download_index: &DownloadIndex,
+) -> Result<SyncProgress, SyncError> {
     let local_names: HashSet<String> = match fs::read_dir(destination) {
         Ok(entries) => entries
             .filter_map(Result::ok)
@@ -401,8 +505,12 @@ pub fn progress(files: &[RemoteFile], destination: &Path) -> Result<SyncProgress
         })
         .filter(|name| local_names.contains(*name))
         .count();
+    let recorded = files
+        .iter()
+        .filter(|file| download_index.contains_completed(config, file))
+        .count();
     Ok(SyncProgress {
-        present,
+        present: present.max(recorded),
         total: files.len(),
     })
 }
@@ -429,10 +537,16 @@ fn validate_request_config(config: &SyncConfig) -> Result<(), SyncError> {
 #[cfg(test)]
 mod tests {
     use super::{
-        ensure_destination, progress, temporary_download_path, RemoteFile, SyncConfig,
-        DEFAULT_INTERVAL_MS, DEFAULT_LOCAL_DIRECTORY, DEFAULT_REMOTE_DIRECTORY,
+        ensure_destination, load_download_index, progress_with_index, save_download_index,
+        temporary_download_path, DownloadIndex, RemoteFile, SyncConfig, DEFAULT_INTERVAL_MS,
+        DEFAULT_LOCAL_DIRECTORY, DEFAULT_REMOTE_DIRECTORY,
     };
-    use std::{fs, path::Path};
+    use std::{
+        fs,
+        path::Path,
+        sync::atomic::{AtomicU64, Ordering},
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
     #[test]
     fn defaults_are_stable() {
@@ -496,12 +610,59 @@ mod tests {
                 path: "/remote/other.mp3".to_string(),
             },
         ];
-        assert_eq!(progress(&files, &directory).unwrap().present, 1);
+        assert_eq!(
+            progress_with_index(
+                &files,
+                &directory,
+                &SyncConfig::default(),
+                &DownloadIndex::default()
+            )
+            .unwrap()
+            .present,
+            1
+        );
         fs::remove_dir_all(directory).unwrap();
     }
 
+    #[test]
+    fn completed_record_counts_after_local_file_is_removed() {
+        let workspace = tempfile_directory();
+        let config = SyncConfig {
+            url: "https://comfy.example".to_string(),
+            ..SyncConfig::default()
+        };
+        let file = RemoteFile {
+            name: "song.mp3".to_string(),
+            path: "/output/audio/song.mp3".to_string(),
+        };
+        let mut index = DownloadIndex::default();
+        index.record_completed(&config, &file, 1234);
+        save_download_index(&workspace, &index).unwrap();
+
+        let loaded = load_download_index(&workspace).unwrap();
+        assert_eq!(loaded, index);
+        assert_eq!(loaded.downloads[0].status, "completed");
+        assert_eq!(loaded.downloads[0].size, 1234);
+        assert_eq!(
+            progress_with_index(&[file], &workspace, &config, &loaded)
+                .unwrap()
+                .present,
+            1
+        );
+        fs::remove_dir_all(workspace).unwrap();
+    }
+
     fn tempfile_directory() -> std::path::PathBuf {
-        let path = std::env::temp_dir().join(format!("adb-studio-sync-{}", std::process::id()));
+        static TEST_DIRECTORY_COUNTER: AtomicU64 = AtomicU64::new(0);
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let counter = TEST_DIRECTORY_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!(
+            "adb-studio-sync-{}-{timestamp}-{counter}",
+            std::process::id()
+        ));
         fs::create_dir_all(&path).unwrap();
         path
     }
