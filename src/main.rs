@@ -1564,6 +1564,7 @@ fn set_workspace(
     workflow_files: &Rc<RefCell<Vec<(String, String)>>>,
     sync_controller: &Rc<RefCell<SyncController>>,
 ) {
+    *audio_folder.borrow_mut() = Some(folder.clone());
     let folder_name = folder
         .file_name()
         .and_then(|name| name.to_str())
@@ -1722,7 +1723,6 @@ fn refresh_audio(
         .map(|row| PathBuf::from(row.path.as_str()))
         .collect();
     let total = paths.len();
-    *audio_folder.borrow_mut() = Some(folder);
     let model = Rc::new(VecModel::from(rows));
     window.set_audio_rows(ModelRc::new(model.clone()));
     *audio_model.borrow_mut() = Some(model);
