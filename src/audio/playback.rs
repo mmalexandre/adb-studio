@@ -66,6 +66,16 @@ impl PlaybackEngine {
         self.playing = false;
     }
 
+    pub fn stop(&mut self) {
+        if let Some(player) = self.player.take() {
+            player.stop();
+        }
+        self.path = None;
+        self.duration = Duration::ZERO;
+        self.position = Duration::ZERO;
+        self.playing = false;
+    }
+
     pub fn resume(&mut self) {
         if let Some(player) = &self.player {
             player.play();

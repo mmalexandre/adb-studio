@@ -1,3 +1,24 @@
+import { Button } from "std-widgets.slint";
+
+export component AppButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> enabled: true;
+    callback clicked();
+    button := Button {
+        text: root.text;
+        enabled: root.enabled;
+        width: parent.width;
+        height: parent.height;
+        clicked => { root.clicked(); }
+    }
+    width: button.preferred-width;
+    height: button.preferred-height;
+    TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
 export component MenuButton inherits Rectangle {
     width: 70px;
     height: 40px;
@@ -12,6 +33,7 @@ export component MenuButton inherits Rectangle {
         vertical-alignment: center;
     }
     TouchArea {
+        mouse-cursor: pointer;
         clicked => { root.clicked(); }
     }
 }
@@ -31,6 +53,7 @@ export component ToolButton inherits Rectangle {
         height: 22px;
     }
     TouchArea {
+        mouse-cursor: pointer;
         clicked => { root.clicked(); }
     }
 }
@@ -53,6 +76,7 @@ export component IconButton inherits Rectangle {
         opacity: root.enabled ? (root.active ? 1 : 0.45) : 0.35;
     }
     TouchArea {
+        mouse-cursor: pointer;
         enabled: root.enabled;
         clicked => { root.clicked(); }
     }
@@ -74,6 +98,7 @@ export component CompactIconButton inherits Rectangle {
         opacity: root.active ? 1 : 0.5;
     }
     TouchArea {
+        mouse-cursor: pointer;
         clicked => { root.clicked(); }
     }
 }
@@ -97,6 +122,7 @@ export component SyncIconButton inherits Rectangle {
         opacity: root.enabled ? 1 : 0.35;
     }
     TouchArea {
+        mouse-cursor: pointer;
         enabled: root.enabled;
         clicked => { root.clicked(); }
         changed has-hover => {

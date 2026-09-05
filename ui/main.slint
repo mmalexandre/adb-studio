@@ -1,7 +1,7 @@
-import { Button, ComboBox, LineEdit, ListView, ScrollView, Slider, TextEdit, VerticalBox } from "std-widgets.slint";
+import { ComboBox, LineEdit, ListView, ScrollView, Slider, TextEdit, VerticalBox } from "std-widgets.slint";
 import { AudioRow, CommentRow, TreeRow, WorkflowFileRow, WorkflowLoraRow } from "./models.slint";
 import { WorkflowSuggestionBox } from "./workflow_suggestion.slint";
-import { CompactIconButton, IconButton, MenuButton, SyncIconButton, ToolButton } from "./controls.slint";
+import { AppButton, CompactIconButton, IconButton, MenuButton, SyncIconButton, ToolButton } from "./controls.slint";
 
 component Waveform inherits Rectangle {
     height: 58px;
@@ -294,6 +294,7 @@ component AudioRowView inherits Rectangle {
     callback comment-edit-requested(float, float, string);
     callback comment-range-moved(float, float, float, float, string);
     callback rating-requested(int);
+    callback trash-requested();
 
     VerticalBox {
         padding: 8px;
@@ -351,6 +352,22 @@ component AudioRowView inherits Rectangle {
             Rectangle {
                 width: 40px;
                 height: 40px;
+                background: transparent;
+                Image {
+                    source: @image-url("../assets/icons/trash-2.svg");
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    width: 18px;
+                    height: 18px;
+                    opacity: trash-area.has-hover ? 1 : 0.65;
+                }
+                trash-area := TouchArea {
+                    clicked => { root.trash-requested(); }
+                }
+            }
+            Rectangle {
+                width: 40px;
+                height: 40px;
                 VerticalBox {
                     alignment: center;
                     Rectangle {
@@ -381,7 +398,7 @@ component AudioRowView inherits Rectangle {
         HorizontalLayout {
             height: 58px;
             Waveform {
-                width: parent.width - 204px;
+                width: parent.width - 244px;
                 light-theme: root.light-theme;
                 comment-background-color: root.comment-background-color;
                 comment-text-color: root.comment-text-color;
@@ -398,7 +415,7 @@ component AudioRowView inherits Rectangle {
                 comment-edit-requested(start, end, text) => { root.comment-edit-requested(start, end, text); }
                 comment-range-moved(old-start, old-end, start, end, text) => { root.comment-range-moved(old-start, old-end, start, end, text); }
             }
-            Rectangle { width: 204px; }
+            Rectangle { width: 244px; }
         }
     }
 }
@@ -418,6 +435,7 @@ component AudioList inherits ListView {
     callback comment-edit-requested(string, float, float, string);
     callback comment-range-moved(string, float, float, float, float, string);
     callback rating-requested(string, int);
+    callback trash-requested(string);
 
     changed viewport-y => {
         root.viewport-changed((0px - root.viewport-y) / 86px);
@@ -451,6 +469,7 @@ component AudioList inherits ListView {
         comment-edit-requested(start, end, text) => { root.row-selected(row.path); root.comment-edit-requested(row.path, start, end, text); }
         comment-range-moved(old-start, old-end, start, end, text) => { root.row-selected(row.path); root.comment-range-moved(row.path, old-start, old-end, start, end, text); }
         rating-requested(rating) => { root.row-selected(row.path); root.rating-requested(row.path, rating); }
+        trash-requested => { root.trash-requested(row.path); }
     }
 }
 
@@ -735,6 +754,7 @@ export component MainWindow inherits Window {
     in-out property <string> lora-editor-filename: "";
     in-out property <string> lora-editor-tag: "";
     callback open-folder();
+    callback close-folder();
     callback close-about();
     callback close-settings();
     callback comfyui-sync-requested();
@@ -765,6 +785,7 @@ export component MainWindow inherits Window {
     callback comment-edit-requested(string, float, float, string);
     callback comment-range-moved(string, float, float, float, float, string);
     callback rating-requested(string, int);
+    callback trash-requested(string);
     callback comment-save(string, string, string, string);
     callback comment-cancel();
     callback comment-delete(string, string, string, string);
@@ -1048,7 +1069,7 @@ export component MainWindow inherits Window {
                             color: root.light-theme ? #5c6878 : #8b96a7;
                             horizontal-alignment: center;
                         }
-                        Button {
+                        AppButton {
                             text: "Open Folder...";
                             clicked => { root.open-folder(); }
                         }
@@ -1102,6 +1123,7 @@ export component MainWindow inherits Window {
                                 comment-edit-requested(path, start, end, text) => { root.comment-edit-requested(path, start, end, text); }
                                 comment-range-moved(path, old-start, old-end, start, end, text) => { root.comment-range-moved(path, old-start, old-end, start, end, text); }
                                 rating-requested(path, rating) => { root.rating-requested(path, rating); }
+                                trash-requested(path) => { root.trash-requested(path); }
                             }
                         }
                     }
@@ -1133,6 +1155,12 @@ export component MainWindow inherits Window {
                         background: root.light-theme ? #eef1f5 : #1a2029;
                         border-color: root.light-theme ? #cbd2dc : #2a3340;
                         border-width: 1px;
+                        CompactIconButton {
+                            x: parent.width - self.width - 6px;
+                            y: 6px;
+                            icon: @image-url("../assets/icons/x.svg");
+                            clicked => { root.metadata-toggle(); }
+                        }
                         VerticalBox {
                             width: 100%;
                             height: 100%;
@@ -1140,13 +1168,7 @@ export component MainWindow inherits Window {
                             spacing: 8px;
                             HorizontalLayout {
                                 width: 100%;
-                                Text { text: root.audio-file-name == "" ? "ComfyUI Metadata" : root.audio-file-name; color: root.light-theme ? #202833 : #e3e8ef; font-size: 16px; overflow: elide; }
-                                Rectangle { horizontal-stretch: 1; }
-                                Button { text: "Close"; clicked => { root.metadata-toggle(); } }
-                            }
-                            HorizontalLayout {
-                                width: 100%;
-                                height: (root.metadata-pane-height - 56px);
+                                height: (root.metadata-pane-height - 24px);
                                 spacing: 12px;
                                 VerticalBox {
                                     width: (parent.width - 36px) / 4;
@@ -1211,7 +1233,7 @@ export component MainWindow inherits Window {
                                                 width: 90px;
                                                 overflow: elide;
                                             }
-                                            Button {
+                                            AppButton {
                                                 text: "Edit";
                                                 clicked => { root.lora-edit-requested(lora.filename, lora.custom-tag); }
                                             }
@@ -1577,7 +1599,7 @@ export component MainWindow inherits Window {
                     Text { text: "Build: " + root.build-number; color: #c4ccd8; }
                     Text { text: "Author: Alexandre Dupuis-Belin"; color: #c4ccd8; }
                     Rectangle { vertical-stretch: 1; }
-                    Button {
+                    AppButton {
                         text: "Close";
                         clicked => { root.close-about(); }
                     }
@@ -1693,7 +1715,7 @@ export component MainWindow inherits Window {
                             HorizontalLayout {
                                 alignment: end;
                                 spacing: 8px;
-                                Button { text: "Close"; clicked => { root.close-settings(); } }
+                                AppButton { text: "Close"; clicked => { root.close-settings(); } }
                             }
                         }
                     }
@@ -1726,7 +1748,7 @@ export component MainWindow inherits Window {
                     Text { text: "Download directory inside workspace"; color: root.light-theme ? #5c6878 : #c4ccd8; }
                     HorizontalLayout {
                         LineEdit { text <=> root.comfyui-sync-local-directory; horizontal-stretch: 1; }
-                        Button { text: "Choose..."; clicked => { root.comfyui-sync-choose-directory(); } }
+                        AppButton { text: "Choose..."; clicked => { root.comfyui-sync-choose-directory(); } }
                     }
                     Text { text: "Sync frequency (milliseconds)"; color: root.light-theme ? #5c6878 : #c4ccd8; }
                     LineEdit { text <=> root.comfyui-sync-interval; }
@@ -1740,9 +1762,9 @@ export component MainWindow inherits Window {
                     HorizontalLayout {
                         alignment: end;
                         spacing: 8px;
-                        Button { text: "Test"; clicked => { root.comfyui-sync-test(root.comfyui-sync-url, root.comfyui-sync-remote-directory, root.comfyui-sync-local-directory, root.comfyui-sync-interval); } }
-                        Button { text: "Cancel"; clicked => { root.comfyui-sync-cancel(); } }
-                        Button { text: "Save and sync"; clicked => { root.comfyui-sync-save(root.comfyui-sync-url, root.comfyui-sync-remote-directory, root.comfyui-sync-local-directory, root.comfyui-sync-interval); } }
+                        AppButton { text: "Test"; clicked => { root.comfyui-sync-test(root.comfyui-sync-url, root.comfyui-sync-remote-directory, root.comfyui-sync-local-directory, root.comfyui-sync-interval); } }
+                        AppButton { text: "Cancel"; clicked => { root.comfyui-sync-cancel(); } }
+                        AppButton { text: "Save and sync"; clicked => { root.comfyui-sync-save(root.comfyui-sync-url, root.comfyui-sync-remote-directory, root.comfyui-sync-local-directory, root.comfyui-sync-interval); } }
                     }
                 }
             }
@@ -1787,11 +1809,11 @@ export component MainWindow inherits Window {
                 HorizontalLayout {
                     alignment: end;
                     spacing: 8px;
-                    Button {
+                    AppButton {
                         text: "Cancel";
                         clicked => { root.color-picker-visible = false; }
                     }
-                    Button {
+                    AppButton {
                         text: "Use Color";
                         clicked => {
                             if root.color-picker-target == 0 {
@@ -1831,9 +1853,9 @@ export component MainWindow inherits Window {
                     Rectangle { vertical-stretch: 1; }
                     HorizontalLayout {
                         spacing: 8px;
-                        Button { text: "Save"; clicked => { root.comment-save(root.comment-editor-path, root.comment-editor-start, root.comment-editor-end, root.comment-editor-text); } }
-                        Button { text: "Cancel"; clicked => { root.comment-cancel(); } }
-                        Button { text: "Delete"; enabled: root.comment-editor-path != ""; clicked => { root.comment-delete(root.comment-editor-path, root.comment-editor-start, root.comment-editor-end, root.comment-editor-text); } }
+                        AppButton { text: "Save"; clicked => { root.comment-save(root.comment-editor-path, root.comment-editor-start, root.comment-editor-end, root.comment-editor-text); } }
+                        AppButton { text: "Cancel"; clicked => { root.comment-cancel(); } }
+                        AppButton { text: "Delete"; enabled: root.comment-editor-path != ""; clicked => { root.comment-delete(root.comment-editor-path, root.comment-editor-start, root.comment-editor-end, root.comment-editor-text); } }
                     }
                 }
             }
@@ -1862,8 +1884,8 @@ export component MainWindow inherits Window {
                     Rectangle { vertical-stretch: 1; }
                     HorizontalLayout {
                         spacing: 8px;
-                        Button { text: "Save"; clicked => { root.lora-save(root.lora-editor-filename, root.lora-editor-tag); } }
-                        Button { text: "Cancel"; clicked => { root.lora-cancel(); } }
+                        AppButton { text: "Save"; clicked => { root.lora-save(root.lora-editor-filename, root.lora-editor-tag); } }
+                        AppButton { text: "Cancel"; clicked => { root.lora-cancel(); } }
                     }
                 }
             }

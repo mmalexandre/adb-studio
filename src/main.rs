@@ -594,6 +594,63 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     {
         let weak_window = window.as_weak();
+        let audio_folder = Rc::clone(&audio_folder);
+        let audio_model = Rc::clone(&audio_model);
+        let audio_load_state = Arc::clone(&audio_load_state);
+        let playback = Rc::clone(&playback);
+        let tree_state = Rc::clone(&tree_state);
+        let settings = Rc::clone(&settings);
+        window.on_trash_requested(move |path| {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            let Some(folder) = audio_folder.borrow().clone() else {
+                return;
+            };
+            let source = PathBuf::from(path.as_str());
+            let Some(name) = source.file_name() else {
+                return;
+            };
+            let trash_folder = folder.join(".adbstudio").join("trash");
+            let destination = trash_folder.join(name);
+            if destination.exists() {
+                window.set_audio_error("File operation: trash destination already exists".into());
+                return;
+            }
+            if let Err(error) = fs::create_dir_all(&trash_folder)
+                .and_then(|_| fs::rename(&source, &destination))
+            {
+                window.set_audio_error(format!("File operation: {error}").into());
+                return;
+            }
+            if playback
+                .borrow()
+                .as_ref()
+                .and_then(|engine| engine.path())
+                == Some(source.as_path())
+            {
+                if let Some(engine) = playback.borrow_mut().as_mut() {
+                    engine.stop();
+                }
+                window.set_active_audio_path("".into());
+                window.set_audio_file_name("".into());
+                window.set_audio_playing(false);
+            }
+            let parent = source.parent().unwrap_or(&folder).to_path_buf();
+            select_tree_path(&window, &tree_state, &settings, &parent);
+            refresh_audio(
+                &window,
+                &audio_folder,
+                &audio_model,
+                &audio_load_state,
+                parent,
+            );
+            window.set_audio_error("".into());
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
         let audio_model = Rc::clone(&audio_model);
         let audio_folder = Rc::clone(&audio_folder);
         let playback = Rc::clone(&playback);
@@ -1008,6 +1065,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let audio_model = Rc::clone(&audio_model);
         let audio_load_state = Arc::clone(&audio_load_state);
         let sync_controller = Rc::clone(&sync_controller);
+        let workflow_files = Rc::clone(&workflow_files);
         window.on_open_folder(move || {
             let Some(window) = weak_window.upgrade() else {
                 return;
@@ -1029,6 +1087,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     &sync_controller,
                 );
             }
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        let settings = Rc::clone(&settings);
+        let tree_state = Rc::clone(&tree_state);
+        let audio_folder = Rc::clone(&audio_folder);
+        let audio_model = Rc::clone(&audio_model);
+        let audio_load_state = Arc::clone(&audio_load_state);
+        let workflow_files = Rc::clone(&workflow_files);
+        let sync_controller = Rc::clone(&sync_controller);
+        let playback = Rc::clone(&playback);
+        window.on_close_folder(move || {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            close_workspace(
+                &window,
+                &settings,
+                &tree_state,
+                &audio_folder,
+                &audio_model,
+                &audio_load_state,
+                &workflow_files,
+                &sync_controller,
+                &playback,
+            );
         });
     }
 
@@ -1663,6 +1749,66 @@ fn set_workspace(
         audio_load_state,
         audio_view_folder,
     );
+}
+
+fn close_workspace(
+    window: &MainWindow,
+    settings: &Rc<RefCell<AppSettings>>,
+    tree_state: &Rc<RefCell<Option<TreeState>>>,
+    audio_folder: &Rc<RefCell<Option<PathBuf>>>,
+    audio_model: &Rc<RefCell<Option<Rc<VecModel<AudioRow>>>>>,
+    audio_load_state: &Arc<Mutex<AudioLoadState>>,
+    workflow_files: &Rc<RefCell<Vec<(String, String)>>>,
+    sync_controller: &Rc<RefCell<SyncController>>,
+    playback: &Rc<RefCell<Option<PlaybackEngine>>>,
+) {
+    sync_controller.borrow_mut().stop();
+    if let Some(engine) = playback.borrow_mut().as_mut() {
+        engine.stop();
+    }
+    {
+        let mut state = audio_load_state.lock().unwrap();
+        state.folder = PathBuf::new();
+        state.paths.clear();
+        state.requested_range = None;
+        state.generated.clear();
+        state.generation += 1;
+        state.completed = 0;
+        state.total = 0;
+    }
+    *tree_state.borrow_mut() = None;
+    *audio_folder.borrow_mut() = None;
+    *audio_model.borrow_mut() = None;
+    workflow_files.borrow_mut().clear();
+
+    {
+        let mut settings = settings.borrow_mut();
+        settings.last_folder = None;
+        settings.last_selected_path = None;
+        settings::save(&settings);
+    }
+
+    window.set_has_folder(false);
+    window.set_folder_name("".into());
+    window.set_tree_rows(ModelRc::new(VecModel::from(Vec::new())));
+    window.set_tree_selection_count(0);
+    window.set_audio_rows(ModelRc::new(VecModel::from(Vec::new())));
+    window.set_selected_name("".into());
+    window.set_active_audio_path("".into());
+    window.set_audio_file_name("".into());
+    window.set_audio_playing(false);
+    window.set_audio_loading(false);
+    window.set_audio_completed(0);
+    window.set_audio_total(0);
+    window.set_audio_error("".into());
+    window.set_workflow_json_files(ModelRc::new(VecModel::from(Vec::new())));
+    window.set_selected_workflow("".into());
+    clear_workflow(window);
+    window.set_comfyui_sync_active(false);
+    window.set_comfyui_sync_error_state(false);
+    window.set_comfyui_sync_status("Not configured".into());
+    window.set_comfyui_sync_present(0);
+    window.set_comfyui_sync_total(0);
 }
 
 fn refresh_audio(
