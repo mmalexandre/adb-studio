@@ -633,6 +633,7 @@ component ExplorerList inherits ListView {
     property <length> viewport-top: 0px - root.viewport-y;
     callback row-clicked(string, bool);
     callback tree-context-menu(string);
+    callback tree-trash-requested(string);
     callback tree-drop-requested(string, int, float);
     callback edit-accepted(string, string);
     callback edit-cancelled();
@@ -987,10 +988,15 @@ export component MainWindow inherits Window {
                                     if root.tree-edit-path != "" && root.tree-edit-path != path {
                                         root.tree-edit-cancelled();
                                     }
+                                    root.file-menu-visible = false;
+                                    root.edit-menu-visible = false;
+                                    root.view-menu-visible = false;
+                                    root.help-menu-visible = false;
                                     tree-focus.focus();
                                     root.tree-menu-path = path;
                                     root.tree-menu-visible = true;
                                 }
+                                tree-trash-requested(path) => { root.tree-trash-requested(path); }
                                 tree-drop-requested(path, index, pointer-y) => { root.tree-drop-requested(path, index, pointer-y); }
                                 edit-accepted(path, text) => { root.tree-edit-accepted(path, text, root.tree-edit-mode); }
                                 edit-cancelled => { root.tree-edit-cancelled(); }
@@ -1436,7 +1442,7 @@ export component MainWindow inherits Window {
             x: 140px;
             y: 40px;
             width: 210px;
-            height: 126px;
+            height: 84px;
             background: root.light-theme ? #ffffff : #202832;
             border-color: root.light-theme ? #cbd2dc : #435064;
             border-width: 1px;
@@ -1499,25 +1505,6 @@ export component MainWindow inherits Window {
                     }
                 }
             }
-            Rectangle {
-                y: 84px;
-                width: 100%;
-                height: 42px;
-                background: delete-touch.has-hover ? (root.light-theme ? #e7ebf0 : #2a3546) : transparent;
-                Text {
-                    text: "Move to Trash";
-                    color: root.light-theme ? #202833 : #f1f4f8;
-                    x: 14px;
-                    width: parent.width - 14px;
-                    vertical-alignment: center;
-                }
-                delete-touch := TouchArea {
-                    clicked => {
-                        root.tree-menu-visible = false;
-                        root.tree-trash-requested(root.tree-menu-path);
-                    }
-                }
-            }
         }
 
         if root.help-menu-visible : Rectangle {
@@ -1547,8 +1534,8 @@ export component MainWindow inherits Window {
             x: 6px;
             y: 86px;
             width: 210px;
-            height: 84px;
-            z: 10;
+            height: 126px;
+            z: 100;
             background: root.light-theme ? #ffffff : #202832;
             border-color: root.light-theme ? #cbd2dc : #435064;
             border-width: 1px;
@@ -1586,6 +1573,25 @@ export component MainWindow inherits Window {
                     clicked => {
                         root.tree-menu-visible = false;
                         root.new-folder-requested(root.tree-menu-path);
+                    }
+                }
+            }
+            Rectangle {
+                y: 84px;
+                width: 100%;
+                height: 42px;
+                background: trash-touch.has-hover ? (root.light-theme ? #e7ebf0 : #2a3546) : transparent;
+                Text {
+                    text: "Move to Trash";
+                    color: root.light-theme ? #202833 : #f1f4f8;
+                    x: 14px;
+                    width: parent.width - 14px;
+                    vertical-alignment: center;
+                }
+                trash-touch := TouchArea {
+                    clicked => {
+                        root.tree-menu-visible = false;
+                        root.tree-trash-requested(root.tree-menu-path);
                     }
                 }
             }
