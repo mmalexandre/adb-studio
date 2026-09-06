@@ -101,26 +101,39 @@ pub fn apply_workflow(
     )));
 }
 
-pub fn load_workflow_for_audio(window: &MainWindow, folder: &Path, path: &Path) {
+pub fn load_workflow_for_audio(
+    window: &MainWindow,
+    folder: &Path,
+    path: &Path,
+    workflow_loading: &std::rc::Rc<std::cell::RefCell<bool>>,
+) {
     if window.get_workflow_loading() {
         return;
     }
+    *workflow_loading.borrow_mut() = true;
     window.set_workflow_loading(true);
+    window.set_workflow_modified(false);
     let Some(workflow_path) = metadata::workflow_path(folder, path) else {
         window.set_selected_workflow("".into());
         clear_workflow(window);
+        window.set_workflow_modified(false);
         window.set_workflow_loading(false);
+        *workflow_loading.borrow_mut() = false;
         return;
     };
     if !workflow_path.is_file() {
         window.set_selected_workflow("".into());
         clear_workflow(window);
+        window.set_workflow_modified(false);
         window.set_workflow_loading(false);
+        *workflow_loading.borrow_mut() = false;
         return;
     }
     match metadata::comfyui::parse_file(&workflow_path) {
         Ok(workflow) => apply_workflow(window, folder, &workflow_path.to_string_lossy(), workflow),
         Err(error) => window.set_audio_error(format!("Workflow JSON: {error}").into()),
     }
+    window.set_workflow_modified(false);
     window.set_workflow_loading(false);
+    *workflow_loading.borrow_mut() = false;
 }

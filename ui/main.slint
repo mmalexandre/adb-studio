@@ -831,6 +831,7 @@ export component MainWindow inherits Window {
     in-out property <bool> lora-editor-visible: false;
     in-out property <string> lora-editor-filename: "";
     in-out property <string> lora-editor-tag: "";
+    in-out property <bool> splash-visible: true;
     callback open-folder();
     callback close-folder();
     callback close-about();
@@ -2398,6 +2399,37 @@ export component MainWindow inherits Window {
                         AppButton { text: "Save"; clicked => { root.lora-save(root.lora-editor-filename, root.lora-editor-tag); } }
                         AppButton { text: "Cancel"; clicked => { root.lora-cancel(); } }
                     }
+                }
+            }
+        }
+
+        if root.splash-visible : Rectangle {
+            x: 0px;
+            y: 0px;
+            width: parent.width;
+            height: parent.height;
+            z: 100;
+            Rectangle {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                width: 576px;
+                height: 576px;
+                background: #f26a21;
+                border-color: #ffffff;
+                border-width: 1px;
+                Text {
+                    x: 28px;
+                    y: 24px;
+                    text: "Adb Studio";
+                    color: #ffffff;
+                    font-size: 36px;
+                }
+                Text {
+                    x: 28px;
+                    y: parent.height - self.height - 24px;
+                    text: "Loading...";
+                    color: #ffffff;
+                    font-size: 13px;
                 }
             }
         }

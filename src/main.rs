@@ -262,6 +262,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let audio_model = Rc::clone(&audio_model);
         let audio_folder = Rc::clone(&audio_folder);
         let edited_workflow = Rc::clone(&edited_workflow);
+        let workflow_loading = Rc::clone(&workflow_loading);
         window.on_audio_row_selected(move |path| {
             let Some(window) = weak_window.upgrade() else {
                 return;
@@ -273,7 +274,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             select_audio_path(&audio_model, path);
             select_tree_path(&window, &tree_state, &settings, path);
             if let Some(folder) = audio_folder.borrow().clone() {
-                load_workflow_for_audio(&window, &folder, path);
+                load_workflow_for_audio(&window, &folder, path, &workflow_loading);
             }
         });
     }
@@ -730,24 +731,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if window.get_workflow_loading() {
                 return;
             }
-            if window.get_selected_workflow().is_empty() {
-                return;
-            }
             let Some(folder) = audio_folder_for_edit.borrow().clone() else {
                 return;
             };
             if !ensure_edit_copy(&window, &folder, &edited_workflow_for_edit) {
                 return;
             }
-            let changed = edited_workflow_for_edit
+            window.set_workflow_modified(true);
+            let _ = edited_workflow_for_edit
                 .borrow_mut()
                 .as_mut()
                 .is_some_and(|workflow| {
                     metadata::comfyui::update_metadata(workflow, field.as_str(), value.as_str())
                 });
-            if changed {
-                window.set_workflow_modified(true);
-            }
         });
         let weak_window = window.as_weak();
         let edited_workflow_for_number = Rc::clone(&edited_workflow);
@@ -763,24 +759,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if window.get_workflow_loading() {
                 return;
             }
-            if window.get_selected_workflow().is_empty() {
-                return;
-            }
             let Some(folder) = audio_folder_for_number.borrow().clone() else {
                 return;
             };
             if !ensure_edit_copy(&window, &folder, &edited_workflow_for_number) {
                 return;
             }
-            let changed = edited_workflow_for_number
+            window.set_workflow_modified(true);
+            let _ = edited_workflow_for_number
                 .borrow_mut()
                 .as_mut()
                 .is_some_and(|workflow| {
                     metadata::comfyui::update_metadata(workflow, field.as_str(), &value.to_string())
                 });
-            if changed {
-                window.set_workflow_modified(true);
-            }
         });
         let weak_window = window.as_weak();
         window.on_lora_edit_requested(move |filename, tag| {
@@ -793,6 +784,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
         let weak_window = window.as_weak();
         let audio_folder = Rc::clone(&audio_folder);
+        let workflow_loading = Rc::clone(&workflow_loading);
         window.on_lora_save(move |filename, tag| {
             let Some(window) = weak_window.upgrade() else {
                 return;
@@ -817,7 +809,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             window.set_lora_editor_visible(false);
             let audio_path = window.get_selected_audio_path().to_string();
             if !audio_path.is_empty() {
-                load_workflow_for_audio(&window, &folder, Path::new(&audio_path));
+                load_workflow_for_audio(
+                    &window,
+                    &folder,
+                    Path::new(&audio_path),
+                    &workflow_loading,
+                );
             }
         });
         let weak_window = window.as_weak();
@@ -1378,6 +1375,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let last_persisted_position_for_timer = Rc::clone(&last_persisted_position);
         let audio_result_receiver = Rc::new(RefCell::new(audio_result_receiver));
         let sync_controller = Rc::clone(&sync_controller);
+        let workflow_loading = Rc::clone(&workflow_loading);
         let workspace_change_receiver = Rc::new(RefCell::new(workspace_change_receiver));
         let tree_state = Rc::clone(&tree_state);
         let workflow_files = Rc::clone(&workflow_files);
@@ -1623,7 +1621,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     engine.duration(),
                                 );
                                 scroll_audio_to_path(&window, &audio_model, &path);
-                                load_workflow_for_audio(&window, &folder, &path);
+                                load_workflow_for_audio(
+                                    &window,
+                                    &folder,
+                                    &path,
+                                    &workflow_loading,
+                                );
                                 save_playback_position(&folder, engine);
                             }
                             SyncEvent::WorkflowUpdated {
@@ -1637,6 +1640,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         &window,
                                         &folder,
                                         Path::new(audio_path.as_str()),
+                                        &workflow_loading,
                                     );
                                 }
                             }
@@ -1969,6 +1973,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let audio_model = Rc::clone(&audio_model);
         let audio_load_state = Arc::clone(&audio_load_state);
         let playback = Rc::clone(&playback);
+        let workflow_loading = Rc::clone(&workflow_loading);
         window.on_row_clicked(move |path, shift| {
             let Some(window) = weak_window.upgrade() else {
                 return;
@@ -2038,7 +2043,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 );
                 scroll_audio_to_path(&window, &audio_model, &path);
                 if let Some(folder) = audio_folder.borrow().clone() {
-                    load_workflow_for_audio(&window, &folder, &path);
+                    load_workflow_for_audio(&window, &folder, &path, &workflow_loading);
                     save_playback_position(&folder, engine);
                 }
             }
@@ -2153,6 +2158,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let last_button_click = Rc::clone(&last_button_click);
         let tree_state = Rc::clone(&tree_state);
         let settings = Rc::clone(&settings);
+        let workflow_loading = Rc::clone(&workflow_loading);
         window.on_audio_play(move |path| {
             let Some(window) = weak_window.upgrade() else {
                 return;
@@ -2227,7 +2233,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 scroll_audio_to_path(&window, &audio_model, &path);
             }
             if let Some(folder) = audio_folder.borrow().clone() {
-                load_workflow_for_audio(&window, &folder, &path);
+                load_workflow_for_audio(&window, &folder, &path, &workflow_loading);
                 save_playback_position(&folder, engine);
             }
         });
@@ -2240,6 +2246,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let audio_folder = Rc::clone(&audio_folder);
         let tree_state = Rc::clone(&tree_state);
         let settings = Rc::clone(&settings);
+        let workflow_loading = Rc::clone(&workflow_loading);
         window.on_audio_seek(move |path, progress| {
             let Some(window) = weak_window.upgrade() else {
                 return;
@@ -2279,7 +2286,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 engine.duration(),
             );
             if let Some(folder) = audio_folder.borrow().clone() {
-                load_workflow_for_audio(&window, &folder, &path);
+                load_workflow_for_audio(&window, &folder, &path, &workflow_loading);
                 save_playback_position(&folder, engine);
             }
         });
@@ -2573,6 +2580,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
         });
     }
+
+    window.show()?;
+    let window_weak = window.as_weak();
+    let splash_timer = slint::Timer::default();
+    splash_timer.start(
+        slint::TimerMode::SingleShot,
+        Duration::from_secs(2),
+        move || {
+            if let Some(window) = window_weak.upgrade() {
+                window.set_splash_visible(false);
+            }
+        },
+    );
+    std::mem::forget(splash_timer);
 
     println!("Adb Studio {APP_VERSION} ({BUILD_NUMBER})");
     window.run()?;
