@@ -365,12 +365,14 @@ fn sync_workflow(
         };
         if client.download_optional_file(config, &workflow_file, &workflow_path)? {
             return Ok(assign_workflow(
+                workspace,
                 audio_directory.join(audio_filename),
                 &workflow_path,
             ));
         }
     } else {
         return Ok(assign_workflow(
+            workspace,
             audio_directory.join(audio_filename),
             &workflow_path,
         ));
@@ -385,13 +387,10 @@ fn workflow_local_path(workspace: &Path, audio_filename: &str) -> PathBuf {
         .join(format!("{audio_filename}.workflow.json"))
 }
 
-fn assign_workflow(audio_path: PathBuf, workflow_path: &Path) -> bool {
-    let Some(audio_folder) = audio_path.parent() else {
-        return false;
-    };
+fn assign_workflow(workspace: &Path, audio_path: PathBuf, workflow_path: &Path) -> bool {
     let audio_path = audio_path.to_string_lossy();
     let workflow_path = workflow_path.to_string_lossy().into_owned();
-    let mut index = metadata::load_index(audio_folder);
+    let mut index = metadata::load_index(workspace);
     let changed = if let Some(file) = index
         .audio_files
         .iter_mut()
@@ -412,7 +411,7 @@ fn assign_workflow(audio_path: PathBuf, workflow_path: &Path) -> bool {
         true
     };
     if changed {
-        metadata::save_index(audio_folder, &index);
+        metadata::save_index(workspace, &index);
     }
     changed
 }
@@ -685,10 +684,11 @@ fn validate_request_config(config: &SyncConfig) -> Result<(), SyncError> {
 #[cfg(test)]
 mod tests {
     use super::{
-        ensure_destination, load_download_index, progress_with_index, save_download_index,
-        temporary_download_path, DownloadIndex, RemoteFile, SyncConfig, DEFAULT_INTERVAL_MS,
-        DEFAULT_LOCAL_DIRECTORY, DEFAULT_REMOTE_DIRECTORY,
+        assign_workflow, ensure_destination, load_download_index, progress_with_index,
+        save_download_index, temporary_download_path, DownloadIndex, RemoteFile, SyncConfig,
+        DEFAULT_INTERVAL_MS, DEFAULT_LOCAL_DIRECTORY, DEFAULT_REMOTE_DIRECTORY,
     };
+    use crate::metadata;
     use std::{
         fs,
         path::Path,
@@ -751,6 +751,22 @@ mod tests {
             super::workflow_local_path(workspace, "song.mp3"),
             workspace.join(".adbstudio/workflows/song.mp3.workflow.json")
         );
+    }
+
+    #[test]
+    fn workflow_assignment_is_saved_only_in_workspace_index() {
+        let workspace = tempfile_directory();
+        let audio_path = workspace.join("downloads/song.mp3");
+        let workflow_path = workspace.join(".adbstudio/workflows/song.mp3.workflow.json");
+
+        assert!(assign_workflow(&workspace, audio_path, &workflow_path));
+        assert_eq!(
+            metadata::load_index(&workspace).audio_files[0].workflow_json_path,
+            Some(workflow_path.to_string_lossy().into_owned())
+        );
+        assert!(!workspace.join("downloads/.adbstudio/index.json").exists());
+
+        fs::remove_dir_all(workspace).unwrap();
     }
 
     #[test]
