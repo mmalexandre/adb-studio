@@ -2315,6 +2315,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     path,
                 );
             } else if file_system::FileKind::from_path(&path) == file_system::FileKind::Audio {
+                let Some(folder) = path.parent().map(Path::to_path_buf) else {
+                    return;
+                };
+                window.set_selected_audio_path(path.to_string_lossy().into_owned().into());
+                refresh_audio(
+                    &window,
+                    &audio_folder,
+                    &audio_model,
+                    &audio_load_state,
+                    folder,
+                );
                 let mut playback_ref = playback.borrow_mut();
                 let Some(engine) = playback_ref.as_mut() else {
                     return;
