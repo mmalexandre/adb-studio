@@ -1,8 +1,7 @@
 use std::{
     cell::RefCell,
     collections::{HashMap, HashSet},
-    env,
-    fs,
+    env, fs,
     path::{Path, PathBuf},
     process::Command,
     rc::Rc,
@@ -419,6 +418,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 folder,
                 (!already_pinned).then_some(path.as_path()),
             );
+            let pinned_path = (!already_pinned).then_some(path.as_path());
             if let Some(model) = audio_model.borrow().clone() {
                 for index in 0..model.row_count() {
                     let Some(row) = model.row_data(index) else {
@@ -429,12 +429,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         model.set_row_data(
                             index,
                             AudioRow {
-                                path: row.path,
+                                path: row.path.clone(),
                                 name: row.name,
                                 modified_date: row.modified_date,
                                 peaks: row.peaks,
                                 is_loading: row.is_loading,
                                 comments: row.comments,
+                                differences: track_differences(
+                                    &workspace,
+                                    pinned_path,
+                                    Path::new(row.path.as_str()),
+                                ),
                                 rating: row.rating,
                                 is_pinned,
                                 is_selected: row.is_selected,
@@ -984,6 +989,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 peaks: row.peaks,
                                 is_loading: row.is_loading,
                                 comments: row.comments,
+                                differences: row.differences,
                                 rating: rating.clamp(0, 5),
                                 is_pinned: row.is_pinned,
                                 is_selected: row.is_selected,
@@ -1974,6 +1980,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             ))),
                             is_loading: false,
                             comments: row.comments,
+                            differences: row.differences,
                             rating: row.rating,
                             is_pinned: row.is_pinned,
                             is_selected: row.is_selected,
@@ -3190,6 +3197,23 @@ fn is_internal_path(path: &Path) -> bool {
         .any(|component| component.as_os_str() == ".adbstudio")
 }
 
+fn track_differences(
+    folder: &Path,
+    pinned_path: Option<&Path>,
+    track_path: &Path,
+) -> ModelRc<TrackDifference> {
+    let differences = pinned_path
+        .map(|pinned_path| metadata::comfyui::compare_files(folder, pinned_path, track_path))
+        .unwrap_or_default()
+        .into_iter()
+        .map(|difference| TrackDifference {
+            label: difference.label.into(),
+            value: difference.value.into(),
+        })
+        .collect::<Vec<_>>();
+    ModelRc::new(VecModel::from(differences))
+}
+
 fn refresh_audio(
     window: &MainWindow,
     audio_folder: &Rc<RefCell<Option<PathBuf>>>,
@@ -3303,6 +3327,11 @@ fn refresh_audio_with_changes(
             peaks: ModelRc::new(VecModel::from(vec![0.0; waveform::DISPLAY_PEAK_COUNT])),
             is_loading: false,
             comments,
+            differences: track_differences(
+                &audio_folder.borrow().clone().unwrap_or_default(),
+                pinned_path.as_deref(),
+                &entry.path,
+            ),
             rating: stored_position
                 .as_ref()
                 .map(|item| item.normalized_rating() as i32)

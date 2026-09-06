@@ -20,6 +20,11 @@ export struct CommentRow {
     text: string,
 }
 
+export struct TrackDifference {
+    label: string,
+    value: string,
+}
+
 export struct AudioRow {
     path: string,
     name: string,
@@ -27,6 +32,7 @@ export struct AudioRow {
     peaks: [float],
     is-loading: bool,
     comments: [CommentRow],
+    differences: [TrackDifference],
     rating: int,
     is-pinned: bool,
     is-selected: bool,

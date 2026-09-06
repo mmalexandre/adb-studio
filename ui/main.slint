@@ -1,5 +1,5 @@
 import { CheckBox, ComboBox, LineEdit, ListView, ScrollView, Slider, SpinBox, TextEdit, VerticalBox } from "std-widgets.slint";
-import { AudioRow, BreadcrumbRow, CommentRow, ConversionRow, TreeRow, WorkflowFileRow, WorkflowLoraRow } from "./models.slint";
+import { AudioRow, BreadcrumbRow, CommentRow, ConversionRow, TrackDifference, TreeRow, WorkflowFileRow, WorkflowLoraRow } from "./models.slint";
 import { AppButton, CompactIconButton, IconButton, MenuButton, SortIconButton, SyncIconButton, ToolButton } from "./controls.slint";
 
 component Waveform inherits Rectangle {
@@ -301,6 +301,7 @@ component AudioRowView inherits Rectangle {
     in property <[float]> peaks;
     in property <bool> is-loading;
     in property <[CommentRow]> comments;
+    in property <[TrackDifference]> differences;
     in property <int> rating: 0;
     in property <bool> is-pinned;
     property <int> hovered-rating: -1;
@@ -342,6 +343,26 @@ component AudioRowView inherits Rectangle {
                 font-size: 14px;
                 overflow: elide;
                 horizontal-stretch: 1;
+            }
+            if root.differences.length > 0 : Text {
+                text: " - ";
+                color: root.light-theme ? #5c6878 : #aeb8c6;
+                font-size: 10px;
+            }
+            for difference in root.differences : HorizontalLayout {
+                spacing: 2px;
+                Text {
+                    text: difference.label;
+                    color: root.light-theme ? #5c6878 : #aeb8c6;
+                    font-size: 9px;
+                    font-weight: 700;
+                }
+                Text {
+                    text: difference.value;
+                    color: root.light-theme ? #5c6878 : #aeb8c6;
+                    font-size: 9px;
+                    overflow: elide;
+                }
             }
             HorizontalLayout {
                 width: 156px;
@@ -510,6 +531,7 @@ component AudioList inherits ListView {
         modified-date: row.modified-date;
         peaks: row.peaks;
         comments: row.comments;
+        differences: row.differences;
         rating: row.rating;
         is-pinned: row.is-pinned;
         is-selected: row.is-selected;
