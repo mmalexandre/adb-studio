@@ -291,8 +291,8 @@ component Waveform inherits Rectangle {
 component AudioRowView inherits Rectangle {
     height: 86px;
     background: root.light-theme ? #ffffff : #1a2029;
-    border-color: root.is-pinned ? #f28c28 : root.is-selected ? #000000 : root.is-active ? (root.light-theme ? #d46b32 : #e58a4d) : (root.light-theme ? #d9dee6 : #2a3340);
-    border-width: root.is-pinned ? 5px : 1px;
+    border-color: root.is-selected ? #000000 : root.is-active ? (root.light-theme ? #d46b32 : #e58a4d) : (root.light-theme ? #d9dee6 : #2a3340);
+    border-width: 1px;
     in property <bool> light-theme;
     in property <color> comment-background-color: #000000;
     in property <color> comment-text-color: #ffffff;
@@ -320,6 +320,13 @@ component AudioRowView inherits Rectangle {
     callback rating-requested(int);
     callback pin-requested();
     callback trash-requested();
+
+    if root.is-pinned : Rectangle {
+        x: 0px;
+        width: 10px;
+        height: parent.height;
+        background: #f28c28;
+    }
 
     VerticalBox {
         padding: 8px;
@@ -441,7 +448,7 @@ component AudioRowView inherits Rectangle {
         HorizontalLayout {
             height: 58px;
             Waveform {
-                width: parent.width - 244px;
+                width: parent.width - 292px;
                 light-theme: root.light-theme;
                 comment-background-color: root.comment-background-color;
                 comment-text-color: root.comment-text-color;
@@ -459,7 +466,7 @@ component AudioRowView inherits Rectangle {
                 comment-edit-requested(start, end, text) => { root.comment-edit-requested(start, end, text); }
                 comment-range-moved(old-start, old-end, start, end, text) => { root.comment-range-moved(old-start, old-end, start, end, text); }
             }
-            Rectangle { width: 244px; }
+            Rectangle { width: 292px; }
         }
     }
 }
