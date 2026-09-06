@@ -1,6 +1,5 @@
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
-use filetime::{set_file_times, FileTime};
 use std::{
     collections::HashSet,
     fs,
@@ -530,8 +529,7 @@ impl ComfyUiClient {
                 .map_err(SyncError::Request)?;
             temporary_file.flush().map_err(SyncError::Io)?;
             temporary_file.sync_all().map_err(SyncError::Io)?;
-            fs::rename(&temporary_path, &final_path).map_err(SyncError::Io)?;
-            set_downloaded_file_times(&final_path, file.modified)
+            fs::rename(&temporary_path, &final_path).map_err(SyncError::Io)
         })();
         if result.is_err() {
             let _ = fs::remove_file(&temporary_path);
@@ -601,24 +599,8 @@ fn temporary_download_path(destination: &Path, filename: &str) -> PathBuf {
     ))
 }
 
-fn set_downloaded_file_times(path: &Path, modified: u64) -> Result<(), SyncError> {
-    if modified == 0 {
-        return Ok(());
-    }
-    let metadata = fs::metadata(path).map_err(SyncError::Io)?;
-    let modified_seconds = modified / 1_000_000_000;
-    let modified_nanoseconds = (modified % 1_000_000_000) as u32;
-    let modified_time = FileTime::from_unix_time(modified_seconds as i64, modified_nanoseconds);
-    set_file_times(
-        path,
-        FileTime::from_last_access_time(&metadata),
-        modified_time,
-    )
-    .map_err(SyncError::Io)
-}
-
 fn sort_remote_files(files: &mut [RemoteFile]) {
-    files.sort_by(|left, right| left.modified.cmp(&right.modified));
+    files.sort_by(|left, right| right.modified.cmp(&left.modified));
 }
 
 fn progress_with_index(
@@ -775,7 +757,7 @@ mod tests {
     }
 
     #[test]
-    fn remote_files_are_sorted_oldest_first() {
+    fn remote_files_are_sorted_newest_first() {
         let mut files = vec![
             RemoteFile {
                 name: "older.mp3".to_string(),
@@ -789,8 +771,8 @@ mod tests {
             },
         ];
         super::sort_remote_files(&mut files);
-        assert_eq!(files[0].name, "older.mp3");
-        assert_eq!(files[1].name, "newer.mp3");
+        assert_eq!(files[0].name, "newer.mp3");
+        assert_eq!(files[1].name, "older.mp3");
     }
 
     #[test]
