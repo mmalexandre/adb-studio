@@ -854,6 +854,7 @@ export component MainWindow inherits Window {
     callback tree-trash-requested(string);
     callback tree-drop-requested(string, int, float);
     callback rename-requested();
+    callback tree-reveal-requested(string);
     callback new-folder-requested(string);
     callback tree-edit-accepted(string, string, int);
     callback tree-edit-cancelled();
@@ -1708,7 +1709,7 @@ export component MainWindow inherits Window {
             x: (root.tree-menu-x + 6px).min(parent.width - self.width).max(0px);
             y: (root.tree-menu-y + 6px).min(parent.height - self.height).max(0px);
             width: 210px;
-            height: 124px;
+            height: 155px;
             z: 1000;
             background: root.light-theme ? #ffffff : #202832;
             border-color: root.light-theme ? #cbd2dc : #435064;
@@ -1716,6 +1717,30 @@ export component MainWindow inherits Window {
             Rectangle {
                 x: 0px;
                 y: 0px;
+                width: 100%;
+                height: 31px;
+                background: reveal-touch.has-hover ? (root.light-theme ? #e7ebf0 : #2a3546) : transparent;
+                Text {
+                    text: "Show in folder...";
+                    color: root.light-theme ? #202833 : #f1f4f8;
+                    x: 14px;
+                    y: 0px;
+                    width: 196px;
+                    height: 31px;
+                    vertical-alignment: center;
+                }
+                reveal-touch := TouchArea {
+                    width: 100%;
+                    height: 31px;
+                    clicked => {
+                        root.tree-menu-visible = false;
+                        root.tree-reveal-requested(root.tree-menu-path);
+                    }
+                }
+            }
+            Rectangle {
+                x: 0px;
+                y: 31px;
                 width: 100%;
                 height: 31px;
                 background: rename-touch.has-hover ? (root.light-theme ? #e7ebf0 : #2a3546) : transparent;
@@ -1739,7 +1764,7 @@ export component MainWindow inherits Window {
             }
             Rectangle {
                 x: 0px;
-                y: 31px;
+                y: 62px;
                 width: 100%;
                 height: 31px;
                 background: folder-touch.has-hover ? (root.light-theme ? #e7ebf0 : #2a3546) : transparent;
@@ -1763,7 +1788,7 @@ export component MainWindow inherits Window {
             }
             Rectangle {
                 x: 0px;
-                y: 62px;
+                y: 93px;
                 width: 100%;
                 height: 31px;
                 background: convert-touch.has-hover ? (root.light-theme ? #e7ebf0 : #2a3546) : transparent;
@@ -1787,7 +1812,7 @@ export component MainWindow inherits Window {
             }
             Rectangle {
                 x: 0px;
-                y: 93px;
+                y: 124px;
                 width: 100%;
                 height: 31px;
                 background: trash-touch.has-hover ? (root.light-theme ? #e7ebf0 : #2a3546) : transparent;

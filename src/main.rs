@@ -240,6 +240,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
+    window.on_tree_reveal_requested(move |path| {
+        let path = PathBuf::from(path.as_str());
+        if path.exists() {
+            let _ = opener::reveal(path);
+        }
+    });
+
     {
         let weak_window = window.as_weak();
         let tree_state = Rc::clone(&tree_state);
