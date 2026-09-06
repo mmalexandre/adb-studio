@@ -13,6 +13,25 @@ pub enum FileKind {
     Other,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum SortOrder {
+    AlphabeticalAscending,
+    AlphabeticalDescending,
+    ModifiedAscending,
+    ModifiedDescending,
+}
+
+impl SortOrder {
+    pub fn from_i32(value: i32) -> Self {
+        match value {
+            0 => Self::AlphabeticalAscending,
+            1 => Self::AlphabeticalDescending,
+            2 => Self::ModifiedAscending,
+            _ => Self::ModifiedDescending,
+        }
+    }
+}
+
 impl FileKind {
     pub fn from_path(path: &Path) -> Self {
         if path.is_dir() {
@@ -49,9 +68,9 @@ pub struct DirEntryInfo {
     pub kind: FileKind,
 }
 
-/// Reads one directory level; returns dirs first, then files, both name-sorted.
+/// Reads one directory level; returns alphabetically sorted dirs first, then sorted files.
 /// Unreadable directories yield an empty list rather than an error.
-pub fn read_dir_sorted(path: &Path) -> Vec<DirEntryInfo> {
+pub fn read_dir_sorted(path: &Path, sort_order: SortOrder) -> Vec<DirEntryInfo> {
     let Ok(read_dir) = fs::read_dir(path) else {
         return Vec::new();
     };
@@ -74,13 +93,33 @@ pub fn read_dir_sorted(path: &Path) -> Vec<DirEntryInfo> {
 
     entries.sort_by(|a, b| {
         b.is_dir.cmp(&a.is_dir).then_with(|| {
-            a.name
-                .to_ascii_lowercase()
-                .cmp(&b.name.to_ascii_lowercase())
+            if a.is_dir {
+                return compare_names(a, b);
+            }
+            match sort_order {
+                SortOrder::AlphabeticalAscending => compare_names(a, b),
+                SortOrder::AlphabeticalDescending => compare_names(b, a),
+                SortOrder::ModifiedAscending => compare_modified(a, b),
+                SortOrder::ModifiedDescending => compare_modified(b, a),
+            }
         })
     });
 
     entries
+}
+
+fn compare_names(left: &DirEntryInfo, right: &DirEntryInfo) -> std::cmp::Ordering {
+    left.name
+        .to_ascii_lowercase()
+        .cmp(&right.name.to_ascii_lowercase())
+}
+
+fn compare_modified(left: &DirEntryInfo, right: &DirEntryInfo) -> std::cmp::Ordering {
+    let left_modified = fs::metadata(&left.path).and_then(|metadata| metadata.modified()).ok();
+    let right_modified = fs::metadata(&right.path).and_then(|metadata| metadata.modified()).ok();
+    left_modified
+        .cmp(&right_modified)
+        .then_with(|| compare_names(left, right))
 }
 
 pub struct TreeState {
@@ -117,7 +156,7 @@ impl TreeState {
         self.selection_anchor = Some(path.to_path_buf());
     }
 
-    pub fn select_with_shift(&mut self, path: &Path, shift: bool) {
+    pub fn select_with_shift(&mut self, path: &Path, shift: bool, sort_order: SortOrder) {
         if !shift {
             self.select(path);
             return;
@@ -136,7 +175,7 @@ impl TreeState {
             return;
         }
 
-        let siblings = read_dir_sorted(parent);
+        let siblings = read_dir_sorted(parent, sort_order);
         let Some(anchor_index) = siblings.iter().position(|entry| entry.path == *anchor) else {
             self.select(path);
             return;
@@ -210,7 +249,7 @@ pub struct VisibleRow {
     pub kind: FileKind,
 }
 
-pub fn build_visible_rows(state: &TreeState) -> Vec<VisibleRow> {
+pub fn build_visible_rows(state: &TreeState, sort_order: SortOrder) -> Vec<VisibleRow> {
     let mut rows = Vec::new();
     let is_selected = state.selected_paths.contains(&state.root);
     rows.push(VisibleRow {
@@ -228,13 +267,19 @@ pub fn build_visible_rows(state: &TreeState) -> Vec<VisibleRow> {
         kind: FileKind::Directory,
     });
     if state.expanded.contains(&state.root) {
-        push_children(&state.root, 1, state, &mut rows);
+        push_children(&state.root, 1, state, sort_order, &mut rows);
     }
     rows
 }
 
-fn push_children(dir: &Path, depth: i32, state: &TreeState, rows: &mut Vec<VisibleRow>) {
-    for entry in read_dir_sorted(dir) {
+fn push_children(
+    dir: &Path,
+    depth: i32,
+    state: &TreeState,
+    sort_order: SortOrder,
+    rows: &mut Vec<VisibleRow>,
+) {
+    for entry in read_dir_sorted(dir, sort_order) {
         let is_expanded = entry.is_dir && state.expanded.contains(&entry.path);
         let is_selected = state.selected_paths.contains(&entry.path);
         rows.push(VisibleRow {
@@ -247,7 +292,7 @@ fn push_children(dir: &Path, depth: i32, state: &TreeState, rows: &mut Vec<Visib
             kind: entry.kind,
         });
         if is_expanded {
-            push_children(&entry.path, depth + 1, state, rows);
+            push_children(&entry.path, depth + 1, state, sort_order, rows);
         }
     }
 }

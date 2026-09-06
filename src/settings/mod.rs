@@ -19,6 +19,8 @@ pub struct AppSettings {
     pub auto_play_new_tracks: bool,
     #[serde(default = "default_seek_seconds")]
     pub seek_seconds: f32,
+    #[serde(default = "default_sort_order")]
+    pub sort_order: i32,
     #[serde(default)]
     pub shortcut_fullscreen: i32,
     #[serde(default = "default_shortcut_metadata")]
@@ -74,6 +76,9 @@ fn default_metadata_pane_height() -> f32 {
 fn default_seek_seconds() -> f32 {
     5.0
 }
+fn default_sort_order() -> i32 {
+    3
+}
 fn default_shortcut_metadata() -> i32 {
     1
 }
@@ -116,6 +121,7 @@ impl Default for AppSettings {
             loop_enabled: false,
             auto_play_new_tracks: false,
             seek_seconds: default_seek_seconds(),
+            sort_order: default_sort_order(),
             shortcut_fullscreen: 0,
             shortcut_metadata: default_shortcut_metadata(),
             shortcut_play_pause: default_shortcut_play_pause(),

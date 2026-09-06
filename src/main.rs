@@ -85,6 +85,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     window.set_loop_enabled(settings.borrow().loop_enabled);
     window.set_auto_play_new_tracks(settings.borrow().auto_play_new_tracks);
     window.set_seek_seconds(settings.borrow().seek_seconds.round() as i32);
+    window.set_sort_order(settings.borrow().sort_order);
     window.set_shortcut_fullscreen(settings.borrow().shortcut_fullscreen);
     window.set_shortcut_metadata(settings.borrow().shortcut_metadata);
     window.set_shortcut_play_pause(settings.borrow().shortcut_play_pause);
@@ -377,7 +378,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let Some(state) = state_ref.as_ref() else {
                     return;
                 };
-                let rows = file_system::build_visible_rows(state);
+                let rows = file_system::build_visible_rows(
+                    state,
+                    file_system::SortOrder::from_i32(window.get_sort_order()),
+                );
                 let target_index = (source_index as f32 + ((pointer_y - 13.0) / 26.0).round())
                     .clamp(0.0, (rows.len() - 1) as f32)
                     as usize;
@@ -1450,17 +1454,42 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let Some(window) = weak_window.upgrade() else {
                 return;
             };
-            let settings = settings.borrow();
+            let (
+                shortcut_fullscreen,
+                shortcut_metadata,
+                shortcut_play_pause,
+                shortcut_navigate_up,
+                shortcut_navigate_down,
+                shortcut_cancel_edit,
+                shortcut_seek_backward,
+                shortcut_seek_forward,
+                shortcut_trash,
+                seek_seconds,
+            ) = {
+                let settings = settings.borrow();
+                (
+                    settings.shortcut_fullscreen,
+                    settings.shortcut_metadata,
+                    settings.shortcut_play_pause,
+                    settings.shortcut_navigate_up,
+                    settings.shortcut_navigate_down,
+                    settings.shortcut_cancel_edit,
+                    settings.shortcut_seek_backward,
+                    settings.shortcut_seek_forward,
+                    settings.shortcut_trash,
+                    settings.seek_seconds,
+                )
+            };
             let matches = |configured: i32| configured == key;
-            if matches(settings.shortcut_fullscreen) {
+            if matches(shortcut_fullscreen) {
                 window.invoke_toggle_fullscreen();
                 return;
             }
-            if matches(settings.shortcut_metadata) {
+            if matches(shortcut_metadata) {
                 window.invoke_metadata_toggle();
                 return;
             }
-            if matches(settings.shortcut_play_pause) {
+            if matches(shortcut_play_pause) {
                 if !window.get_selected_audio_path().is_empty() {
                     window.invoke_audio_play(window.get_selected_audio_path());
                 } else {
@@ -1468,29 +1497,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 return;
             }
-            if matches(settings.shortcut_navigate_up) {
+            if matches(shortcut_navigate_up) {
                 window.invoke_audio_navigate(-1);
                 return;
             }
-            if matches(settings.shortcut_navigate_down) {
+            if matches(shortcut_navigate_down) {
                 window.invoke_audio_navigate(1);
                 return;
             }
-            if matches(settings.shortcut_cancel_edit) {
+            if matches(shortcut_cancel_edit) {
                 if !window.get_tree_edit_path().is_empty() {
                     window.invoke_tree_edit_cancelled();
                 }
                 return;
             }
-            if matches(settings.shortcut_trash) && !shift {
+            if matches(shortcut_trash) && !shift {
                 if !window.get_active_audio_path().is_empty() {
                     window.invoke_trash_requested(window.get_active_audio_path());
                 }
                 return;
             }
-            let seek_key = if matches(settings.shortcut_seek_backward) {
+            let seek_key = if matches(shortcut_seek_backward) {
                 -1.0
-            } else if matches(settings.shortcut_seek_forward) {
+            } else if matches(shortcut_seek_forward) {
                 1.0
             } else {
                 return;
@@ -1510,7 +1539,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     engine.duration()
                 }
             } else {
-                let delta = Duration::from_secs_f32(settings.seek_seconds.max(1.0));
+                let delta = Duration::from_secs_f32(seek_seconds.max(1.0));
                 if seek_key < 0.0 {
                     engine.position().saturating_sub(delta)
                 } else {
@@ -1554,7 +1583,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if path.is_dir() {
                 state.toggle(&path);
             }
-            state.select_with_shift(&path, shift);
+            state.select_with_shift(
+                &path,
+                shift,
+                file_system::SortOrder::from_i32(window.get_sort_order()),
+            );
             if !path.is_dir() {
                 state.expand_to(&path);
             }
@@ -2090,6 +2123,47 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
+    {
+        let weak_window = window.as_weak();
+        let settings = Rc::clone(&settings);
+        let tree_state = Rc::clone(&tree_state);
+        let audio_folder = Rc::clone(&audio_folder);
+        let audio_model = Rc::clone(&audio_model);
+        let audio_load_state = Arc::clone(&audio_load_state);
+        window.on_sort_order_selected(move |sort_order| {
+            settings.borrow_mut().sort_order = sort_order;
+            settings::save(&settings.borrow());
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            refresh_tree(&window, &tree_state);
+            let Some(workspace) = audio_folder.borrow().clone() else {
+                return;
+            };
+            let folder = settings
+                .borrow()
+                .last_selected_path
+                .as_deref()
+                .map(PathBuf::from)
+                .filter(|path| path.exists() && path.strip_prefix(&workspace).is_ok())
+                .map(|path| {
+                    if path.is_dir() {
+                        path
+                    } else {
+                        path.parent().unwrap_or(&workspace).to_path_buf()
+                    }
+                })
+                .unwrap_or(workspace);
+            refresh_audio(
+                &window,
+                &audio_folder,
+                &audio_model,
+                &audio_load_state,
+                folder,
+            );
+        });
+    }
+
     println!("Adb Studio {APP_VERSION} ({BUILD_NUMBER})");
     window.run()?;
     sync_controller.borrow_mut().stop();
@@ -2465,7 +2539,10 @@ fn refresh_audio_with_changes(
         .unwrap_or_default();
     let index = metadata::load_index(&folder);
     let mut rows = Vec::new();
-    for entry in file_system::read_dir_sorted(&folder) {
+    for entry in file_system::read_dir_sorted(
+        &folder,
+        file_system::SortOrder::from_i32(window.get_sort_order()),
+    ) {
         if entry.kind != file_system::FileKind::Audio || !matches_audio_filter(&entry.name, &filter)
         {
             continue;
@@ -2517,7 +2594,29 @@ fn refresh_audio_with_changes(
             selected_comment_end: -1.0,
         });
     }
-    rows.sort_by(|left, right| right.modified_date.cmp(&left.modified_date));
+    let sort_order = file_system::SortOrder::from_i32(window.get_sort_order());
+    rows.sort_by(|left, right| match sort_order {
+        file_system::SortOrder::AlphabeticalAscending => left
+            .name
+            .to_ascii_lowercase()
+            .cmp(&right.name.to_ascii_lowercase()),
+        file_system::SortOrder::AlphabeticalDescending => right
+            .name
+            .to_ascii_lowercase()
+            .cmp(&left.name.to_ascii_lowercase()),
+        file_system::SortOrder::ModifiedAscending => left
+            .modified_date
+            .parse::<u64>()
+            .unwrap_or_default()
+            .cmp(&right.modified_date.parse::<u64>().unwrap_or_default())
+            .then_with(|| left.name.to_ascii_lowercase().cmp(&right.name.to_ascii_lowercase())),
+        file_system::SortOrder::ModifiedDescending => right
+            .modified_date
+            .parse::<u64>()
+            .unwrap_or_default()
+            .cmp(&left.modified_date.parse::<u64>().unwrap_or_default())
+            .then_with(|| left.name.to_ascii_lowercase().cmp(&right.name.to_ascii_lowercase())),
+    });
     let previous_selected_path = PathBuf::from(window.get_selected_audio_path().as_str());
     let selected_path = rows
         .iter()
@@ -2659,7 +2758,10 @@ fn select_tree_path(
         return;
     };
     state.select_and_expand(path);
-    let tree_index = file_system::build_visible_rows(state)
+    let tree_index = file_system::build_visible_rows(
+        state,
+        file_system::SortOrder::from_i32(window.get_sort_order()),
+    )
         .iter()
         .position(|row| row.path == path)
         .map(|index| index as i32);
@@ -2719,7 +2821,10 @@ fn refresh_tree(window: &MainWindow, tree_state: &Rc<RefCell<Option<TreeState>>>
     };
     window.set_tree_selection_count(state.selected_paths().len() as i32);
 
-    let rows: Vec<TreeRow> = file_system::build_visible_rows(state)
+    let rows: Vec<TreeRow> = file_system::build_visible_rows(
+        state,
+        file_system::SortOrder::from_i32(window.get_sort_order()),
+    )
         .into_iter()
         .map(|row| TreeRow {
             path: row.path.to_string_lossy().into_owned().into(),

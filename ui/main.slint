@@ -1,7 +1,7 @@
 import { CheckBox, ComboBox, LineEdit, ListView, ScrollView, Slider, TextEdit, VerticalBox } from "std-widgets.slint";
 import { AudioRow, BreadcrumbRow, CommentRow, TreeRow, WorkflowFileRow, WorkflowLoraRow } from "./models.slint";
 import { WorkflowSuggestionBox } from "./workflow_suggestion.slint";
-import { AppButton, CompactIconButton, IconButton, MenuButton, SyncIconButton, ToolButton } from "./controls.slint";
+import { AppButton, CompactIconButton, IconButton, MenuButton, SortIconButton, SyncIconButton, ToolButton } from "./controls.slint";
 
 component Waveform inherits Rectangle {
     height: 58px;
@@ -724,6 +724,7 @@ export component MainWindow inherits Window {
     in-out property <string> build-number: "development";
     in-out property <bool> about-visible: false;
     in-out property <bool> settings-visible: false;
+    in-out property <int> settings-tab: 0;
     in-out property <bool> tips-visible: false;
     in-out property <bool> hide-tips-of-the-day: false;
     in-out property <bool> comfyui-sync-visible: false;
@@ -745,6 +746,8 @@ export component MainWindow inherits Window {
     in-out property <bool> view-menu-visible: false;
     in-out property <bool> help-menu-visible: false;
     in-out property <bool> tree-menu-visible: false;
+    in-out property <bool> sort-menu-visible: false;
+    in-out property <int> sort-order: 3;
     in-out property <string> tree-menu-path: "";
     in-out property <string> tree-edit-path: "";
     in-out property <string> tree-edit-text: "";
@@ -824,6 +827,7 @@ export component MainWindow inherits Window {
     callback audio-row-selected(string);
     callback audio-navigate(int);
     callback tree-context-menu(string);
+    callback sort-order-selected(int);
     callback tree-trash-requested(string);
     callback tree-drop-requested(string, int, float);
     callback rename-requested();
@@ -897,6 +901,7 @@ export component MainWindow inherits Window {
             clicked => {
                 root.workflow-dropdown-visible = false;
                 root.tree-menu-visible = false;
+                root.sort-menu-visible = false;
                 if root.tree-edit-path != "" {
                     root.tree-edit-cancelled();
                 }
@@ -1000,11 +1005,18 @@ export component MainWindow inherits Window {
                         padding-left: 6px;
                         padding-right: 6px;
                         spacing: 8px;
-                        Text {
-                            text: "EXPLORER";
-                            color: root.light-theme ? #5c6878 : #7f8b9d;
-                            font-size: 11px;
-                            x: 12px;
+                        Rectangle {
+                            height: 28px;
+                            z: 100;
+                            HorizontalLayout {
+                                Text {
+                                    text: "EXPLORER";
+                                    color: root.light-theme ? #5c6878 : #7f8b9d;
+                                    font-size: 11px;
+                                    vertical-alignment: center;
+                                }
+                                Rectangle { horizontal-stretch: 1; }
+                            }
                         }
                         Text {
                             text: root.folder-name;
@@ -1145,38 +1157,46 @@ export component MainWindow inherits Window {
                         padding: 24px;
                         padding-bottom: 0px;
                         spacing: 18px;
-                        HorizontalLayout {
-                            spacing: 12px;
+                        Rectangle {
+                            height: 28px;
                             HorizontalLayout {
-                                spacing: 0px;
-                                for breadcrumb[index] in root.audio-breadcrumbs : Rectangle {
-                                    height: 28px;
-                                    width: breadcrumb-name.preferred-width + (index < root.audio-breadcrumbs.length - 1 ? 42px : 0px);
-                                    breadcrumb-name := Text {
-                                        text: breadcrumb.name;
-                                        color: index < root.audio-breadcrumbs.length - 1 ? (root.light-theme ? #5c6878 : #8b96a7) : (root.light-theme ? #202833 : #e3e8ef);
-                                        font-size: 18px;
-                                        vertical-alignment: center;
-                                    }
-                                    if index < root.audio-breadcrumbs.length - 1 : Text {
-                                        text: ">";
-                                        x: breadcrumb-name.x + breadcrumb-name.width + 4px;
-                                        color: root.light-theme ? #8b96a7 : #687487;
-                                        font-size: 16px;
-                                        vertical-alignment: center;
-                                    }
-                                    if index < root.audio-breadcrumbs.length - 1 : TouchArea {
-                                        mouse-cursor: pointer;
-                                        clicked => { root.breadcrumb-requested(breadcrumb.path); }
+                                spacing: 12px;
+                                HorizontalLayout {
+                                    spacing: 0px;
+                                    for breadcrumb[index] in root.audio-breadcrumbs : Rectangle {
+                                        height: 28px;
+                                        width: breadcrumb-name.preferred-width + (index < root.audio-breadcrumbs.length - 1 ? 42px : 0px);
+                                        breadcrumb-name := Text {
+                                            text: breadcrumb.name;
+                                            color: index < root.audio-breadcrumbs.length - 1 ? (root.light-theme ? #5c6878 : #8b96a7) : (root.light-theme ? #202833 : #e3e8ef);
+                                            font-size: 18px;
+                                            vertical-alignment: center;
+                                        }
+                                        if index < root.audio-breadcrumbs.length - 1 : Text {
+                                            text: ">";
+                                            x: breadcrumb-name.x + breadcrumb-name.width + 4px;
+                                            color: root.light-theme ? #8b96a7 : #687487;
+                                            font-size: 16px;
+                                            vertical-alignment: center;
+                                        }
+                                        if index < root.audio-breadcrumbs.length - 1 : TouchArea {
+                                            mouse-cursor: pointer;
+                                            clicked => { root.breadcrumb-requested(breadcrumb.path); }
+                                        }
                                     }
                                 }
-                            }
-                            Rectangle { horizontal-stretch: 1; }
-                            LineEdit {
-                                placeholder-text: "Filter audio files...";
-                                width: 260px;
-                                text <=> root.audio-filter;
-                                edited(text) => { root.filter-changed(text); }
+                                Rectangle { horizontal-stretch: 1; }
+                                LineEdit {
+                                    placeholder-text: "Filter audio files...";
+                                    width: 260px;
+                                    text <=> root.audio-filter;
+                                    edited(text) => { root.filter-changed(text); }
+                                }
+                                SortIconButton {
+                                    icon: @image-url("../assets/icons/ellipsis-vertical.svg");
+                                    light-theme: root.light-theme;
+                                    clicked => { root.sort-menu-visible = !root.sort-menu-visible; }
+                                }
                             }
                         }
                         Rectangle {
@@ -1213,11 +1233,40 @@ export component MainWindow inherits Window {
                                 rating-requested(path, rating) => { root.rating-requested(path, rating); }
                                 trash-requested(path) => { root.trash-requested(path); }
                             }
+                            if root.sort-menu-visible : Rectangle {
+                                x: parent.width - 196px;
+                                y: -14px;
+                                width: 190px;
+                                height: 128px;
+                                z: 1000;
+                                background: root.light-theme ? #ffffff : #202832;
+                                border-color: root.light-theme ? #cbd2dc : #435064;
+                                border-width: 1px;
+                                for option[index] in ["Alphabetically ↑", "Alphabetically ↓", "Modified ↑", "Modified ↓"] : Rectangle {
+                                    y: index * 31px;
+                                    width: parent.width;
+                                    height: 31px;
+                                    background: root.sort-order == index ? (root.light-theme ? #e7ebf0 : #2a3543) : transparent;
+                                    Text {
+                                        text: option;
+                                        x: 10px;
+                                        color: root.light-theme ? #202833 : #d7dce5;
+                                        vertical-alignment: center;
+                                    }
+                                    TouchArea {
+                                        mouse-cursor: pointer;
+                                        clicked => {
+                                            root.sort-order = index;
+                                            root.sort-menu-visible = false;
+                                            root.sort-order-selected(index);
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
             }
-
             Rectangle {
                 height: root.metadata-visible ? root.metadata-pane-height + 26px : 0px;
                 z: 1;
@@ -1762,13 +1811,27 @@ export component MainWindow inherits Window {
                                     color: root.light-theme ? #202833 : #f1f4f8;
                                     vertical-alignment: center;
                                 }
+                                TouchArea { clicked => { root.settings-tab = 0; } }
+                            }
+                            Rectangle {
+                                height: 38px;
+                                background: root.settings-tab == 1 ? (root.light-theme ? #d7e3f3 : #2a3546) : transparent;
+                                border-color: root.settings-tab == 1 ? (root.light-theme ? #8ea9c6 : #5d7898) : transparent;
+                                border-width: 1px;
+                                Text {
+                                    text: "Keyboard shortcuts";
+                                    x: 12px;
+                                    color: root.light-theme ? #202833 : #f1f4f8;
+                                    vertical-alignment: center;
+                                }
+                                TouchArea { clicked => { root.settings-tab = 1; } }
                             }
                             Rectangle { vertical-stretch: 1; }
                         }
                     }
                     Rectangle {
                         horizontal-stretch: 1;
-                        VerticalBox {
+                        if root.settings-tab == 0 : VerticalBox {
                             padding: 24px;
                             spacing: 14px;
                             Text {
@@ -1832,17 +1895,32 @@ export component MainWindow inherits Window {
                                 }
                                 Text { text: root.comment-text-hex; color: root.light-theme ? #5c6878 : #aeb8c6; vertical-alignment: center; }
                             }
+                            Rectangle { vertical-stretch: 1; }
+                            HorizontalLayout {
+                                alignment: end;
+                                spacing: 8px;
+                                AppButton { text: "Close"; clicked => { root.close-settings(); } }
+                            }
+                        }
+                        if root.settings-tab == 1 : VerticalBox {
+                            padding: 24px;
+                            spacing: 14px;
+                            Text {
+                                text: "Keyboard shortcuts";
+                                color: root.light-theme ? #202833 : #f1f4f8;
+                                font-size: 22px;
+                            }
                             Text { text: "Playback"; color: root.light-theme ? #5c6878 : #c4ccd8; }
                             HorizontalLayout {
                                 spacing: 12px;
-                                Text { text: "Seek step"; width: 100px; color: root.light-theme ? #202833 : #e3e8ef; vertical-alignment: center; }
+                                Text { text: "Seek step"; width: 130px; color: root.light-theme ? #202833 : #e3e8ef; vertical-alignment: center; }
                                 ComboBox {
                                     model: ["1 second", "2 seconds", "3 seconds", "4 seconds", "5 seconds", "10 seconds", "15 seconds", "30 seconds"];
                                     current-index: root.seek-seconds == 1 ? 0 : root.seek-seconds == 2 ? 1 : root.seek-seconds == 3 ? 2 : root.seek-seconds == 4 ? 3 : root.seek-seconds == 10 ? 5 : root.seek-seconds == 15 ? 6 : root.seek-seconds == 30 ? 7 : 4;
                                     changed current-index => { root.seek-seconds-changed(self.current-index == 0 ? 1 : self.current-index == 1 ? 2 : self.current-index == 2 ? 3 : self.current-index == 3 ? 4 : self.current-index == 5 ? 10 : self.current-index == 6 ? 15 : self.current-index == 7 ? 30 : 5); }
                                 }
                             }
-                            Text { text: "Keyboard shortcuts"; color: root.light-theme ? #5c6878 : #c4ccd8; }
+                            Text { text: "Keys"; color: root.light-theme ? #5c6878 : #c4ccd8; }
                             VerticalBox {
                                 spacing: 5px;
                                 property <[string]> shortcut-keys: ["F11", "F9", "Space", "Up", "Down", "Escape", "F2", "Left", "Right", "Delete"];
