@@ -27,6 +27,7 @@ mod workspace;
 use audio::{loader, waveform};
 use metadata::AudioComment;
 use workspace::file_system::{self, TreeState};
+use workspace::pinned_track_sort;
 
 slint::include_modules!();
 
@@ -3285,14 +3286,22 @@ fn refresh_audio_with_changes(
         .and_then(|workspace| workspace::preferences::pinned_track(&workspace, &folder));
     let index = metadata::load_index(&folder);
     let mut rows = Vec::new();
-    for entry in file_system::read_dir_sorted(
+    let mut audio_entries = file_system::read_dir_sorted(
         &folder,
         file_system::SortOrder::from_i32(window.get_sort_order()),
-    ) {
-        if entry.kind != file_system::FileKind::Audio || !matches_audio_filter(&entry.name, &filter)
-        {
-            continue;
-        }
+    )
+    .into_iter()
+    .filter(|entry| {
+        entry.kind == file_system::FileKind::Audio && matches_audio_filter(&entry.name, &filter)
+    })
+    .collect::<Vec<_>>();
+    pinned_track_sort::sort_tracks(
+        &folder,
+        pinned_path.as_deref(),
+        file_system::SortOrder::from_i32(window.get_sort_order()),
+        &mut audio_entries,
+    );
+    for entry in audio_entries {
         let should_reload = reload_all || changed_audio_paths.contains(&entry.path);
         if !should_reload {
             if let Some(row) = existing_rows.get(&entry.path) {
@@ -3346,37 +3355,6 @@ fn refresh_audio_with_changes(
             selected_comment_end: -1.0,
         });
     }
-    let sort_order = file_system::SortOrder::from_i32(window.get_sort_order());
-    rows.sort_by(|left, right| match sort_order {
-        file_system::SortOrder::AlphabeticalAscending => left
-            .name
-            .to_ascii_lowercase()
-            .cmp(&right.name.to_ascii_lowercase()),
-        file_system::SortOrder::AlphabeticalDescending => right
-            .name
-            .to_ascii_lowercase()
-            .cmp(&left.name.to_ascii_lowercase()),
-        file_system::SortOrder::ModifiedAscending => left
-            .modified_date
-            .parse::<u64>()
-            .unwrap_or_default()
-            .cmp(&right.modified_date.parse::<u64>().unwrap_or_default())
-            .then_with(|| {
-                left.name
-                    .to_ascii_lowercase()
-                    .cmp(&right.name.to_ascii_lowercase())
-            }),
-        file_system::SortOrder::ModifiedDescending => right
-            .modified_date
-            .parse::<u64>()
-            .unwrap_or_default()
-            .cmp(&left.modified_date.parse::<u64>().unwrap_or_default())
-            .then_with(|| {
-                left.name
-                    .to_ascii_lowercase()
-                    .cmp(&right.name.to_ascii_lowercase())
-            }),
-    });
     let previous_selected_path = PathBuf::from(window.get_selected_audio_path().as_str());
     let selected_path = rows
         .iter()
