@@ -1,6 +1,7 @@
 use std::{
     cell::RefCell,
     collections::{HashMap, HashSet},
+    env,
     fs,
     path::{Path, PathBuf},
     process::Command,
@@ -11,7 +12,7 @@ use std::{
         Arc, Mutex,
     },
     thread,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use audio::conversion::{self, ConversionJob, ConversionUpdate};
@@ -198,6 +199,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
         *edited_workflow.borrow_mut() = Some(workflow);
         true
+    }
+
+    fn write_modified_workflow(
+        workflow_path: &Path,
+        workflow: &serde_json::Value,
+    ) -> Result<PathBuf, String> {
+        let filename = workflow_path
+            .file_stem()
+            .and_then(|name| name.to_str())
+            .unwrap_or("workflow");
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|error| error.to_string())?
+            .as_nanos();
+        let modified_path = env::temp_dir().join(format!(
+            "{filename}-{}-{timestamp}.workflow.json",
+            std::process::id()
+        ));
+        let contents = serde_json::to_string_pretty(workflow).map_err(|error| error.to_string())?;
+        fs::write(&modified_path, contents).map_err(|error| error.to_string())?;
+        Ok(modified_path)
     }
 
     fn open_comfyui_workflow(config: &SyncConfig) -> Result<(), String> {
@@ -947,6 +969,66 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return;
             };
             recreate_workflow(&window, &folder, &config, &edited_workflow);
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        let audio_folder = Rc::clone(&audio_folder);
+        let edited_workflow = Rc::clone(&edited_workflow);
+        window.on_open_workflow_requested(move || {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            let Some(folder) = audio_folder.borrow().clone() else {
+                window.set_audio_error("Open a workspace before opening a workflow".into());
+                return;
+            };
+            let selected_audio_path = window.get_selected_audio_path();
+            let audio_path = Path::new(selected_audio_path.as_str());
+            let Some(workflow_path) = metadata::workflow_path(&folder, audio_path) else {
+                window.set_audio_error("Audio file is outside the workspace".into());
+                return;
+            };
+            let path_to_open = if window.get_workflow_modified() {
+                if edited_workflow.borrow().is_none()
+                    && !ensure_edit_copy(&window, &folder, &edited_workflow)
+                {
+                    window.set_audio_error("Select a workflow before opening it".into());
+                    return;
+                }
+                let metadata = [
+                    ("bpm", window.get_workflow_bpm().to_string()),
+                    ("key", window.get_workflow_key().to_string()),
+                    ("seed", window.get_workflow_seed().to_string()),
+                    ("prompt", window.get_workflow_prompt().to_string()),
+                    ("lyrics", window.get_workflow_lyrics().to_string()),
+                ];
+                let mut edited_workflow = edited_workflow.borrow_mut();
+                let Some(workflow) = edited_workflow.as_mut() else {
+                    window.set_audio_error("Select a workflow before opening it".into());
+                    return;
+                };
+                for (field, value) in metadata {
+                    metadata::comfyui::update_metadata(workflow, field, &value);
+                }
+                match write_modified_workflow(&workflow_path, workflow) {
+                    Ok(path) => path,
+                    Err(error) => {
+                        window.set_audio_error(format!("Write modified workflow: {error}").into());
+                        return;
+                    }
+                }
+            } else {
+                if !workflow_path.is_file() {
+                    window.set_audio_error("Select a workflow before opening it".into());
+                    return;
+                }
+                workflow_path
+            };
+            if let Err(error) = opener::open(&path_to_open) {
+                window.set_audio_error(format!("Open workflow: {error}").into());
+            }
         });
     }
 

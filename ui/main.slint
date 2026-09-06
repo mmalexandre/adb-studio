@@ -893,6 +893,7 @@ export component MainWindow inherits Window {
     callback metadata-toggle();
     callback metadata-pane-height-changed(length);
     callback recreate-workflow-requested();
+    callback open-workflow-requested();
     callback run-workflow-requested();
     callback run-workflow-cancelled();
     callback run-workflow-closed();
@@ -1437,6 +1438,10 @@ export component MainWindow inherits Window {
                                 AppButton {
                                     text: "Recreate in ComfyUI";
                                     clicked => { root.recreate-workflow-requested(); }
+                                }
+                                AppButton {
+                                    text: "Open Workflow File";
+                                    clicked => { root.open-workflow-requested(); }
                                 }
                                 AppButton {
                                     text: "Run in ComfyUI";
