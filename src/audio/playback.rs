@@ -88,11 +88,7 @@ impl PlaybackEngine {
 
     pub fn seek(&mut self, position: Duration) -> Result<(), String> {
         let position = position.min(self.duration);
-        if self
-            .player
-            .as_ref()
-            .is_some_and(|player| player.empty())
-        {
+        if self.player.as_ref().is_some_and(|player| player.empty()) {
             let Some(path) = self.path.clone() else {
                 return Ok(());
             };
@@ -148,8 +144,7 @@ impl PlaybackEngine {
     }
 
     pub fn has_finished(&self) -> bool {
-        self.duration > Duration::ZERO
-            && self.player.as_ref().is_some_and(|player| player.empty())
+        self.duration > Duration::ZERO && self.player.as_ref().is_some_and(|player| player.empty())
     }
 
     pub fn set_volume(&mut self, volume: f32) {

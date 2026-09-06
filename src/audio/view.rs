@@ -186,10 +186,7 @@ pub fn select_comment(
     }
 }
 
-pub fn select_audio_path(
-    audio_model: &Rc<RefCell<Option<Rc<VecModel<AudioRow>>>>>,
-    path: &Path,
-) {
+pub fn select_audio_path(audio_model: &Rc<RefCell<Option<Rc<VecModel<AudioRow>>>>>, path: &Path) {
     let Some(model) = audio_model.borrow().clone() else {
         return;
     };

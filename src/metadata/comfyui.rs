@@ -80,7 +80,13 @@ fn visit(value: &Value, workflow: &mut ComfyUIWorkflow, lyrics_context: bool) {
                     .unwrap_or(object);
                 workflow.model = find_string(
                     inputs,
-                    &["ckpt_name", "checkpoint", "checkpoint_name", "model_name", "unet_name"],
+                    &[
+                        "ckpt_name",
+                        "checkpoint",
+                        "checkpoint_name",
+                        "model_name",
+                        "unet_name",
+                    ],
                 )
                 .unwrap_or_default();
             }

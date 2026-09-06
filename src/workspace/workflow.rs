@@ -15,10 +15,9 @@ fn display_model_name(model: &str) -> String {
 
 pub fn scan_json_files(folder: &Path) -> Vec<(String, String)> {
     fn visit(folder: &Path, files: &mut Vec<(String, String)>) {
-        for entry in file_system::read_dir_sorted(
-            folder,
-            file_system::SortOrder::AlphabeticalAscending,
-        ) {
+        for entry in
+            file_system::read_dir_sorted(folder, file_system::SortOrder::AlphabeticalAscending)
+        {
             if entry.is_dir {
                 if entry.name != ".adbstudio" {
                     visit(&entry.path, files);
