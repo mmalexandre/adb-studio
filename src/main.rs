@@ -84,6 +84,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     window.set_light_theme(settings.borrow().light_theme);
     window.set_theme_index(if settings.borrow().light_theme { 1 } else { 0 });
     window.set_loop_enabled(settings.borrow().loop_enabled);
+    window.set_auto_play_new_tracks(settings.borrow().auto_play_new_tracks);
     window.set_hide_tips_of_the_day(settings.borrow().hide_tips_of_the_day);
     window.set_tips_visible(!settings.borrow().hide_tips_of_the_day);
     window.set_audio_volume(1.0);
@@ -1112,6 +1113,58 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 window.set_comfyui_sync_total(progress.total as i32);
                                 window.set_comfyui_sync_status("Syncing".into());
                             }
+                            SyncEvent::Downloaded {
+                                generation,
+                                audio_path,
+                            } if generation == current_generation
+                                && settings.borrow().auto_play_new_tracks =>
+                            {
+                                let path = PathBuf::from(&audio_path);
+                                let Some(folder) = audio_folder.borrow().clone() else {
+                                    continue;
+                                };
+                                let Some(parent) = path.parent().map(Path::to_path_buf) else {
+                                    continue;
+                                };
+                                select_tree_path(&window, &tree_state, &settings, &path);
+                                refresh_audio(
+                                    &window,
+                                    &audio_folder,
+                                    &audio_model,
+                                    &audio_load_state,
+                                    parent,
+                                );
+                                window.set_selected_audio_path(audio_path.clone().into());
+                                select_audio_path(&audio_model, &path);
+                                let mut playback_ref = playback.borrow_mut();
+                                let Some(engine) = playback_ref.as_mut() else {
+                                    continue;
+                                };
+                                engine.clear_comment_loop();
+                                if let Err(error) = engine.play(&path, Duration::ZERO) {
+                                    window.set_audio_error(error.into());
+                                    continue;
+                                }
+                                window.set_audio_error("".into());
+                                window.set_active_audio_path(audio_path.clone().into());
+                                window.set_audio_file_name(
+                                    path.file_name()
+                                        .and_then(|name| name.to_str())
+                                        .unwrap_or_default()
+                                        .into(),
+                                );
+                                window.set_audio_playing(engine.is_playing());
+                                update_audio_rows(
+                                    &audio_model,
+                                    engine.path(),
+                                    engine.is_playing(),
+                                    engine.position(),
+                                    engine.duration(),
+                                );
+                                scroll_audio_to_path(&window, &audio_model, &path);
+                                load_workflow_for_audio(&window, &folder, &path);
+                                save_playback_position(&folder, engine);
+                            }
                             SyncEvent::WorkflowUpdated {
                                 generation,
                                 audio_path,
@@ -1262,6 +1315,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             settings::save(&settings_snapshot);
             if let Some(window) = weak_window.upgrade() {
                 window.set_loop_enabled(enabled);
+            }
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        let settings = Rc::clone(&settings);
+        window.on_auto_play_new_tracks_changed(move |enabled| {
+            settings.borrow_mut().auto_play_new_tracks = enabled;
+            let settings_snapshot = settings.borrow().clone();
+            settings::save(&settings_snapshot);
+            if let Some(window) = weak_window.upgrade() {
+                window.set_auto_play_new_tracks(enabled);
             }
         });
     }

@@ -376,6 +376,7 @@ component AudioRowView inherits Rectangle {
             Rectangle {
                 width: 40px;
                 height: 40px;
+                y: 12px;
                 background: transparent;
                 Image {
                     source: @image-url("../assets/icons/trash-2.svg");
@@ -768,6 +769,7 @@ export component MainWindow inherits Window {
     in-out property <string> audio-file-name: "";
     in-out property <bool> audio-playing: false;
     in-out property <bool> loop-enabled: false;
+    in-out property <bool> auto-play-new-tracks: false;
     in-out property <float> audio-volume: 1.0;
     in-out property <string> audio-current-time: "00:00";
     in-out property <string> audio-total-duration: "00:00";
@@ -818,6 +820,7 @@ export component MainWindow inherits Window {
     callback audio-seek(string, float);
     callback audio-play(string);
     callback loop-changed(bool);
+    callback auto-play-new-tracks-changed(bool);
     callback volume-changed(float);
     callback comment-range-requested(string, float, float);
     callback comment-selected(string, float, float, string);
@@ -1354,6 +1357,15 @@ export component MainWindow inherits Window {
                         clicked => {
                             root.loop-enabled = !root.loop-enabled;
                             root.loop-changed(root.loop-enabled);
+                        }
+                    }
+                    IconButton {
+                        y: (parent.height - self.height) / 2;
+                        icon: @image-url("../assets/icons/audio-lines.svg");
+                        active: root.auto-play-new-tracks;
+                        clicked => {
+                            root.auto-play-new-tracks = !root.auto-play-new-tracks;
+                            root.auto-play-new-tracks-changed(root.auto-play-new-tracks);
                         }
                     }
                     Text {

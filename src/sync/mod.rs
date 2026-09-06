@@ -138,6 +138,10 @@ pub enum SyncEvent {
         generation: u64,
         progress: SyncProgress,
     },
+    Downloaded {
+        generation: u64,
+        audio_path: String,
+    },
     WorkflowUpdated {
         generation: u64,
         audio_path: String,
@@ -278,6 +282,7 @@ fn sync_loop(
             progress: current.clone(),
         });
 
+        let mut last_downloaded_path = None;
         for file in &files {
             if command_receiver.try_recv().is_ok() {
                 return;
@@ -322,6 +327,7 @@ fn sync_loop(
                     generation,
                     progress: current.clone(),
                 });
+                last_downloaded_path = Some(destination.join(filename));
             }
             match sync_workflow(&client, &config, file, &workspace, &destination, filename) {
                 Ok(true) => {
@@ -339,6 +345,13 @@ fn sync_loop(
                     return;
                 }
             }
+        }
+
+        if let Some(audio_path) = last_downloaded_path {
+            let _ = event_sender.send(SyncEvent::Downloaded {
+                generation,
+                audio_path: audio_path.to_string_lossy().into_owned(),
+            });
         }
 
         match command_receiver.recv_timeout(interval) {

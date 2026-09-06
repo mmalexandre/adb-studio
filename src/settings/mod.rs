@@ -13,6 +13,8 @@ pub struct AppSettings {
     pub light_theme: bool,
     #[serde(default)]
     pub loop_enabled: bool,
+    #[serde(default)]
+    pub auto_play_new_tracks: bool,
     #[serde(default = "default_left_pane_width")]
     pub left_pane_width: f32,
     #[serde(default = "default_metadata_pane_height")]
@@ -60,6 +62,7 @@ impl Default for AppSettings {
             last_selected_path: None,
             light_theme: false,
             loop_enabled: false,
+            auto_play_new_tracks: false,
             left_pane_width: default_left_pane_width(),
             metadata_pane_height: default_metadata_pane_height(),
             metadata_visible: false,
