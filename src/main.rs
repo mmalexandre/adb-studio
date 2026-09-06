@@ -314,6 +314,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         let weak_window = window.as_weak();
         let tree_state = Rc::clone(&tree_state);
+        window.on_chevron_clicked(move |path| {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            let path = PathBuf::from(path.as_str());
+            let mut state_ref = tree_state.borrow_mut();
+            let Some(state) = state_ref.as_mut() else {
+                return;
+            };
+            state.toggle(&path);
+            drop(state_ref);
+            refresh_tree(&window, &tree_state);
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        let tree_state = Rc::clone(&tree_state);
         let settings = Rc::clone(&settings);
         let audio_folder = Rc::clone(&audio_folder);
         let audio_model = Rc::clone(&audio_model);

@@ -580,6 +580,7 @@ component ExplorerRow inherits Rectangle {
     property <length> drag-pointer-x: 0px;
     property <length> drag-pointer-y: 0px;
     property <bool> click-shift: false;
+    callback chevron-clicked();
 
     function icon-source() -> image {
         if root.kind == "dir" && root.is-expanded {
@@ -653,7 +654,11 @@ component ExplorerRow inherits Rectangle {
     if !root.editing : TouchArea {
         clicked => {
             if !root.dragged {
-                root.clicked(root.click-shift);
+                if root.is-dir && self.mouse-x >= 8px + root.depth * 16px && self.mouse-x < 28px + root.depth * 16px {
+                    root.chevron-clicked();
+                } else {
+                    root.clicked(root.click-shift);
+                }
             }
         }
         pointer-event(event) => {
@@ -713,6 +718,7 @@ component ExplorerList inherits ListView {
     property <length> row-top: root.scroll-to-index * 26px;
     property <length> viewport-top: 0px - root.viewport-y;
     callback row-clicked(string, bool);
+    callback chevron-clicked(string);
     callback tree-context-menu(string, length, length);
     callback tree-trash-requested(string);
     callback tree-drop-requested(string, int, float);
@@ -745,6 +751,7 @@ component ExplorerList inherits ListView {
             }
         }
         clicked(shift) => { root.row-clicked(row.path, shift); }
+        chevron-clicked => { root.chevron-clicked(row.path); }
         right-clicked(x, y) => { root.tree-context-menu(row.path, x, y); }
         edit-accepted(text) => { root.edit-accepted(row.path, text); }
         edit-cancelled => { root.edit-cancelled(); }
@@ -903,6 +910,7 @@ export component MainWindow inherits Window {
     callback theme-selected(bool);
     callback comment-colors-selected(string, string);
     callback row-clicked(string, bool);
+    callback chevron-clicked(string);
     callback breadcrumb-requested(string);
     callback audio-row-selected(string);
     callback audio-navigate(int);
@@ -1146,6 +1154,10 @@ export component MainWindow inherits Window {
                                         tree-focus.focus();
                                         root.row-clicked(path, shift);
                                     }
+                                }
+                                chevron-clicked(path) => {
+                                    root.tree-menu-visible = false;
+                                    root.chevron-clicked(path);
                                 }
                                 tree-context-menu(path, x, y) => {
                                     if root.tree-edit-path != "" && root.tree-edit-path != path {
