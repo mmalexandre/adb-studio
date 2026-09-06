@@ -99,7 +99,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     window.set_build_number(BUILD_NUMBER.into());
     window.set_light_theme(settings.borrow().light_theme);
     window.set_theme_index(if settings.borrow().light_theme { 1 } else { 0 });
-    window.set_loop_enabled(settings.borrow().loop_enabled);
+    window.set_loop_mode(settings.borrow().loop_mode);
     window.set_auto_play_new_tracks(settings.borrow().auto_play_new_tracks);
     window.set_seek_seconds(settings.borrow().seek_seconds.round() as i32);
     window.set_sort_order(settings.borrow().sort_order);
@@ -1813,6 +1813,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         );
                         workspace_change_paths.clear();
                     }
+                    let mut folder_next_path = None;
                     if let Some(engine) = playback.borrow_mut().as_mut() {
                         engine.update_position();
                         let comment_loop = engine.comment_loop();
@@ -1823,7 +1824,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     || (!engine.is_playing()
                                         && engine.position() >= engine.duration())
                             });
-                        if settings.borrow().loop_enabled
+                        let loop_mode = settings.borrow().loop_mode;
+                        if loop_mode == 1
                             && !engine.duration().is_zero()
                             && should_loop
                         {
@@ -1832,6 +1834,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     .map(|(start, _)| start)
                                     .unwrap_or(Duration::ZERO);
                                 let _ = engine.play(&path, loop_start);
+                            }
+                        } else if loop_mode == 2
+                            && !engine.duration().is_zero()
+                            && should_loop
+                        {
+                            if let Some(path) = engine.path() {
+                                if let Some(model) = audio_model.borrow().clone() {
+                                    let row_count = model.row_count();
+                                    let current_index = (0..row_count).find(|index| {
+                                        model.row_data(*index).is_some_and(|row| {
+                                            row.path.as_str() == path.to_string_lossy().as_ref()
+                                        })
+                                    });
+                                    if let Some(current_index) = current_index {
+                                        let next_index = (current_index + 1) % row_count;
+                                        folder_next_path = model
+                                            .row_data(next_index)
+                                            .map(|row| row.path);
+                                    }
+                                }
                             }
                         }
                         let active_path = engine
@@ -1862,6 +1884,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             }
                             *last_persisted_position_for_timer.borrow_mut() = Instant::now();
                         }
+                    }
+                    if let Some(path) = folder_next_path {
+                        window.invoke_audio_play(path);
                     }
                     let state = audio_load_state.lock().unwrap();
                     window.set_audio_loading(state.running);
@@ -2090,12 +2115,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         let weak_window = window.as_weak();
         let settings = Rc::clone(&settings);
-        window.on_loop_changed(move |enabled| {
-            settings.borrow_mut().loop_enabled = enabled;
+        window.on_loop_changed(move |mode| {
+            settings.borrow_mut().loop_mode = mode.clamp(0, 2);
             let settings_snapshot = settings.borrow().clone();
             settings::save(&settings_snapshot);
             if let Some(window) = weak_window.upgrade() {
-                window.set_loop_enabled(enabled);
+                window.set_loop_mode(mode.clamp(0, 2));
             }
         });
     }

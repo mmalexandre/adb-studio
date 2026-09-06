@@ -848,7 +848,7 @@ export component MainWindow inherits Window {
     in-out property <string> selected-audio-path: "";
     in-out property <string> audio-file-name: "";
     in-out property <bool> audio-playing: false;
-    in-out property <bool> loop-enabled: false;
+    in-out property <int> loop-mode: 0;
     in-out property <bool> auto-play-new-tracks: false;
     in-out property <int> seek-seconds: 5;
     in-out property <int> shortcut-fullscreen: 0;
@@ -933,7 +933,7 @@ export component MainWindow inherits Window {
     callback audio-play-pause();
     callback audio-seek(string, float);
     callback audio-play(string);
-    callback loop-changed(bool);
+    callback loop-changed(int);
     callback auto-play-new-tracks-changed(bool);
     callback seek-seconds-changed(int);
     callback shortcut-changed(int, int);
@@ -1567,10 +1567,21 @@ export component MainWindow inherits Window {
                     IconButton {
                         y: (parent.height - self.height) / 2;
                         icon: @image-url("../assets/icons/repeat-2.svg");
-                        active: root.loop-enabled;
+                        active: root.loop-mode != 0;
+                        Text {
+                            visible: root.loop-mode == 1;
+                            text: "1";
+                            color: #202833;
+                            font-size: 10px;
+                            font-weight: 700;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                            width: parent.width;
+                            height: parent.height;
+                        }
                         clicked => {
-                            root.loop-enabled = !root.loop-enabled;
-                            root.loop-changed(root.loop-enabled);
+                            root.loop-mode = Math.mod(root.loop-mode + 1, 3);
+                            root.loop-changed(root.loop-mode);
                         }
                     }
                     IconButton {

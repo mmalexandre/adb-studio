@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 mod storage;
 mod window;
@@ -13,8 +13,12 @@ pub struct AppSettings {
     pub last_folder: Option<String>,
     pub last_selected_path: Option<String>,
     pub light_theme: bool,
-    #[serde(default)]
-    pub loop_enabled: bool,
+    #[serde(
+        default,
+        alias = "loop_enabled",
+        deserialize_with = "deserialize_loop_mode"
+    )]
+    pub loop_mode: i32,
     #[serde(default)]
     pub auto_play_new_tracks: bool,
     #[serde(default = "default_seek_seconds")]
@@ -112,13 +116,30 @@ fn default_comment_text_color() -> String {
     "#ffffff".to_owned()
 }
 
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum StoredLoopMode {
+    Mode(i32),
+    Legacy(bool),
+}
+
+fn deserialize_loop_mode<'de, D>(deserializer: D) -> Result<i32, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    match StoredLoopMode::deserialize(deserializer)? {
+        StoredLoopMode::Mode(mode) => Ok(mode.clamp(0, 2)),
+        StoredLoopMode::Legacy(enabled) => Ok(i32::from(enabled)),
+    }
+}
+
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
             last_folder: None,
             last_selected_path: None,
             light_theme: false,
-            loop_enabled: false,
+            loop_mode: 0,
             auto_play_new_tracks: false,
             seek_seconds: default_seek_seconds(),
             sort_order: default_sort_order(),
