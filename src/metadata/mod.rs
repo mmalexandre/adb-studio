@@ -75,6 +75,48 @@ pub fn workflow_path(folder: &Path, audio_path: &Path) -> Option<PathBuf> {
     Some(folder.join(".adbstudio").join("workflows").join(workflow_relative_path))
 }
 
+pub fn rename_associated_workflow(
+    folder: &Path,
+    source: &Path,
+    destination: &Path,
+) -> std::io::Result<()> {
+    let directory_workflow = folder
+        .join(".adbstudio")
+        .join("workflows")
+        .join(source.strip_prefix(folder).unwrap_or(source));
+    let is_directory = source.is_dir() || destination.is_dir() || directory_workflow.is_dir();
+    let source_workflow = if is_directory {
+        directory_workflow
+    } else if source
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| {
+            matches!(
+                extension.to_ascii_lowercase().as_str(),
+                "flac" | "mp3" | "ogg" | "opus" | "wav"
+            )
+        }) {
+        workflow_path(folder, source).unwrap_or_default()
+    } else {
+        return Ok(());
+    };
+    if !source_workflow.exists() {
+        return Ok(());
+    }
+    let destination_workflow = if is_directory {
+        folder
+            .join(".adbstudio")
+            .join("workflows")
+            .join(destination.strip_prefix(folder).unwrap_or(destination))
+    } else {
+        workflow_path(folder, destination).unwrap_or_default()
+    };
+    if let Some(parent) = destination_workflow.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::rename(source_workflow, destination_workflow)
+}
+
 pub fn save_index(folder: &Path, index: &MetadataIndex) {
     let directory = folder.join(".adbstudio");
     if fs::create_dir_all(&directory).is_err() {
@@ -89,7 +131,50 @@ pub fn save_index(folder: &Path, index: &MetadataIndex) {
 
 #[cfg(test)]
 mod tests {
-    use super::{AudioComment, AudioFileMetadata};
+    use std::fs;
+
+    use super::{rename_associated_workflow, AudioComment, AudioFileMetadata};
+
+    fn test_folder(name: &str) -> std::path::PathBuf {
+        let folder = std::env::temp_dir().join(format!("adb-studio-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&folder);
+        fs::create_dir_all(&folder).unwrap();
+        folder
+    }
+
+    #[test]
+    fn renames_audio_workflow_sidecar() {
+        let folder = test_folder("workflow-file");
+        let source = folder.join("old.wav");
+        let destination = folder.join("new.wav");
+        let workflow = super::workflow_path(&folder, &source).unwrap();
+        fs::create_dir_all(workflow.parent().unwrap()).unwrap();
+        fs::write(&workflow, "{}").unwrap();
+
+        rename_associated_workflow(&folder, &source, &destination).unwrap();
+
+        assert!(!workflow.exists());
+        assert!(super::workflow_path(&folder, &destination).unwrap().exists());
+        let _ = fs::remove_dir_all(folder);
+    }
+
+    #[test]
+    fn renames_directory_workflow_subtree() {
+        let folder = test_folder("workflow-directory");
+        let source = folder.join("old");
+        let destination = folder.join("new");
+        let workflow = folder.join(".adbstudio/workflows/old");
+        fs::create_dir_all(&workflow).unwrap();
+        fs::write(workflow.join("track.wav.workflow.json"), "{}").unwrap();
+
+        rename_associated_workflow(&folder, &source, &destination).unwrap();
+
+        assert!(!workflow.exists());
+        assert!(folder
+            .join(".adbstudio/workflows/new/track.wav.workflow.json")
+            .exists());
+        let _ = fs::remove_dir_all(folder);
+    }
 
     #[test]
     fn round_trips_range_comments() {
