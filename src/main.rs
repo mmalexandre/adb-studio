@@ -52,6 +52,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tree_state: Rc<RefCell<Option<TreeState>>> = Rc::new(RefCell::new(None));
     let audio_folder: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(None));
     let workflow_files: Rc<RefCell<Vec<(String, String)>>> = Rc::new(RefCell::new(Vec::new()));
+    let edited_workflow: Rc<RefCell<Option<serde_json::Value>>> = Rc::new(RefCell::new(None));
+    let workflow_loading = Rc::new(RefCell::new(false));
     let recreate_workflow_pending = Rc::new(RefCell::new(false));
     let workspace_watcher: Rc<RefCell<Option<RecommendedWatcher>>> = Rc::new(RefCell::new(None));
     let (workspace_change_sender, workspace_change_receiver) = mpsc::channel::<Vec<PathBuf>>();
@@ -123,7 +125,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         slint::Color::from_argb_u8(255, 255, 255, 255),
     ));
 
-    fn recreate_workflow(window: &MainWindow, folder: &Path, config: &SyncConfig) {
+    fn recreate_workflow(
+        window: &MainWindow,
+        folder: &Path,
+        config: &SyncConfig,
+        edited_workflow: &Rc<RefCell<Option<serde_json::Value>>>,
+    ) {
         let audio_path = window.get_selected_audio_path().to_string();
         if audio_path.is_empty() {
             window.set_audio_error("Select an audio file with a workflow first".into());
@@ -138,27 +145,61 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             window.set_audio_error("Select a workflow before recreating it".into());
             return;
         };
-        let workflow = match fs::read_to_string(&workflow_path)
-            .map_err(|error| error.to_string())
-            .and_then(|contents| {
-                serde_json::from_str::<serde_json::Value>(&contents)
-                    .map_err(|error| error.to_string())
-            }) {
-            Ok(workflow) => workflow,
-            Err(error) => {
-                window.set_audio_error(format!("Workflow JSON: {error}").into());
-                return;
+        let workflow = if let Some(workflow) = edited_workflow.borrow().clone() {
+            workflow
+        } else {
+            match fs::read_to_string(&workflow_path)
+                .map_err(|error| error.to_string())
+                .and_then(|contents| {
+                    serde_json::from_str::<serde_json::Value>(&contents)
+                        .map_err(|error| error.to_string())
+                }) {
+                Ok(workflow) => workflow,
+                Err(error) => {
+                    window.set_audio_error(format!("Workflow JSON: {error}").into());
+                    return;
+                }
             }
         };
         match ComfyUiClient::new().and_then(|client| client.upload_workflow(config, &workflow)) {
-            Ok(()) => match open_comfyui_workflow(config) {
-                Ok(()) => window.set_audio_error("Workflow opened in ComfyUI".into()),
-                Err(error) => {
-                    window.set_audio_error(format!("ComfyUI opened upload failed: {error}").into())
+            Ok(()) => {
+                *edited_workflow.borrow_mut() = None;
+                window.set_workflow_modified(false);
+                match open_comfyui_workflow(config) {
+                    Ok(()) => window.set_audio_error("Workflow opened in ComfyUI".into()),
+                    Err(error) => window
+                        .set_audio_error(format!("ComfyUI opened upload failed: {error}").into()),
                 }
-            },
+            }
             Err(error) => window.set_audio_error(format!("ComfyUI: {error}").into()),
         }
+    }
+
+    fn ensure_edit_copy(
+        window: &MainWindow,
+        folder: &Path,
+        edited_workflow: &Rc<RefCell<Option<serde_json::Value>>>,
+    ) -> bool {
+        if edited_workflow.borrow().is_some() {
+            return true;
+        }
+        let audio_path = window.get_selected_audio_path().to_string();
+        let Some(workflow_path) = metadata::load_index(folder)
+            .audio_files
+            .iter()
+            .find(|file| file.file_path == audio_path)
+            .and_then(|file| file.workflow_json_path.clone())
+        else {
+            return false;
+        };
+        let Ok(contents) = fs::read_to_string(workflow_path) else {
+            return false;
+        };
+        let Ok(workflow) = serde_json::from_str(&contents) else {
+            return false;
+        };
+        *edited_workflow.borrow_mut() = Some(workflow);
+        true
     }
 
     fn open_comfyui_workflow(config: &SyncConfig) -> Result<(), String> {
@@ -226,12 +267,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let settings = Rc::clone(&settings);
         let audio_model = Rc::clone(&audio_model);
         let audio_folder = Rc::clone(&audio_folder);
+        let edited_workflow = Rc::clone(&edited_workflow);
         window.on_audio_row_selected(move |path| {
             let Some(window) = weak_window.upgrade() else {
                 return;
             };
             window.set_selected_audio_path(path.clone());
             let path = Path::new(path.as_str());
+            *edited_workflow.borrow_mut() = None;
+            window.set_workflow_modified(false);
             select_audio_path(&audio_model, path);
             select_tree_path(&window, &tree_state, &settings, path);
             if let Some(folder) = audio_folder.borrow().clone() {
@@ -671,6 +715,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let settings = Rc::clone(&settings);
         let workflow_audio_folder = Rc::clone(&audio_folder);
         let workflow_files_for_search = Rc::clone(&workflow_files);
+        let edited_workflow_for_selection = Rc::clone(&edited_workflow);
+        let workflow_loading_for_selection = Rc::clone(&workflow_loading);
         window.on_metadata_toggle(move || {
             if let Some(window) = weak_window.upgrade() {
                 let visible = !window.get_metadata_visible();
@@ -701,8 +747,83 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
             match metadata::comfyui::parse_file(Path::new(path.as_str())) {
-                Ok(workflow) => apply_workflow(&window, &folder, path.as_str(), workflow),
+                Ok(workflow) => {
+                    let raw = fs::read_to_string(path.as_str())
+                        .ok()
+                        .and_then(|contents| serde_json::from_str(&contents).ok());
+                    *edited_workflow_for_selection.borrow_mut() = raw;
+                    *workflow_loading_for_selection.borrow_mut() = true;
+                    apply_workflow(&window, &folder, path.as_str(), workflow);
+                    *workflow_loading_for_selection.borrow_mut() = false;
+                    window.set_workflow_modified(false);
+                }
                 Err(error) => window.set_audio_error(format!("Workflow JSON: {error}").into()),
+            }
+        });
+        let weak_window = window.as_weak();
+        let edited_workflow_for_edit = Rc::clone(&edited_workflow);
+        let workflow_loading_for_edit = Rc::clone(&workflow_loading);
+        let audio_folder_for_edit = Rc::clone(&audio_folder);
+        window.on_workflow_metadata_changed(move |field, value| {
+            if *workflow_loading_for_edit.borrow() {
+                return;
+            }
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            if window.get_workflow_loading() {
+                return;
+            }
+            if window.get_selected_workflow().is_empty() {
+                return;
+            }
+            let Some(folder) = audio_folder_for_edit.borrow().clone() else {
+                return;
+            };
+            if !ensure_edit_copy(&window, &folder, &edited_workflow_for_edit) {
+                return;
+            }
+            let changed = edited_workflow_for_edit
+                .borrow_mut()
+                .as_mut()
+                .is_some_and(|workflow| {
+                    metadata::comfyui::update_metadata(workflow, field.as_str(), value.as_str())
+                });
+            if changed {
+                window.set_workflow_modified(true);
+            }
+        });
+        let weak_window = window.as_weak();
+        let edited_workflow_for_number = Rc::clone(&edited_workflow);
+        let workflow_loading_for_number = Rc::clone(&workflow_loading);
+        let audio_folder_for_number = Rc::clone(&audio_folder);
+        window.on_workflow_number_changed(move |field, value| {
+            if *workflow_loading_for_number.borrow() {
+                return;
+            }
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            if window.get_workflow_loading() {
+                return;
+            }
+            if window.get_selected_workflow().is_empty() {
+                return;
+            }
+            let Some(folder) = audio_folder_for_number.borrow().clone() else {
+                return;
+            };
+            if !ensure_edit_copy(&window, &folder, &edited_workflow_for_number) {
+                return;
+            }
+            let changed = edited_workflow_for_number
+                .borrow_mut()
+                .as_mut()
+                .is_some_and(|workflow| {
+                    metadata::comfyui::update_metadata(workflow, field.as_str(), &value.to_string())
+                });
+            if changed {
+                window.set_workflow_modified(true);
             }
         });
         let weak_window = window.as_weak();
@@ -860,6 +981,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let weak_window = window.as_weak();
         let audio_folder = Rc::clone(&audio_folder);
         let recreate_workflow_pending = Rc::clone(&recreate_workflow_pending);
+        let edited_workflow = Rc::clone(&edited_workflow);
         window.on_recreate_workflow_requested(move || {
             let Some(window) = weak_window.upgrade() else {
                 return;
@@ -884,7 +1006,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 window.set_comfyui_sync_visible(true);
                 return;
             };
-            recreate_workflow(&window, &folder, &config);
+            recreate_workflow(&window, &folder, &config, &edited_workflow);
         });
     }
 
@@ -2377,6 +2499,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let audio_folder = Rc::clone(&audio_folder);
         let sync_controller = Rc::clone(&sync_controller);
         let recreate_workflow_pending = Rc::clone(&recreate_workflow_pending);
+        let edited_workflow = Rc::clone(&edited_workflow);
         window.on_comfyui_sync_save(move |url, remote_directory, local_directory, interval| {
             let Some(window) = weak_window.upgrade() else {
                 return;
@@ -2429,7 +2552,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 *recreate_workflow_pending.borrow_mut() = false;
                 if let Some(folder) = audio_folder.borrow().clone() {
                     if let Some(config) = sync::load_config(&folder) {
-                        recreate_workflow(&window, &folder, &config);
+                        recreate_workflow(&window, &folder, &config, &edited_workflow);
                     }
                 }
             }

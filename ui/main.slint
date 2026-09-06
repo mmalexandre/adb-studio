@@ -1,4 +1,4 @@
-import { CheckBox, ComboBox, LineEdit, ListView, ScrollView, Slider, TextEdit, VerticalBox } from "std-widgets.slint";
+import { CheckBox, ComboBox, LineEdit, ListView, ScrollView, Slider, SpinBox, TextEdit, VerticalBox } from "std-widgets.slint";
 import { AudioRow, BreadcrumbRow, CommentRow, ConversionRow, TreeRow, WorkflowFileRow, WorkflowLoraRow } from "./models.slint";
 import { WorkflowSuggestionBox } from "./workflow_suggestion.slint";
 import { AppButton, CompactIconButton, IconButton, MenuButton, SortIconButton, SyncIconButton, ToolButton } from "./controls.slint";
@@ -818,12 +818,17 @@ export component MainWindow inherits Window {
     in-out property <string> selected-workflow: "";
     in-out property <bool> workflow-dropdown-visible: false;
     in-out property <string> workflow-bpm: "";
+    in-out property <int> workflow-bpm-number: 0;
     in-out property <string> workflow-key: "";
+    in-out property <int> workflow-key-index: -1;
     in-out property <string> workflow-seed: "";
+    in-out property <int> workflow-seed-number: 0;
     in-out property <string> workflow-model: "";
     in-out property <string> workflow-prompt: "";
     in-out property <string> workflow-lyrics: "";
     in-out property <[WorkflowLoraRow]> workflow-loras: [];
+    in-out property <bool> workflow-modified: false;
+    in-out property <bool> workflow-loading: false;
     in-out property <bool> lora-editor-visible: false;
     in-out property <string> lora-editor-filename: "";
     in-out property <string> lora-editor-tag: "";
@@ -885,6 +890,8 @@ export component MainWindow inherits Window {
     callback workflow-selected(string);
     callback workflow-search-changed(string);
     callback recreate-workflow-requested();
+    callback workflow-metadata-changed(string, string);
+    callback workflow-number-changed(string, int);
     callback lora-edit-requested(string, string);
     callback lora-save(string, string);
     callback lora-cancel();
@@ -1317,7 +1324,7 @@ export component MainWindow inherits Window {
                     }
                     Rectangle {
                         height: root.metadata-pane-height + 20px;
-                        background: root.light-theme ? #eef1f5 : #1a2029;
+                        background: root.workflow-modified ? #d46b32 : (root.light-theme ? #eef1f5 : #1a2029);
                         border-color: root.light-theme ? #cbd2dc : #2a3340;
                         border-width: 1px;
                         CompactIconButton {
@@ -1340,7 +1347,7 @@ export component MainWindow inherits Window {
                                     height: 100%;
                                     alignment: start;
                                     spacing: 6px;
-                                    Text { text: "Duration\n" + root.audio-total-duration; color: root.light-theme ? #202833 : #e3e8ef; }
+                                    Text { text: "Duration\n" + root.audio-total-duration; color: root.workflow-modified ? #ffffff : (root.light-theme ? #202833 : #e3e8ef); }
                                     WorkflowSuggestionBox {
                                         width: 100%;
                                         files: root.workflow-json-files;
@@ -1350,37 +1357,58 @@ export component MainWindow inherits Window {
                                         selected(path) => { root.workflow-selected(path); }
                                         search-requested(query) => { root.workflow-search-changed(query); }
                                     }
-                                    Text { text: "BPM\n" + (root.workflow-bpm == "" ? "-" : root.workflow-bpm) + "\n\nKey\n" + (root.workflow-key == "" ? "-" : root.workflow-key) + "\n\nSeed\n" + (root.workflow-seed == "" ? "-" : root.workflow-seed); color: root.light-theme ? #202833 : #e3e8ef; vertical-alignment: top; }
+                                    Text { text: "BPM"; color: root.workflow-modified ? #ffffff : (root.light-theme ? #202833 : #e3e8ef); }
+                                    SpinBox {
+                                        minimum: 0;
+                                        value <=> root.workflow-bpm-number;
+                                        edited(value) => { root.workflow-number-changed("bpm", self.value); }
+                                    }
+                                    Text { text: "Key"; color: root.workflow-modified ? #ffffff : (root.light-theme ? #202833 : #e3e8ef); }
+                                    ComboBox {
+                                        model: ["C major", "C minor", "C# major", "C# minor", "D major", "D minor", "Eb major", "Eb minor", "E major", "E minor", "F major", "F minor", "F# major", "F# minor", "G major", "G minor", "Ab major", "Ab minor", "A major", "A minor", "Bb major", "Bb minor", "B major", "B minor"];
+                                        current-index: root.workflow-key-index;
+                                        changed current-index => {
+                                            if self.current-index >= 0 {
+                                                root.workflow-metadata-changed("key", self.model[self.current-index]);
+                                            }
+                                        }
+                                    }
+                                    Text { text: "Seed"; color: root.workflow-modified ? #ffffff : (root.light-theme ? #202833 : #e3e8ef); }
+                                    SpinBox {
+                                        minimum: 0;
+                                        value <=> root.workflow-seed-number;
+                                        edited(value) => { root.workflow-number-changed("seed", self.value); }
+                                    }
                                 }
                                     VerticalBox {
                                     width: (parent.width - 36px) / 4;
                                     height: 100%;
-                                    Text { text: "Prompt"; color: root.light-theme ? #202833 : #e3e8ef; }
+                                    Text { text: "Prompt"; color: root.workflow-modified ? #ffffff : (root.light-theme ? #202833 : #e3e8ef); }
                                     TextEdit {
                                         width: 100%;
                                         height: 100%;
-                                        text: root.workflow-prompt == "" ? "-" : root.workflow-prompt;
-                                        read-only: true;
+                                        text <=> root.workflow-prompt;
                                         wrap: word-wrap;
+                                        edited(text) => { root.workflow-metadata-changed("prompt", self.text); }
                                     }
                                 }
                                 VerticalBox {
                                     width: (parent.width - 36px) / 4;
                                     height: 100%;
-                                    Text { text: "Lyrics"; color: root.light-theme ? #202833 : #e3e8ef; }
+                                    Text { text: "Lyrics"; color: root.workflow-modified ? #ffffff : (root.light-theme ? #202833 : #e3e8ef); }
                                     TextEdit {
                                         width: 100%;
                                         height: 100%;
-                                        text: root.workflow-lyrics == "" ? "-" : root.workflow-lyrics;
-                                        read-only: true;
+                                        text <=> root.workflow-lyrics;
                                         wrap: word-wrap;
+                                        edited(text) => { root.workflow-metadata-changed("lyrics", self.text); }
                                     }
                                 }
                                 VerticalBox {
                                     width: (parent.width - 36px) / 4;
                                     height: 100%;
-                                    Text { text: "Model\n" + (root.workflow-model == "" ? "-" : root.workflow-model); color: root.light-theme ? #202833 : #e3e8ef; overflow: elide; }
-                                    Text { text: "LoRAs"; color: root.light-theme ? #202833 : #e3e8ef; }
+                                    Text { text: "Model\n" + (root.workflow-model == "" ? "-" : root.workflow-model); color: root.workflow-modified ? #ffffff : (root.light-theme ? #202833 : #e3e8ef); overflow: elide; }
+                                    Text { text: "LoRAs"; color: root.workflow-modified ? #ffffff : (root.light-theme ? #202833 : #e3e8ef); }
                                     ListView {
                                         height: 100%;
                                         vertical-scrollbar-policy: always-on;
@@ -1389,13 +1417,13 @@ export component MainWindow inherits Window {
                                             spacing: 4px;
                                             Text {
                                                 text: lora.filename + (lora.strength == "" ? "" : "  x" + lora.strength);
-                                                color: root.light-theme ? #5c6878 : #aeb8c6;
+                                                color: root.workflow-modified ? #ffffff : (root.light-theme ? #5c6878 : #aeb8c6);
                                                 horizontal-stretch: 1;
                                                 overflow: elide;
                                             }
                                             Text {
                                                 text: lora.custom-tag;
-                                                color: root.light-theme ? #202833 : #e3e8ef;
+                                                color: root.workflow-modified ? #ffffff : (root.light-theme ? #202833 : #e3e8ef);
                                                 width: 90px;
                                                 overflow: elide;
                                             }

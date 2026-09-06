@@ -6,6 +6,19 @@ use crate::{metadata, MainWindow, WorkflowLoraRow};
 
 use super::file_system;
 
+fn key_index(key: &str) -> i32 {
+    [
+        "C major", "C minor", "C# major", "C# minor", "D major", "D minor",
+        "Eb major", "Eb minor", "E major", "E minor", "F major", "F minor",
+        "F# major", "F# minor", "G major", "G minor", "Ab major", "Ab minor",
+        "A major", "A minor", "Bb major", "Bb minor", "B major", "B minor",
+    ]
+    .iter()
+    .position(|candidate| candidate.eq_ignore_ascii_case(key))
+    .map(|index| index as i32)
+    .unwrap_or(-1)
+}
+
 fn display_model_name(model: &str) -> String {
     match model {
         "ace_step_1.5_turbo_aio.safetensors" => "Ace Step 1.5 Turbo Aio".to_string(),
@@ -54,8 +67,11 @@ pub fn scan_json_files(folder: &Path) -> Vec<(String, String)> {
 
 pub fn clear_workflow(window: &MainWindow) {
     window.set_workflow_bpm("".into());
+    window.set_workflow_bpm_number(0);
     window.set_workflow_key("".into());
+    window.set_workflow_key_index(-1);
     window.set_workflow_seed("".into());
+    window.set_workflow_seed_number(0);
     window.set_workflow_model("".into());
     window.set_workflow_prompt("".into());
     window.set_workflow_lyrics("".into());
@@ -73,9 +89,14 @@ pub fn apply_workflow(
         .and_then(|name| name.to_str())
         .unwrap_or(path);
     window.set_selected_workflow(display_name.into());
+    let bpm_number = workflow.bpm.parse().unwrap_or(0);
     window.set_workflow_bpm(workflow.bpm.into());
+    window.set_workflow_bpm_number(bpm_number);
+    window.set_workflow_key_index(key_index(&workflow.key));
     window.set_workflow_key(workflow.key.into());
+    let seed_number = workflow.seed.parse().unwrap_or(0);
     window.set_workflow_seed(workflow.seed.into());
+    window.set_workflow_seed_number(seed_number);
     window.set_workflow_model(display_model_name(&workflow.model).into());
     window.set_workflow_prompt(workflow.prompt.into());
     window.set_workflow_lyrics(workflow.lyrics.into());
@@ -100,19 +121,25 @@ pub fn apply_workflow(
 }
 
 pub fn load_workflow_for_audio(window: &MainWindow, folder: &Path, path: &Path) {
-    let path_string = path.to_string_lossy();
-    let workflow_path = metadata::load_index(folder)
-        .audio_files
-        .iter()
-        .find(|file| file.file_path == path_string)
-        .and_then(|file| file.workflow_json_path.clone());
-    let Some(workflow_path) = workflow_path else {
+    if window.get_workflow_loading() {
+        return;
+    }
+    window.set_workflow_loading(true);
+    let Some(workflow_path) = metadata::workflow_path(folder, path) else {
         window.set_selected_workflow("".into());
         clear_workflow(window);
+        window.set_workflow_loading(false);
         return;
     };
-    match metadata::comfyui::parse_file(Path::new(&workflow_path)) {
-        Ok(workflow) => apply_workflow(window, folder, &workflow_path, workflow),
+    if !workflow_path.is_file() {
+        window.set_selected_workflow("".into());
+        clear_workflow(window);
+        window.set_workflow_loading(false);
+        return;
+    }
+    match metadata::comfyui::parse_file(&workflow_path) {
+        Ok(workflow) => apply_workflow(window, folder, &workflow_path.to_string_lossy(), workflow),
         Err(error) => window.set_audio_error(format!("Workflow JSON: {error}").into()),
     }
+    window.set_workflow_loading(false);
 }
