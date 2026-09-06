@@ -292,7 +292,7 @@ component Waveform inherits Rectangle {
 component AudioRowView inherits Rectangle {
     height: 86px;
     background: root.light-theme ? #ffffff : #1a2029;
-    border-color: root.is-active ? #000000 : (root.light-theme ? #d9dee6 : #2a3340);
+    border-color: root.is-selected || root.is-active ? #000000 : (root.light-theme ? #d9dee6 : #2a3340);
     border-width: 1px;
     in property <bool> light-theme;
     in property <color> comment-background-color: #000000;
@@ -304,6 +304,7 @@ component AudioRowView inherits Rectangle {
     in property <[CommentRow]> comments;
     in property <int> rating: 0;
     property <int> hovered-rating: -1;
+    in property <bool> is-selected;
     in property <bool> is-active;
     in property <bool> is-playing;
     in property <float> progress;
@@ -483,6 +484,7 @@ component AudioList inherits ListView {
         peaks: row.peaks;
         comments: row.comments;
         rating: row.rating;
+        is-selected: row.is-selected;
         is-active: row.is-active;
         is-playing: row.is-playing;
         progress: row.progress;

@@ -33,7 +33,8 @@ const BUILD_NUMBER: &str = env!("ADB_BUILD_NUMBER");
 use audio::loader::State as AudioLoadState;
 use audio::view::{
     comment_rows, format_duration, format_seconds, scroll_to_path as scroll_audio_to_path,
-    select_comment, selected_loop_range, update_audio_loading_rows, update_audio_rows,
+    select_audio_path, select_comment, selected_loop_range, update_audio_loading_rows,
+    update_audio_rows,
     update_comment_model,
 };
 use settings::AppSettings;
@@ -144,11 +145,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let weak_window = window.as_weak();
         let tree_state = Rc::clone(&tree_state);
         let settings = Rc::clone(&settings);
+        let audio_model = Rc::clone(&audio_model);
         window.on_audio_row_selected(move |path| {
             let Some(window) = weak_window.upgrade() else {
                 return;
             };
             window.set_selected_audio_path(path.clone());
+            select_audio_path(&audio_model, Path::new(path.as_str()));
             select_tree_path(&window, &tree_state, &settings, Path::new(path.as_str()));
         });
     }
@@ -611,6 +614,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 is_loading: row.is_loading,
                                 comments: row.comments,
                                 rating: rating.clamp(0, 5),
+                                is_selected: row.is_selected,
                                 is_active: row.is_active,
                                 is_playing: row.is_playing,
                                 progress: row.progress,
@@ -1163,6 +1167,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             is_loading: false,
                             comments: row.comments,
                             rating: row.rating,
+                            is_selected: row.is_selected,
                             is_active: row.is_active,
                             is_playing: row.is_playing,
                             progress: row.progress,
@@ -2180,6 +2185,7 @@ fn refresh_audio_with_changes(
                 .map(|item| item.normalized_rating() as i32)
                 .unwrap_or(0),
             is_active: false,
+            is_selected: false,
             is_playing: false,
             progress,
             loop_enabled: false,
@@ -2188,6 +2194,15 @@ fn refresh_audio_with_changes(
         });
     }
     rows.sort_by(|left, right| right.modified_date.cmp(&left.modified_date));
+    if let Some(row) = rows.first_mut() {
+        row.is_selected = true;
+    }
+    window.set_selected_audio_path(
+        rows.first()
+            .map(|row| row.path.to_string())
+            .unwrap_or_default()
+            .into(),
+    );
     let paths: Vec<PathBuf> = rows
         .iter()
         .map(|row| PathBuf::from(row.path.as_str()))

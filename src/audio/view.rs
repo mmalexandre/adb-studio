@@ -99,6 +99,7 @@ pub fn update_audio_rows(
                     is_loading: row.is_loading,
                     comments: row.comments,
                     rating: row.rating,
+                    is_selected: row.is_selected,
                     is_active,
                     is_playing: is_active && is_playing,
                     progress: if is_active { progress } else { row.progress },
@@ -134,6 +135,7 @@ pub fn update_audio_loading_rows(
                     is_loading,
                     comments: row.comments,
                     rating: row.rating,
+                    is_selected: row.is_selected,
                     is_active: row.is_active,
                     is_playing: row.is_playing,
                     progress: row.progress,
@@ -192,12 +194,49 @@ pub fn select_comment(
                     is_loading: row.is_loading,
                     comments: row.comments,
                     rating: row.rating,
+                    is_selected: row.is_selected,
                     is_active: row.is_active,
                     is_playing: row.is_playing,
                     progress: row.progress,
                     loop_enabled: row.loop_enabled,
                     selected_comment_start: if selected { start } else { -1.0 },
                     selected_comment_end: if selected { end } else { -1.0 },
+                },
+            );
+        }
+    }
+}
+
+pub fn select_audio_path(
+    audio_model: &Rc<RefCell<Option<Rc<VecModel<AudioRow>>>>>,
+    path: &Path,
+) {
+    let Some(model) = audio_model.borrow().clone() else {
+        return;
+    };
+    for index in 0..model.row_count() {
+        let Some(row) = model.row_data(index) else {
+            continue;
+        };
+        let is_selected = Path::new(row.path.as_str()) == path;
+        if row.is_selected != is_selected {
+            model.set_row_data(
+                index,
+                AudioRow {
+                    path: row.path,
+                    name: row.name,
+                    modified_date: row.modified_date,
+                    peaks: row.peaks,
+                    is_loading: row.is_loading,
+                    comments: row.comments,
+                    rating: row.rating,
+                    is_selected,
+                    is_active: row.is_active,
+                    is_playing: row.is_playing,
+                    progress: row.progress,
+                    loop_enabled: row.loop_enabled,
+                    selected_comment_start: row.selected_comment_start,
+                    selected_comment_end: row.selected_comment_end,
                 },
             );
         }
