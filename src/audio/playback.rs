@@ -14,6 +14,7 @@ pub struct PlaybackEngine {
     duration: Duration,
     position: Duration,
     playing: bool,
+    comment_loop: Option<(Duration, Duration)>,
 }
 
 impl PlaybackEngine {
@@ -28,6 +29,7 @@ impl PlaybackEngine {
             duration: Duration::ZERO,
             position: Duration::ZERO,
             playing: false,
+            comment_loop: None,
         })
     }
 
@@ -74,6 +76,7 @@ impl PlaybackEngine {
         self.duration = Duration::ZERO;
         self.position = Duration::ZERO;
         self.playing = false;
+        self.comment_loop = None;
     }
 
     pub fn resume(&mut self) {
@@ -114,12 +117,29 @@ impl PlaybackEngine {
         self.duration
     }
 
+    pub fn set_comment_loop(&mut self, start: Duration, end: Duration) {
+        self.comment_loop = Some((start.min(end), end.min(self.duration)));
+    }
+
+    pub fn clear_comment_loop(&mut self) {
+        self.comment_loop = None;
+    }
+
+    pub fn comment_loop(&self) -> Option<(Duration, Duration)> {
+        self.comment_loop
+    }
+
     pub fn is_playing(&self) -> bool {
         self.playing && self.player.as_ref().is_some_and(|player| !player.empty())
     }
 
     pub fn can_resume(&self) -> bool {
         self.player.as_ref().is_some_and(|player| !player.empty())
+    }
+
+    pub fn has_finished(&self) -> bool {
+        self.duration > Duration::ZERO
+            && self.player.as_ref().is_some_and(|player| player.empty())
     }
 
     pub fn set_volume(&mut self, volume: f32) {

@@ -148,27 +148,6 @@ pub fn update_audio_loading_rows(
     }
 }
 
-pub fn selected_loop_range(
-    audio_model: &Rc<RefCell<Option<Rc<VecModel<AudioRow>>>>>,
-    path: &Path,
-) -> Option<(f32, f32)> {
-    let model = audio_model.borrow().clone()?;
-    (0..model.row_count()).find_map(|index| {
-        let row = model.row_data(index)?;
-        if Path::new(row.path.as_str()) == path
-            && row.selected_comment_start >= 0.0
-            && row.selected_comment_end > row.selected_comment_start
-        {
-            Some((
-                row.selected_comment_start.clamp(0.0, 1.0),
-                row.selected_comment_end.clamp(0.0, 1.0),
-            ))
-        } else {
-            None
-        }
-    })
-}
-
 pub fn select_comment(
     audio_model: &Rc<RefCell<Option<Rc<VecModel<AudioRow>>>>>,
     path: &Path,

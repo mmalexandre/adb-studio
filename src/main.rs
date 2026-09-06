@@ -33,7 +33,7 @@ const BUILD_NUMBER: &str = env!("ADB_BUILD_NUMBER");
 use audio::loader::State as AudioLoadState;
 use audio::view::{
     comment_rows, format_duration, format_seconds, scroll_to_path as scroll_audio_to_path,
-    select_audio_path, select_comment, selected_loop_range, update_audio_loading_rows,
+    select_audio_path, select_comment, update_audio_loading_rows,
     update_audio_rows,
     update_comment_model,
 };
@@ -728,7 +728,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let audio_model = Rc::clone(&audio_model);
         let audio_folder = Rc::clone(&audio_folder);
         let playback = Rc::clone(&playback);
-        window.on_comment_selected(move |path, start, _end, _text| {
+        window.on_comment_selected(move |path, start, end, _text| {
             let Some(window) = weak_window.upgrade() else {
                 return;
             };
@@ -741,7 +741,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 window.set_audio_error("Unable to determine audio duration".into());
                 return;
             }
-            select_comment(&audio_model, &path, start, _end);
+            select_comment(&audio_model, &path, start, end);
             let mut playback_ref = playback.borrow_mut();
             let Some(engine) = playback_ref.as_mut() else {
                 return;
@@ -761,6 +761,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 window.set_audio_error(error.into());
                 return;
             }
+            engine.set_comment_loop(
+                Duration::from_secs_f32(start.clamp(0.0, 1.0) * duration),
+                Duration::from_secs_f32(end.clamp(0.0, 1.0) * duration),
+            );
             window.set_audio_error("".into());
             window.set_active_audio_path(path.to_string_lossy().into_owned().into());
             window.set_audio_file_name(
@@ -1032,21 +1036,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                     if let Some(engine) = playback.borrow_mut().as_mut() {
                         engine.update_position();
-                        let selected_loop = engine
-                            .path()
-                            .and_then(|path| selected_loop_range(&audio_model, path));
-                        let should_loop = selected_loop
-                            .map(|(_, end)| engine.position() >= engine.duration().mul_f32(end))
+                        let comment_loop = engine.comment_loop();
+                        let should_loop = comment_loop
+                            .map(|(_, end)| engine.position() >= end)
                             .unwrap_or_else(|| {
-                                !engine.is_playing() && engine.position() >= engine.duration()
+                                engine.has_finished()
+                                    || (!engine.is_playing()
+                                        && engine.position() >= engine.duration())
                             });
                         if settings.borrow().loop_enabled
                             && !engine.duration().is_zero()
                             && should_loop
                         {
                             if let Some(path) = engine.path().map(Path::to_path_buf) {
-                                let loop_start = selected_loop
-                                    .map(|(start, _)| engine.duration().mul_f32(start))
+                                let loop_start = comment_loop
+                                    .map(|(start, _)| start)
                                     .unwrap_or(Duration::ZERO);
                                 let _ = engine.play(&path, loop_start);
                             }
@@ -1435,6 +1439,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let Some(engine) = playback_ref.as_mut() else {
                 return;
             };
+            engine.clear_comment_loop();
             if restart {
                 if let Err(error) = engine.play(&path, Duration::ZERO) {
                     window.set_audio_error(error.into());
@@ -1493,6 +1498,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let Some(engine) = playback_ref.as_mut() else {
                 return;
             };
+            engine.clear_comment_loop();
             let progress = progress.clamp(0.0, 1.0);
             let result = if engine.path() == Some(path.as_path()) {
                 engine.seek(engine.duration().mul_f32(progress))
