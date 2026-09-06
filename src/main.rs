@@ -33,8 +33,7 @@ const BUILD_NUMBER: &str = env!("ADB_BUILD_NUMBER");
 use audio::loader::State as AudioLoadState;
 use audio::view::{
     comment_rows, format_duration, format_seconds, scroll_to_path as scroll_audio_to_path,
-    select_audio_path, select_comment, update_audio_loading_rows,
-    update_audio_rows,
+    select_audio_path, select_comment, update_audio_loading_rows, update_audio_rows,
     update_comment_model,
 };
 use settings::AppSettings;
@@ -85,6 +84,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     window.set_theme_index(if settings.borrow().light_theme { 1 } else { 0 });
     window.set_loop_enabled(settings.borrow().loop_enabled);
     window.set_auto_play_new_tracks(settings.borrow().auto_play_new_tracks);
+    window.set_seek_seconds(settings.borrow().seek_seconds.round() as i32);
+    window.set_shortcut_fullscreen(settings.borrow().shortcut_fullscreen);
+    window.set_shortcut_metadata(settings.borrow().shortcut_metadata);
+    window.set_shortcut_play_pause(settings.borrow().shortcut_play_pause);
+    window.set_shortcut_navigate_up(settings.borrow().shortcut_navigate_up);
+    window.set_shortcut_navigate_down(settings.borrow().shortcut_navigate_down);
+    window.set_shortcut_cancel_edit(settings.borrow().shortcut_cancel_edit);
+    window.set_shortcut_seek_backward(settings.borrow().shortcut_seek_backward);
+    window.set_shortcut_seek_forward(settings.borrow().shortcut_seek_forward);
+    window.set_shortcut_trash(settings.borrow().shortcut_trash);
     window.set_hide_tips_of_the_day(settings.borrow().hide_tips_of_the_day);
     window.set_tips_visible(!settings.borrow().hide_tips_of_the_day);
     window.set_audio_volume(1.0);
@@ -692,6 +701,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return;
             };
             let source = PathBuf::from(path.as_str());
+            let workspace_key = folder.to_string_lossy().into_owned();
+            if !settings
+                .borrow()
+                .trash_confirmation_disabled_workspaces
+                .contains(&workspace_key)
+            {
+                window.set_trash_confirm_path(path);
+                window.set_trash_confirm_dont_ask(false);
+                window.set_trash_confirm_visible(true);
+                return;
+            }
             let Some(name) = source.file_name() else {
                 return;
             };
@@ -726,6 +746,40 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 parent,
             );
             window.set_audio_error("".into());
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        let settings = Rc::clone(&settings);
+        window.on_trash_confirmed(move |dont_ask| {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            let path = window.get_trash_confirm_path();
+            if dont_ask {
+                let Some(folder) = settings.borrow().last_folder.clone() else {
+                    return;
+                };
+                settings
+                    .borrow_mut()
+                    .trash_confirmation_disabled_workspaces
+                    .insert(folder);
+                settings::save(&settings.borrow());
+            }
+            window.set_trash_confirm_visible(false);
+            if !path.is_empty() {
+                window.invoke_trash_requested(path);
+            }
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        window.on_trash_cancelled(move || {
+            if let Some(window) = weak_window.upgrade() {
+                window.set_trash_confirm_visible(false);
+            }
         });
     }
 
@@ -1339,6 +1393,148 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     {
         let weak_window = window.as_weak();
+        let settings = Rc::clone(&settings);
+        window.on_seek_seconds_changed(move |seconds| {
+            let seconds = seconds.max(1);
+            settings.borrow_mut().seek_seconds = seconds as f32;
+            settings::save(&settings.borrow());
+            if let Some(window) = weak_window.upgrade() {
+                window.set_seek_seconds(seconds);
+            }
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        let settings = Rc::clone(&settings);
+        window.on_shortcut_changed(move |action, key| {
+            let mut settings = settings.borrow_mut();
+            match action {
+                0 => settings.shortcut_fullscreen = key,
+                1 => settings.shortcut_metadata = key,
+                2 => settings.shortcut_play_pause = key,
+                3 => settings.shortcut_navigate_up = key,
+                4 => settings.shortcut_navigate_down = key,
+                5 => settings.shortcut_cancel_edit = key,
+                6 => settings.shortcut_seek_backward = key,
+                7 => settings.shortcut_seek_forward = key,
+                8 => settings.shortcut_trash = key,
+                _ => return,
+            }
+            settings::save(&settings);
+            drop(settings);
+            if let Some(window) = weak_window.upgrade() {
+                match action {
+                    0 => window.set_shortcut_fullscreen(key),
+                    1 => window.set_shortcut_metadata(key),
+                    2 => window.set_shortcut_play_pause(key),
+                    3 => window.set_shortcut_navigate_up(key),
+                    4 => window.set_shortcut_navigate_down(key),
+                    5 => window.set_shortcut_cancel_edit(key),
+                    6 => window.set_shortcut_seek_backward(key),
+                    7 => window.set_shortcut_seek_forward(key),
+                    8 => window.set_shortcut_trash(key),
+                    _ => {}
+                }
+            }
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        let settings = Rc::clone(&settings);
+        let playback = Rc::clone(&playback);
+        let audio_model = Rc::clone(&audio_model);
+        let audio_folder = Rc::clone(&audio_folder);
+        window.on_global_key_pressed(move |key, shift| {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            let settings = settings.borrow();
+            let matches = |configured: i32| configured == key;
+            if matches(settings.shortcut_fullscreen) {
+                window.invoke_toggle_fullscreen();
+                return;
+            }
+            if matches(settings.shortcut_metadata) {
+                window.invoke_metadata_toggle();
+                return;
+            }
+            if matches(settings.shortcut_play_pause) {
+                if !window.get_selected_audio_path().is_empty() {
+                    window.invoke_audio_play(window.get_selected_audio_path());
+                } else {
+                    window.invoke_audio_play_pause();
+                }
+                return;
+            }
+            if matches(settings.shortcut_navigate_up) {
+                window.invoke_audio_navigate(-1);
+                return;
+            }
+            if matches(settings.shortcut_navigate_down) {
+                window.invoke_audio_navigate(1);
+                return;
+            }
+            if matches(settings.shortcut_cancel_edit) {
+                if !window.get_tree_edit_path().is_empty() {
+                    window.invoke_tree_edit_cancelled();
+                }
+                return;
+            }
+            if matches(settings.shortcut_trash) && !shift {
+                if !window.get_active_audio_path().is_empty() {
+                    window.invoke_trash_requested(window.get_active_audio_path());
+                }
+                return;
+            }
+            let seek_key = if matches(settings.shortcut_seek_backward) {
+                -1.0
+            } else if matches(settings.shortcut_seek_forward) {
+                1.0
+            } else {
+                return;
+            };
+            let path = PathBuf::from(window.get_active_audio_path().as_str());
+            let mut playback_ref = playback.borrow_mut();
+            let Some(engine) = playback_ref.as_mut() else {
+                return;
+            };
+            if engine.path() != Some(path.as_path()) {
+                return;
+            }
+            let target = if shift {
+                if seek_key < 0.0 {
+                    Duration::ZERO
+                } else {
+                    engine.duration()
+                }
+            } else {
+                let delta = Duration::from_secs_f32(settings.seek_seconds.max(1.0));
+                if seek_key < 0.0 {
+                    engine.position().saturating_sub(delta)
+                } else {
+                    engine.position().saturating_add(delta)
+                }
+            };
+            if engine.seek(target).is_ok() {
+                update_audio_rows(
+                    &audio_model,
+                    engine.path(),
+                    engine.is_playing(),
+                    engine.position(),
+                    engine.duration(),
+                );
+                if let Some(folder) = audio_folder.borrow().clone() {
+                    save_playback_position(&folder, engine);
+                }
+                window.set_audio_current_time(format_duration(engine.position()).into());
+            }
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
         let tree_state = Rc::clone(&tree_state);
         let settings = Rc::clone(&settings);
         let audio_folder = Rc::clone(&audio_folder);
@@ -1464,11 +1660,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if row_count == 0 {
                 return;
             }
-            let selected_index = (0..row_count).find(|index| {
-                model
-                    .row_data(*index)
-                    .is_some_and(|row| row.is_selected)
-            });
+            let selected_index = (0..row_count)
+                .find(|index| model.row_data(*index).is_some_and(|row| row.is_selected));
             let next_index = selected_index
                 .map(|index| (index as i32 + direction).clamp(0, row_count as i32 - 1) as usize)
                 .unwrap_or(if direction < 0 { 0 } else { row_count - 1 });
@@ -1592,8 +1785,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 })
                 .map(|index| {
                     let viewport_start = window.get_audio_viewport_start().max(0) as usize;
-                    let viewport_end = viewport_start
-                        + window.get_audio_visible_rows().max(0) as usize;
+                    let viewport_end =
+                        viewport_start + window.get_audio_visible_rows().max(0) as usize;
                     index < viewport_start || index >= viewport_end
                 })
                 .unwrap_or(true);

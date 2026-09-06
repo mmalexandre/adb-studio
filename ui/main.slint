@@ -772,10 +772,23 @@ export component MainWindow inherits Window {
     in-out property <bool> audio-playing: false;
     in-out property <bool> loop-enabled: false;
     in-out property <bool> auto-play-new-tracks: false;
+    in-out property <int> seek-seconds: 5;
+    in-out property <int> shortcut-fullscreen: 0;
+    in-out property <int> shortcut-metadata: 1;
+    in-out property <int> shortcut-play-pause: 2;
+    in-out property <int> shortcut-navigate-up: 3;
+    in-out property <int> shortcut-navigate-down: 4;
+    in-out property <int> shortcut-cancel-edit: 5;
+    in-out property <int> shortcut-seek-backward: 7;
+    in-out property <int> shortcut-seek-forward: 8;
+    in-out property <int> shortcut-trash: 9;
     in-out property <float> audio-volume: 1.0;
     in-out property <string> audio-current-time: "00:00";
     in-out property <string> audio-total-duration: "00:00";
     in-out property <string> audio-error: "";
+    in-out property <bool> trash-confirm-visible: false;
+    in-out property <string> trash-confirm-path: "";
+    in-out property <bool> trash-confirm-dont-ask: false;
     in-out property <bool> metadata-visible: false;
     in-out property <length> metadata-pane-height: 190px;
     property <length> metadata-drag-start-y: 0px;
@@ -824,6 +837,9 @@ export component MainWindow inherits Window {
     callback audio-play(string);
     callback loop-changed(bool);
     callback auto-play-new-tracks-changed(bool);
+    callback seek-seconds-changed(int);
+    callback shortcut-changed(int, int);
+    callback global-key-pressed(int, bool);
     callback volume-changed(float);
     callback comment-range-requested(string, float, float);
     callback comment-selected(string, float, float, string);
@@ -831,6 +847,8 @@ export component MainWindow inherits Window {
     callback comment-range-moved(string, float, float, float, float, string);
     callback rating-requested(string, int);
     callback trash-requested(string);
+    callback trash-confirmed(bool);
+    callback trash-cancelled();
     callback comment-save(string, string, string, string);
     callback comment-cancel();
     callback comment-delete(string, string, string, string);
@@ -857,33 +875,16 @@ export component MainWindow inherits Window {
 
     keyboard-focus := FocusScope {
         capture-key-pressed(event) => {
-            if event.text == Key.F11 {
-                root.toggle-fullscreen();
-                accept;
-            }
-            if event.text == Key.F9 {
-                root.metadata-toggle();
-                accept;
-            }
-            if event.text == Key.Space {
-                if root.selected-audio-path != "" {
-                    root.audio-play(root.selected-audio-path);
-                } else if root.active-audio-path != "" {
-                    root.audio-play-pause();
-                }
-                accept;
-            }
-            if event.text == Key.UpArrow || event.text == Key.DownArrow {
-                if root.audio-rows.length > 0 {
-                    let direction = event.text == Key.UpArrow ? -1 : 1;
-                    root.audio-navigate(direction);
-                }
-                accept;
-            }
-            if event.text == Key.Escape && root.tree-edit-path != "" {
-                root.tree-edit-cancelled();
-                accept;
-            }
+            if event.text == Key.F11 { root.global-key-pressed(0, event.modifiers.shift); accept; }
+            if event.text == Key.F9 { root.global-key-pressed(1, event.modifiers.shift); accept; }
+            if event.text == Key.Space { root.global-key-pressed(2, event.modifiers.shift); accept; }
+            if event.text == Key.UpArrow { root.global-key-pressed(3, event.modifiers.shift); accept; }
+            if event.text == Key.DownArrow { root.global-key-pressed(4, event.modifiers.shift); accept; }
+            if event.text == Key.Escape { root.global-key-pressed(5, event.modifiers.shift); accept; }
+            if event.text == Key.F2 { root.global-key-pressed(6, event.modifiers.shift); accept; }
+            if event.text == Key.LeftArrow { root.global-key-pressed(7, event.modifiers.shift); accept; }
+            if event.text == Key.RightArrow { root.global-key-pressed(8, event.modifiers.shift); accept; }
+            if event.text == Key.Delete { root.global-key-pressed(9, event.modifiers.shift); accept; }
             reject;
         }
 
@@ -1730,8 +1731,8 @@ export component MainWindow inherits Window {
             height: parent.height;
 
             Rectangle {
-                width: 700px;
-                height: 390px;
+                width: 760px;
+                height: 560px;
                 x: (parent.width - self.width) / 2;
                 y: (parent.height - self.height) / 2;
                 background: root.light-theme ? #ffffff : #202832;
@@ -1831,6 +1832,30 @@ export component MainWindow inherits Window {
                                 }
                                 Text { text: root.comment-text-hex; color: root.light-theme ? #5c6878 : #aeb8c6; vertical-alignment: center; }
                             }
+                            Text { text: "Playback"; color: root.light-theme ? #5c6878 : #c4ccd8; }
+                            HorizontalLayout {
+                                spacing: 12px;
+                                Text { text: "Seek step"; width: 100px; color: root.light-theme ? #202833 : #e3e8ef; vertical-alignment: center; }
+                                ComboBox {
+                                    model: ["1 second", "2 seconds", "3 seconds", "4 seconds", "5 seconds", "10 seconds", "15 seconds", "30 seconds"];
+                                    current-index: root.seek-seconds == 1 ? 0 : root.seek-seconds == 2 ? 1 : root.seek-seconds == 3 ? 2 : root.seek-seconds == 4 ? 3 : root.seek-seconds == 10 ? 5 : root.seek-seconds == 15 ? 6 : root.seek-seconds == 30 ? 7 : 4;
+                                    changed current-index => { root.seek-seconds-changed(self.current-index == 0 ? 1 : self.current-index == 1 ? 2 : self.current-index == 2 ? 3 : self.current-index == 3 ? 4 : self.current-index == 5 ? 10 : self.current-index == 6 ? 15 : self.current-index == 7 ? 30 : 5); }
+                                }
+                            }
+                            Text { text: "Keyboard shortcuts"; color: root.light-theme ? #5c6878 : #c4ccd8; }
+                            VerticalBox {
+                                spacing: 5px;
+                                property <[string]> shortcut-keys: ["F11", "F9", "Space", "Up", "Down", "Escape", "F2", "Left", "Right", "Delete"];
+                                HorizontalLayout { Text { text: "Fullscreen"; width: 130px; } ComboBox { model: shortcut-keys; current-index: root.shortcut-fullscreen; changed current-index => { root.shortcut-changed(0, self.current-index); } } }
+                                HorizontalLayout { Text { text: "Metadata pane"; width: 130px; } ComboBox { model: shortcut-keys; current-index: root.shortcut-metadata; changed current-index => { root.shortcut-changed(1, self.current-index); } } }
+                                HorizontalLayout { Text { text: "Play / pause"; width: 130px; } ComboBox { model: shortcut-keys; current-index: root.shortcut-play-pause; changed current-index => { root.shortcut-changed(2, self.current-index); } } }
+                                HorizontalLayout { Text { text: "Previous track"; width: 130px; } ComboBox { model: shortcut-keys; current-index: root.shortcut-navigate-up; changed current-index => { root.shortcut-changed(3, self.current-index); } } }
+                                HorizontalLayout { Text { text: "Next track"; width: 130px; } ComboBox { model: shortcut-keys; current-index: root.shortcut-navigate-down; changed current-index => { root.shortcut-changed(4, self.current-index); } } }
+                                HorizontalLayout { Text { text: "Cancel edit"; width: 130px; } ComboBox { model: shortcut-keys; current-index: root.shortcut-cancel-edit; changed current-index => { root.shortcut-changed(5, self.current-index); } } }
+                                HorizontalLayout { Text { text: "Seek backward"; width: 130px; } ComboBox { model: shortcut-keys; current-index: root.shortcut-seek-backward; changed current-index => { root.shortcut-changed(6, self.current-index); } } }
+                                HorizontalLayout { Text { text: "Seek forward"; width: 130px; } ComboBox { model: shortcut-keys; current-index: root.shortcut-seek-forward; changed current-index => { root.shortcut-changed(7, self.current-index); } } }
+                                HorizontalLayout { Text { text: "Move to trash"; width: 130px; } ComboBox { model: shortcut-keys; current-index: root.shortcut-trash; changed current-index => { root.shortcut-changed(8, self.current-index); } } }
+                            }
                             Rectangle { vertical-stretch: 1; }
                             HorizontalLayout {
                                 alignment: end;
@@ -1838,6 +1863,37 @@ export component MainWindow inherits Window {
                                 AppButton { text: "Close"; clicked => { root.close-settings(); } }
                             }
                         }
+                    }
+                }
+            }
+        }
+
+        if root.trash-confirm-visible : Rectangle {
+            background: #00000080;
+            x: 0px;
+            y: 0px;
+            width: parent.width;
+            height: parent.height;
+            z: 20;
+            Rectangle {
+                width: 460px;
+                height: 190px;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                background: root.light-theme ? #ffffff : #202832;
+                border-color: root.light-theme ? #cbd2dc : #435064;
+                border-width: 1px;
+                VerticalBox {
+                    padding: 24px;
+                    spacing: 14px;
+                    Text { text: "Move file to trash?"; color: root.light-theme ? #202833 : #f1f4f8; font-size: 20px; }
+                    Text { text: root.trash-confirm-path; color: root.light-theme ? #5c6878 : #c4ccd8; overflow: elide; }
+                    CheckBox { text: "Do not ask again in this workspace"; checked: root.trash-confirm-dont-ask; toggled => { root.trash-confirm-dont-ask = self.checked; } }
+                    HorizontalLayout {
+                        alignment: end;
+                        spacing: 8px;
+                        AppButton { text: "Cancel"; clicked => { root.trash-cancelled(); } }
+                        AppButton { text: "Move to Trash"; clicked => { root.trash-confirmed(root.trash-confirm-dont-ask); } }
                     }
                 }
             }

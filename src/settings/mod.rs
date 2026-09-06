@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use serde::{Deserialize, Serialize};
 
 mod storage;
@@ -15,6 +17,28 @@ pub struct AppSettings {
     pub loop_enabled: bool,
     #[serde(default)]
     pub auto_play_new_tracks: bool,
+    #[serde(default = "default_seek_seconds")]
+    pub seek_seconds: f32,
+    #[serde(default)]
+    pub shortcut_fullscreen: i32,
+    #[serde(default = "default_shortcut_metadata")]
+    pub shortcut_metadata: i32,
+    #[serde(default = "default_shortcut_play_pause")]
+    pub shortcut_play_pause: i32,
+    #[serde(default = "default_shortcut_navigate_up")]
+    pub shortcut_navigate_up: i32,
+    #[serde(default = "default_shortcut_navigate_down")]
+    pub shortcut_navigate_down: i32,
+    #[serde(default = "default_shortcut_cancel_edit")]
+    pub shortcut_cancel_edit: i32,
+    #[serde(default = "default_shortcut_seek_backward")]
+    pub shortcut_seek_backward: i32,
+    #[serde(default = "default_shortcut_seek_forward")]
+    pub shortcut_seek_forward: i32,
+    #[serde(default = "default_shortcut_trash")]
+    pub shortcut_trash: i32,
+    #[serde(default)]
+    pub trash_confirmation_disabled_workspaces: HashSet<String>,
     #[serde(default = "default_left_pane_width")]
     pub left_pane_width: f32,
     #[serde(default = "default_metadata_pane_height")]
@@ -47,6 +71,34 @@ fn default_metadata_pane_height() -> f32 {
     190.0
 }
 
+fn default_seek_seconds() -> f32 {
+    5.0
+}
+fn default_shortcut_metadata() -> i32 {
+    1
+}
+fn default_shortcut_play_pause() -> i32 {
+    2
+}
+fn default_shortcut_navigate_up() -> i32 {
+    3
+}
+fn default_shortcut_navigate_down() -> i32 {
+    4
+}
+fn default_shortcut_cancel_edit() -> i32 {
+    5
+}
+fn default_shortcut_seek_backward() -> i32 {
+    7
+}
+fn default_shortcut_seek_forward() -> i32 {
+    8
+}
+fn default_shortcut_trash() -> i32 {
+    9
+}
+
 fn default_comment_background_color() -> String {
     "#000000".to_owned()
 }
@@ -63,6 +115,17 @@ impl Default for AppSettings {
             light_theme: false,
             loop_enabled: false,
             auto_play_new_tracks: false,
+            seek_seconds: default_seek_seconds(),
+            shortcut_fullscreen: 0,
+            shortcut_metadata: default_shortcut_metadata(),
+            shortcut_play_pause: default_shortcut_play_pause(),
+            shortcut_navigate_up: default_shortcut_navigate_up(),
+            shortcut_navigate_down: default_shortcut_navigate_down(),
+            shortcut_cancel_edit: default_shortcut_cancel_edit(),
+            shortcut_seek_backward: default_shortcut_seek_backward(),
+            shortcut_seek_forward: default_shortcut_seek_forward(),
+            shortcut_trash: default_shortcut_trash(),
+            trash_confirmation_disabled_workspaces: HashSet::new(),
             left_pane_width: default_left_pane_width(),
             metadata_pane_height: default_metadata_pane_height(),
             metadata_visible: false,
