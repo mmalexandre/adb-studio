@@ -860,6 +860,7 @@ export component MainWindow inherits Window {
     in-out property <int> shortcut-seek-backward: 7;
     in-out property <int> shortcut-seek-forward: 8;
     in-out property <int> shortcut-trash: 9;
+    property <bool> text-input-focused: false;
     in-out property <float> audio-volume: 1.0;
     in-out property <string> audio-current-time: "00:00";
     in-out property <string> audio-total-duration: "00:00";
@@ -977,7 +978,15 @@ export component MainWindow inherits Window {
     }
 
     keyboard-focus := FocusScope {
-        capture-key-pressed(event) => {
+        key-pressed(event) => {
+            if (root.text-input-focused || root.tree-edit-path != "") && (
+                event.text == Key.Space
+                || event.text == Key.UpArrow
+                || event.text == Key.DownArrow
+                || event.text == Key.LeftArrow
+                || event.text == Key.RightArrow
+                || event.text == Key.Delete
+            ) { reject; }
             if event.text == Key.F11 { root.global-key-pressed(0, event.modifiers.shift); accept; }
             if event.text == Key.F9 { root.global-key-pressed(1, event.modifiers.shift); accept; }
             if event.text == Key.Space { root.global-key-pressed(2, event.modifiers.shift); accept; }
@@ -1297,6 +1306,7 @@ export component MainWindow inherits Window {
                                     width: 260px;
                                     text <=> root.audio-filter;
                                     edited(text) => { root.filter-changed(text); }
+                                    changed has-focus => { root.text-input-focused = self.has-focus; }
                                 }
                                 SortIconButton {
                                     icon: @image-url("../assets/icons/ellipsis-vertical.svg");
@@ -1425,11 +1435,13 @@ export component MainWindow inherits Window {
                                         minimum: 0;
                                         value <=> root.workflow-bpm-number;
                                         edited(value) => { root.workflow-number-changed("bpm", self.value); }
+                                        changed has-focus => { root.text-input-focused = self.has-focus; }
                                     }
                                     Text { text: "Key"; color: root.workflow-modified ? #ffffff : (root.light-theme ? #202833 : #e3e8ef); }
                                     ComboBox {
                                         model: ["C major", "C minor", "C# major", "C# minor", "D major", "D minor", "Eb major", "Eb minor", "E major", "E minor", "F major", "F minor", "F# major", "F# minor", "G major", "G minor", "Ab major", "Ab minor", "A major", "A minor", "Bb major", "Bb minor", "B major", "B minor"];
                                         current-index: root.workflow-key-index;
+                                        changed has-focus => { root.text-input-focused = self.has-focus; }
                                         changed current-index => {
                                             if self.current-index >= 0 {
                                                 root.workflow-metadata-changed("key", self.model[self.current-index]);
@@ -1441,6 +1453,7 @@ export component MainWindow inherits Window {
                                         minimum: 0;
                                         value <=> root.workflow-seed-number;
                                         edited(value) => { root.workflow-number-changed("seed", self.value); }
+                                        changed has-focus => { root.text-input-focused = self.has-focus; }
                                     }
                                 }
                                     VerticalBox {
@@ -1453,6 +1466,7 @@ export component MainWindow inherits Window {
                                         text <=> root.workflow-prompt;
                                         wrap: word-wrap;
                                         edited(text) => { root.workflow-metadata-changed("prompt", text); }
+                                        changed has-focus => { root.text-input-focused = self.has-focus; }
                                     }
                                 }
                                 VerticalBox {
@@ -1465,6 +1479,7 @@ export component MainWindow inherits Window {
                                         text <=> root.workflow-lyrics;
                                         wrap: word-wrap;
                                         edited(text) => { root.workflow-metadata-changed("lyrics", text); }
+                                        changed has-focus => { root.text-input-focused = self.has-focus; }
                                     }
                                 }
                                 VerticalBox {
@@ -1958,12 +1973,14 @@ export component MainWindow inherits Window {
                     ComboBox {
                         model: ["mp3", "ogg", "opus", "flac", "wav"];
                         current-index: root.conversion-format-index;
+                        changed has-focus => { root.text-input-focused = self.has-focus; }
                         changed current-index => { root.conversion-format-index = self.current-index; }
                     }
                     Text { text: "Quality"; color: root.light-theme ? #5c6878 : #c4ccd8; }
                     ComboBox {
                         model: root.conversion-quality-labels;
                         current-index: root.conversion-quality-index;
+                        changed has-focus => { root.text-input-focused = self.has-focus; }
                         changed current-index => { root.conversion-quality-index = self.current-index; }
                     }
                     Rectangle { vertical-stretch: 1; }
@@ -2178,6 +2195,7 @@ export component MainWindow inherits Window {
                             ComboBox {
                                 model: ["Dark theme", "Light theme"];
                                 current-index: root.theme-index;
+                                changed has-focus => { root.text-input-focused = self.has-focus; }
                                 changed current-index => { root.theme-selected(self.current-index == 1); }
                             }
                             CheckBox {
@@ -2249,6 +2267,7 @@ export component MainWindow inherits Window {
                                 ComboBox {
                                     model: ["1 second", "2 seconds", "3 seconds", "4 seconds", "5 seconds", "10 seconds", "15 seconds", "30 seconds"];
                                     current-index: root.seek-seconds == 1 ? 0 : root.seek-seconds == 2 ? 1 : root.seek-seconds == 3 ? 2 : root.seek-seconds == 4 ? 3 : root.seek-seconds == 10 ? 5 : root.seek-seconds == 15 ? 6 : root.seek-seconds == 30 ? 7 : 4;
+                                    changed has-focus => { root.text-input-focused = self.has-focus; }
                                     changed current-index => { root.seek-seconds-changed(self.current-index == 0 ? 1 : self.current-index == 1 ? 2 : self.current-index == 2 ? 3 : self.current-index == 3 ? 4 : self.current-index == 5 ? 10 : self.current-index == 6 ? 15 : self.current-index == 7 ? 30 : 5); }
                                 }
                             }
@@ -2256,15 +2275,15 @@ export component MainWindow inherits Window {
                             VerticalBox {
                                 spacing: 5px;
                                 property <[string]> shortcut-keys: ["F11", "F9", "Space", "Up", "Down", "Escape", "F2", "Left", "Right", "Delete"];
-                                HorizontalLayout { Text { text: "Fullscreen"; width: 130px; } ComboBox { model: shortcut-keys; current-index: root.shortcut-fullscreen; changed current-index => { root.shortcut-changed(0, self.current-index); } } }
-                                HorizontalLayout { Text { text: "Metadata pane"; width: 130px; } ComboBox { model: shortcut-keys; current-index: root.shortcut-metadata; changed current-index => { root.shortcut-changed(1, self.current-index); } } }
-                                HorizontalLayout { Text { text: "Play / pause"; width: 130px; } ComboBox { model: shortcut-keys; current-index: root.shortcut-play-pause; changed current-index => { root.shortcut-changed(2, self.current-index); } } }
-                                HorizontalLayout { Text { text: "Previous track"; width: 130px; } ComboBox { model: shortcut-keys; current-index: root.shortcut-navigate-up; changed current-index => { root.shortcut-changed(3, self.current-index); } } }
-                                HorizontalLayout { Text { text: "Next track"; width: 130px; } ComboBox { model: shortcut-keys; current-index: root.shortcut-navigate-down; changed current-index => { root.shortcut-changed(4, self.current-index); } } }
-                                HorizontalLayout { Text { text: "Cancel edit"; width: 130px; } ComboBox { model: shortcut-keys; current-index: root.shortcut-cancel-edit; changed current-index => { root.shortcut-changed(5, self.current-index); } } }
-                                HorizontalLayout { Text { text: "Seek backward"; width: 130px; } ComboBox { model: shortcut-keys; current-index: root.shortcut-seek-backward; changed current-index => { root.shortcut-changed(6, self.current-index); } } }
-                                HorizontalLayout { Text { text: "Seek forward"; width: 130px; } ComboBox { model: shortcut-keys; current-index: root.shortcut-seek-forward; changed current-index => { root.shortcut-changed(7, self.current-index); } } }
-                                HorizontalLayout { Text { text: "Move to trash"; width: 130px; } ComboBox { model: shortcut-keys; current-index: root.shortcut-trash; changed current-index => { root.shortcut-changed(8, self.current-index); } } }
+                                HorizontalLayout { Text { text: "Fullscreen"; width: 130px; } ComboBox { model: shortcut-keys; current-index: root.shortcut-fullscreen; changed has-focus => { root.text-input-focused = self.has-focus; } changed current-index => { root.shortcut-changed(0, self.current-index); } } }
+                                HorizontalLayout { Text { text: "Metadata pane"; width: 130px; } ComboBox { model: shortcut-keys; current-index: root.shortcut-metadata; changed has-focus => { root.text-input-focused = self.has-focus; } changed current-index => { root.shortcut-changed(1, self.current-index); } } }
+                                HorizontalLayout { Text { text: "Play / pause"; width: 130px; } ComboBox { model: shortcut-keys; current-index: root.shortcut-play-pause; changed has-focus => { root.text-input-focused = self.has-focus; } changed current-index => { root.shortcut-changed(2, self.current-index); } } }
+                                HorizontalLayout { Text { text: "Previous track"; width: 130px; } ComboBox { model: shortcut-keys; current-index: root.shortcut-navigate-up; changed has-focus => { root.text-input-focused = self.has-focus; } changed current-index => { root.shortcut-changed(3, self.current-index); } } }
+                                HorizontalLayout { Text { text: "Next track"; width: 130px; } ComboBox { model: shortcut-keys; current-index: root.shortcut-navigate-down; changed has-focus => { root.text-input-focused = self.has-focus; } changed current-index => { root.shortcut-changed(4, self.current-index); } } }
+                                HorizontalLayout { Text { text: "Cancel edit"; width: 130px; } ComboBox { model: shortcut-keys; current-index: root.shortcut-cancel-edit; changed has-focus => { root.text-input-focused = self.has-focus; } changed current-index => { root.shortcut-changed(5, self.current-index); } } }
+                                HorizontalLayout { Text { text: "Seek backward"; width: 130px; } ComboBox { model: shortcut-keys; current-index: root.shortcut-seek-backward; changed has-focus => { root.text-input-focused = self.has-focus; } changed current-index => { root.shortcut-changed(6, self.current-index); } } }
+                                HorizontalLayout { Text { text: "Seek forward"; width: 130px; } ComboBox { model: shortcut-keys; current-index: root.shortcut-seek-forward; changed has-focus => { root.text-input-focused = self.has-focus; } changed current-index => { root.shortcut-changed(7, self.current-index); } } }
+                                HorizontalLayout { Text { text: "Move to trash"; width: 130px; } ComboBox { model: shortcut-keys; current-index: root.shortcut-trash; changed has-focus => { root.text-input-focused = self.has-focus; } changed current-index => { root.shortcut-changed(8, self.current-index); } } }
                             }
                             Rectangle { vertical-stretch: 1; }
                             HorizontalLayout {
@@ -2372,16 +2391,16 @@ export component MainWindow inherits Window {
                     spacing: 12px;
                     Text { text: "ComfyUI Sync"; color: root.light-theme ? #202833 : #f1f4f8; font-size: 22px; }
                     Text { text: "ComfyUI URL"; color: root.light-theme ? #5c6878 : #c4ccd8; }
-                    LineEdit { text <=> root.comfyui-sync-url; placeholder-text: "https://..."; }
+                    LineEdit { text <=> root.comfyui-sync-url; placeholder-text: "https://..."; changed has-focus => { root.text-input-focused = self.has-focus; } }
                     Text { text: "Remote directory"; color: root.light-theme ? #5c6878 : #c4ccd8; }
-                    LineEdit { text <=> root.comfyui-sync-remote-directory; }
+                    LineEdit { text <=> root.comfyui-sync-remote-directory; changed has-focus => { root.text-input-focused = self.has-focus; } }
                     Text { text: "Download directory inside workspace"; color: root.light-theme ? #5c6878 : #c4ccd8; }
                     HorizontalLayout {
-                        LineEdit { text <=> root.comfyui-sync-local-directory; horizontal-stretch: 1; }
+                        LineEdit { text <=> root.comfyui-sync-local-directory; horizontal-stretch: 1; changed has-focus => { root.text-input-focused = self.has-focus; } }
                         AppButton { text: "Choose..."; clicked => { root.comfyui-sync-choose-directory(); } }
                     }
                     Text { text: "Sync frequency (milliseconds)"; color: root.light-theme ? #5c6878 : #c4ccd8; }
-                    LineEdit { text <=> root.comfyui-sync-interval; }
+                    LineEdit { text <=> root.comfyui-sync-interval; changed has-focus => { root.text-input-focused = self.has-focus; } }
                     Text { text: root.comfyui-sync-error; color: #d46b32; overflow: elide; }
                     Text {
                         text: root.comfyui-sync-test-message;
@@ -2420,7 +2439,7 @@ export component MainWindow inherits Window {
                 HorizontalLayout {
                     spacing: 8px;
                     Text { text: "Hex"; width: 50px; color: root.light-theme ? #202833 : #e3e8ef; vertical-alignment: center; }
-                    LineEdit { text <=> root.color-picker-value; width: 140px; }
+                    LineEdit { text <=> root.color-picker-value; width: 140px; changed has-focus => { root.text-input-focused = self.has-focus; } }
                     Rectangle { width: 42px; height: 28px; background: root.color-picker-target == 0 ? root.comment-background-color : root.comment-text-color; border-color: root.color-picker-target == 0 ? root.comment-text-color : root.comment-background-color; border-width: 1px; }
                 }
                 Text { text: "Palette"; color: root.light-theme ? #5c6878 : #c4ccd8; }
@@ -2477,9 +2496,9 @@ export component MainWindow inherits Window {
                     padding: 24px;
                     spacing: 12px;
                     Text { text: "Comment"; color: root.light-theme ? #202833 : #f1f4f8; font-size: 22px; }
-                    LineEdit { placeholder-text: "Start (seconds)"; text <=> root.comment-editor-start; }
-                    LineEdit { placeholder-text: "End (seconds)"; text <=> root.comment-editor-end; }
-                    LineEdit { placeholder-text: "Comment text"; text <=> root.comment-editor-text; }
+                    LineEdit { placeholder-text: "Start (seconds)"; text <=> root.comment-editor-start; changed has-focus => { root.text-input-focused = self.has-focus; } }
+                    LineEdit { placeholder-text: "End (seconds)"; text <=> root.comment-editor-end; changed has-focus => { root.text-input-focused = self.has-focus; } }
+                    LineEdit { placeholder-text: "Comment text"; text <=> root.comment-editor-text; changed has-focus => { root.text-input-focused = self.has-focus; } }
                     Rectangle { vertical-stretch: 1; }
                     HorizontalLayout {
                         spacing: 8px;
@@ -2510,7 +2529,7 @@ export component MainWindow inherits Window {
                     spacing: 12px;
                     Text { text: "LoRA Info"; color: root.light-theme ? #202833 : #f1f4f8; font-size: 22px; }
                     Text { text: root.lora-editor-filename; color: root.light-theme ? #5c6878 : #c4ccd8; overflow: elide; }
-                    LineEdit { placeholder-text: "Custom tag"; text <=> root.lora-editor-tag; }
+                    LineEdit { placeholder-text: "Custom tag"; text <=> root.lora-editor-tag; changed has-focus => { root.text-input-focused = self.has-focus; } }
                     Rectangle { vertical-stretch: 1; }
                     HorizontalLayout {
                         spacing: 8px;
