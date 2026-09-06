@@ -83,6 +83,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     window.set_light_theme(settings.borrow().light_theme);
     window.set_theme_index(if settings.borrow().light_theme { 1 } else { 0 });
     window.set_loop_enabled(settings.borrow().loop_enabled);
+    window.set_hide_tips_of_the_day(settings.borrow().hide_tips_of_the_day);
+    window.set_tips_visible(!settings.borrow().hide_tips_of_the_day);
     window.set_audio_volume(1.0);
     window.set_left_pane_width(settings.borrow().left_pane_width.into());
     window.set_metadata_pane_height(settings.borrow().metadata_pane_height.into());
@@ -1521,6 +1523,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         window.on_close_settings(move || {
             if let Some(window) = weak_window.upgrade() {
                 window.set_settings_visible(false);
+            }
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        window.on_close_tips(move || {
+            if let Some(window) = weak_window.upgrade() {
+                window.set_tips_visible(false);
+            }
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        let settings = Rc::clone(&settings);
+        window.on_tips_preference_changed(move |hide_tips| {
+            settings.borrow_mut().hide_tips_of_the_day = hide_tips;
+            let settings_snapshot = settings.borrow().clone();
+            settings::save(&settings_snapshot);
+            if let Some(window) = weak_window.upgrade() {
+                window.set_hide_tips_of_the_day(hide_tips);
+                if hide_tips {
+                    window.set_tips_visible(false);
+                }
             }
         });
     }

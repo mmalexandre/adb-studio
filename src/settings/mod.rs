@@ -19,6 +19,8 @@ pub struct AppSettings {
     pub metadata_pane_height: f32,
     #[serde(default)]
     pub metadata_visible: bool,
+    #[serde(default)]
+    pub hide_tips_of_the_day: bool,
     #[serde(default = "default_comment_background_color")]
     pub comment_background_color: String,
     #[serde(default = "default_comment_text_color")]
@@ -61,6 +63,7 @@ impl Default for AppSettings {
             left_pane_width: default_left_pane_width(),
             metadata_pane_height: default_metadata_pane_height(),
             metadata_visible: false,
+            hide_tips_of_the_day: false,
             comment_background_color: default_comment_background_color(),
             comment_text_color: default_comment_text_color(),
             window_width: None,

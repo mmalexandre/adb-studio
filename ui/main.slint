@@ -1,4 +1,4 @@
-import { ComboBox, LineEdit, ListView, ScrollView, Slider, TextEdit, VerticalBox } from "std-widgets.slint";
+import { CheckBox, ComboBox, LineEdit, ListView, ScrollView, Slider, TextEdit, VerticalBox } from "std-widgets.slint";
 import { AudioRow, BreadcrumbRow, CommentRow, TreeRow, WorkflowFileRow, WorkflowLoraRow } from "./models.slint";
 import { WorkflowSuggestionBox } from "./workflow_suggestion.slint";
 import { AppButton, CompactIconButton, IconButton, MenuButton, SyncIconButton, ToolButton } from "./controls.slint";
@@ -721,6 +721,8 @@ export component MainWindow inherits Window {
     in-out property <string> build-number: "development";
     in-out property <bool> about-visible: false;
     in-out property <bool> settings-visible: false;
+    in-out property <bool> tips-visible: false;
+    in-out property <bool> hide-tips-of-the-day: false;
     in-out property <bool> comfyui-sync-visible: false;
     in-out property <string> comfyui-sync-url: "";
     in-out property <string> comfyui-sync-remote-directory: "output/audio";
@@ -788,6 +790,8 @@ export component MainWindow inherits Window {
     callback close-folder();
     callback close-about();
     callback close-settings();
+    callback close-tips();
+    callback tips-preference-changed(bool);
     callback comfyui-sync-requested();
     callback comfyui-sync-save(string, string, string, string);
     callback comfyui-sync-test(string, string, string, string);
@@ -1752,6 +1756,11 @@ export component MainWindow inherits Window {
                                 current-index: root.theme-index;
                                 changed current-index => { root.theme-selected(self.current-index == 1); }
                             }
+                            CheckBox {
+                                text: "Don't show tips of the day anymore";
+                                checked: root.hide-tips-of-the-day;
+                                toggled => { root.tips-preference-changed(self.checked); }
+                            }
                             Text {
                                 text: "Comment bubbles";
                                 color: root.light-theme ? #5c6878 : #c4ccd8;
@@ -1801,6 +1810,50 @@ export component MainWindow inherits Window {
                                 AppButton { text: "Close"; clicked => { root.close-settings(); } }
                             }
                         }
+                    }
+                }
+            }
+        }
+
+        if root.tips-visible : Rectangle {
+            background: #00000080;
+            x: 0px;
+            y: 0px;
+            width: parent.width;
+            height: parent.height;
+            z: 10;
+
+            Rectangle {
+                width: 520px;
+                height: 300px;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                background: root.light-theme ? #ffffff : #202832;
+                border-color: root.light-theme ? #cbd2dc : #435064;
+                border-width: 1px;
+
+                VerticalBox {
+                    padding: 24px;
+                    spacing: 14px;
+                    Text {
+                        text: "Did you know?";
+                        color: root.light-theme ? #202833 : #f1f4f8;
+                        font-size: 22px;
+                    }
+                    Text {
+                        text: "Pressing the space bar toggles playback of the currently selected song. Pressing it twice fast in a row resumes playback from the start of the song.";
+                        color: root.light-theme ? #5c6878 : #c4ccd8;
+                        wrap: word-wrap;
+                    }
+                    CheckBox {
+                        text: "Don't show tips of the day anymore";
+                        checked: root.hide-tips-of-the-day;
+                        toggled => { root.tips-preference-changed(self.checked); }
+                    }
+                    Rectangle { vertical-stretch: 1; }
+                    HorizontalLayout {
+                        alignment: end;
+                        AppButton { text: "Close"; clicked => { root.close-tips(); } }
                     }
                 }
             }
