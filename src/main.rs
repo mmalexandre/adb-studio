@@ -51,6 +51,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tree_state: Rc<RefCell<Option<TreeState>>> = Rc::new(RefCell::new(None));
     let audio_folder: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(None));
     let workflow_files: Rc<RefCell<Vec<(String, String)>>> = Rc::new(RefCell::new(Vec::new()));
+    let recreate_workflow_pending = Rc::new(RefCell::new(false));
     let workspace_watcher: Rc<RefCell<Option<RecommendedWatcher>>> = Rc::new(RefCell::new(None));
     let (workspace_change_sender, workspace_change_receiver) = mpsc::channel::<Vec<PathBuf>>();
     let audio_model: Rc<RefCell<Option<Rc<VecModel<AudioRow>>>>> = Rc::new(RefCell::new(None));
@@ -111,6 +112,59 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &settings.borrow().comment_text_color,
         slint::Color::from_argb_u8(255, 255, 255, 255),
     ));
+
+    fn recreate_workflow(window: &MainWindow, folder: &Path, config: &SyncConfig) {
+        let audio_path = window.get_selected_audio_path().to_string();
+        if audio_path.is_empty() {
+            window.set_audio_error("Select an audio file with a workflow first".into());
+            return;
+        }
+        let workflow_path = metadata::load_index(folder)
+            .audio_files
+            .iter()
+            .find(|file| file.file_path == audio_path)
+            .and_then(|file| file.workflow_json_path.clone());
+        let Some(workflow_path) = workflow_path else {
+            window.set_audio_error("Select a workflow before recreating it".into());
+            return;
+        };
+        let workflow = match fs::read_to_string(&workflow_path)
+            .map_err(|error| error.to_string())
+            .and_then(|contents| serde_json::from_str::<serde_json::Value>(&contents).map_err(|error| error.to_string()))
+        {
+            Ok(workflow) => workflow,
+            Err(error) => {
+                window.set_audio_error(format!("Workflow JSON: {error}").into());
+                return;
+            }
+        };
+        match ComfyUiClient::new().and_then(|client| client.upload_workflow(config, &workflow)) {
+            Ok(()) => match open_comfyui_workflow(config) {
+                Ok(()) => window.set_audio_error("Workflow opened in ComfyUI".into()),
+                Err(error) => window.set_audio_error(format!("ComfyUI opened upload failed: {error}").into()),
+            },
+            Err(error) => window.set_audio_error(format!("ComfyUI: {error}").into()),
+        }
+    }
+
+    fn open_comfyui_workflow(config: &SyncConfig) -> Result<(), String> {
+        let url = format!("{}/?adb-music-player=open-workflow", config.url);
+        #[cfg(target_os = "linux")]
+        let mut command = Command::new("xdg-open");
+        #[cfg(target_os = "macos")]
+        let mut command = Command::new("open");
+        #[cfg(target_os = "windows")]
+        let mut command = {
+            let mut command = Command::new("cmd");
+            command.args(["/C", "start", ""]);
+            command
+        };
+        command
+            .arg(url)
+            .spawn()
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
 
     {
         let playback = Rc::clone(&playback);
@@ -647,6 +701,36 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
             window.set_audio_error("".into());
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        let audio_folder = Rc::clone(&audio_folder);
+        let recreate_workflow_pending = Rc::clone(&recreate_workflow_pending);
+        window.on_recreate_workflow_requested(move || {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            let Some(folder) = audio_folder.borrow().clone() else {
+                window.set_audio_error("Open a workspace before recreating a workflow".into());
+                return;
+            };
+            let Some(config) = sync::load_config(&folder).filter(|config| !config.url.is_empty())
+            else {
+                *recreate_workflow_pending.borrow_mut() = true;
+                let config = sync::load_config(&folder).unwrap_or_default();
+                window.set_comfyui_sync_url(config.url.into());
+                window.set_comfyui_sync_remote_directory(config.remote_directory.into());
+                window.set_comfyui_sync_local_directory(config.local_directory.into());
+                window.set_comfyui_sync_interval(config.interval_ms.to_string().into());
+                window.set_comfyui_sync_error("Configure ComfyUI sync to recreate this workflow".into());
+                window.set_comfyui_sync_test_message("".into());
+                window.set_comfyui_sync_test_success(false);
+                window.set_comfyui_sync_visible(true);
+                return;
+            };
+            recreate_workflow(&window, &folder, &config);
         });
     }
 
@@ -2040,6 +2124,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let weak_window = window.as_weak();
         let audio_folder = Rc::clone(&audio_folder);
         let sync_controller = Rc::clone(&sync_controller);
+        let recreate_workflow_pending = Rc::clone(&recreate_workflow_pending);
         window.on_comfyui_sync_save(move |url, remote_directory, local_directory, interval| {
             let Some(window) = weak_window.upgrade() else {
                 return;
@@ -2088,6 +2173,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             window.set_comfyui_sync_error("".into());
             window.set_comfyui_sync_error_state(false);
             window.set_comfyui_sync_visible(false);
+            if *recreate_workflow_pending.borrow() {
+                *recreate_workflow_pending.borrow_mut() = false;
+                if let Some(folder) = audio_folder.borrow().clone() {
+                    if let Some(config) = sync::load_config(&folder) {
+                        recreate_workflow(&window, &folder, &config);
+                    }
+                }
+            }
         });
     }
 

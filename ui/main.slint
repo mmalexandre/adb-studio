@@ -802,6 +802,7 @@ export component MainWindow inherits Window {
     in-out property <string> workflow-bpm: "";
     in-out property <string> workflow-key: "";
     in-out property <string> workflow-seed: "";
+    in-out property <string> workflow-model: "";
     in-out property <string> workflow-prompt: "";
     in-out property <string> workflow-lyrics: "";
     in-out property <[WorkflowLoraRow]> workflow-loras: [];
@@ -860,6 +861,7 @@ export component MainWindow inherits Window {
     callback metadata-pane-height-changed(length);
     callback workflow-selected(string);
     callback workflow-search-changed(string);
+    callback recreate-workflow-requested();
     callback lora-edit-requested(string, string);
     callback lora-save(string, string);
     callback lora-cancel();
@@ -1305,7 +1307,7 @@ export component MainWindow inherits Window {
                             spacing: 8px;
                             HorizontalLayout {
                                 width: 100%;
-                                height: (root.metadata-pane-height - 24px);
+                                height: (root.metadata-pane-height - 58px);
                                 spacing: 12px;
                                 VerticalBox {
                                     width: (parent.width - 36px) / 4;
@@ -1351,6 +1353,7 @@ export component MainWindow inherits Window {
                                 VerticalBox {
                                     width: (parent.width - 36px) / 4;
                                     height: 100%;
+                                    Text { text: "Model\n" + (root.workflow-model == "" ? "-" : root.workflow-model); color: root.light-theme ? #202833 : #e3e8ef; overflow: elide; }
                                     Text { text: "LoRAs"; color: root.light-theme ? #202833 : #e3e8ef; }
                                     ListView {
                                         height: 100%;
@@ -1376,6 +1379,13 @@ export component MainWindow inherits Window {
                                             }
                                         }
                                     }
+                                }
+                            }
+                            HorizontalLayout {
+                                alignment: end;
+                                AppButton {
+                                    text: "Recreate in ComfyUI";
+                                    clicked => { root.recreate-workflow-requested(); }
                                 }
                             }
                         }

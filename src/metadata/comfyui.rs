@@ -6,6 +6,7 @@ pub struct ComfyUIWorkflow {
     pub bpm: String,
     pub key: String,
     pub seed: String,
+    pub model: String,
     pub prompt: String,
     pub lyrics: String,
     pub loras: Vec<LoRAInfo>,
@@ -70,6 +71,18 @@ fn visit(value: &Value, workflow: &mut ComfyUIWorkflow, lyrics_context: bool) {
                         .unwrap_or_else(|| "".to_string());
                     workflow.loras.push(LoRAInfo { filename, strength });
                 }
+            }
+
+            if workflow.model.is_empty() {
+                let inputs = object
+                    .get("inputs")
+                    .and_then(Value::as_object)
+                    .unwrap_or(object);
+                workflow.model = find_string(
+                    inputs,
+                    &["ckpt_name", "checkpoint", "checkpoint_name", "model_name", "unet_name"],
+                )
+                .unwrap_or_default();
             }
 
             if ace_context {
@@ -227,6 +240,21 @@ fn parse_visual_node(node: &Value, workflow: &mut ComfyUIWorkflow) {
         }
     }
 
+    if workflow.model.is_empty()
+        && (node_lower.contains("checkpointloader")
+            || node_lower.contains("unetloader")
+            || node_lower.contains("model loader"))
+    {
+        workflow.model = values
+            .get("ckpt_name")
+            .or_else(|| values.get("checkpoint"))
+            .or_else(|| values.get("checkpoint_name"))
+            .or_else(|| values.get("model_name"))
+            .or_else(|| values.get("unet_name"))
+            .map(scalar_text)
+            .unwrap_or_default();
+    }
+
     if node_lower.contains("loraloader") || node_lower.contains("loadlora") {
         if let Some(filename) = values
             .get("lora_name")
@@ -280,13 +308,17 @@ mod tests {
             "1": {"class_type": "TextEncodeAceStepAudio1.5", "inputs": {
                 "bpm": 128, "key": "Bb minor", "prompt": "bright synthwave", "lyrics": "verse"
             }},
-            "2": {"class_type": "Load LoRA", "inputs": {
+            "2": {"class_type": "CheckpointLoaderSimple", "inputs": {
+                "ckpt_name": "model.safetensors"
+            }},
+            "3": {"class_type": "Load LoRA", "inputs": {
                 "lora_name": "style.safetensors", "strength_model": 0.8
             }}
         }));
 
         assert_eq!(workflow.bpm, "128");
         assert_eq!(workflow.key, "Bb minor");
+        assert_eq!(workflow.model, "model.safetensors");
         assert_eq!(workflow.prompt, "bright synthwave");
         assert_eq!(workflow.lyrics, "verse");
         assert_eq!(
@@ -323,6 +355,13 @@ mod tests {
                     "widgets_values": ["prompt", "lyrics", 31, 130, "E minor"]
                 },
                 {
+                    "type": "CheckpointLoaderSimple",
+                    "inputs": [
+                        {"name": "ckpt_name", "widget": {"name": "ckpt_name"}, "link": null}
+                    ],
+                    "widgets_values": ["model.safetensors"]
+                },
+                {
                     "type": "LoraLoaderModelOnly",
                     "inputs": [
                         {"name": "model", "link": 2},
@@ -339,6 +378,7 @@ mod tests {
         assert_eq!(workflow.seed, "31");
         assert_eq!(workflow.prompt, "prompt");
         assert_eq!(workflow.lyrics, "lyrics");
+        assert_eq!(workflow.model, "model.safetensors");
         assert_eq!(workflow.loras[0].filename, "style.safetensors");
         assert_eq!(workflow.loras[0].strength, "0.8");
     }

@@ -532,6 +532,31 @@ impl ComfyUiClient {
         Ok(files)
     }
 
+    pub fn upload_workflow(
+        &self,
+        config: &SyncConfig,
+        workflow: &serde_json::Value,
+    ) -> Result<(), SyncError> {
+        validate_request_config(config)?;
+        let response = self
+            .client
+            .post(format!("{}/adb-music-player/workflow", config.url))
+            .json(workflow)
+            .send()
+            .map_err(SyncError::Request)?;
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().unwrap_or_default();
+            let detail = body.trim();
+            return Err(SyncError::Response(if detail.is_empty() {
+                format!("ComfyUI rejected workflow ({status})")
+            } else {
+                format!("ComfyUI rejected workflow ({status}): {detail}")
+            }));
+        }
+        Ok(())
+    }
+
     pub fn download_file(
         &self,
         config: &SyncConfig,
