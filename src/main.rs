@@ -10,6 +10,7 @@ use std::{
         atomic::{AtomicU64, Ordering},
         Arc, Mutex,
     },
+    thread,
     time::{Duration, Instant},
 };
 
@@ -38,10 +39,8 @@ use audio::view::{
     update_comment_model,
 };
 use settings::AppSettings;
-use sync::{ComfyUiClient, SyncConfig, SyncController, SyncEvent};
-use workspace::workflow::{
-    clear_workflow, load_workflow_for_audio, scan_json_files,
-};
+use sync::{ComfyUiClient, SyncConfig, SyncController, SyncEvent, WorkflowRunUpdate};
+use workspace::workflow::{clear_workflow, load_workflow_for_audio, scan_json_files};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     sync_cursor_environment();
@@ -70,6 +69,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let conversion_temp_root: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(None));
     let conversion_target: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(None));
     let conversion_model: Rc<RefCell<Option<Rc<VecModel<ConversionRow>>>>> =
+        Rc::new(RefCell::new(None));
+    let (workflow_run_sender, workflow_run_receiver) = mpsc::channel::<WorkflowRunUpdate>();
+    let workflow_run_receiver: Rc<RefCell<Option<mpsc::Receiver<WorkflowRunUpdate>>>> =
+        Rc::new(RefCell::new(Some(workflow_run_receiver)));
+    let workflow_run_cancelled: Rc<RefCell<Option<Arc<std::sync::atomic::AtomicBool>>>> =
         Rc::new(RefCell::new(None));
     let (playback, playback_error) = match PlaybackEngine::new() {
         Ok(engine) => (Rc::new(RefCell::new(Some(engine))), None),
@@ -947,6 +951,108 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     {
+        let weak_window = window.as_weak();
+        let audio_folder = Rc::clone(&audio_folder);
+        let edited_workflow = Rc::clone(&edited_workflow);
+        let cancelled_state = Rc::clone(&workflow_run_cancelled);
+        let updates = workflow_run_sender.clone();
+        window.on_run_workflow_requested(move || {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            let Some(workspace) = audio_folder.borrow().clone() else {
+                window.set_audio_error("Open a workspace before running a workflow".into());
+                return;
+            };
+            let audio_path = PathBuf::from(window.get_selected_audio_path().as_str());
+            let Some(output_directory) = audio_path.parent().map(Path::to_path_buf) else {
+                window.set_audio_error("Select an audio file before running a workflow".into());
+                return;
+            };
+            let Some(output_stem) = audio_path
+                .file_stem()
+                .and_then(|name| name.to_str())
+                .map(str::to_owned)
+            else {
+                window.set_audio_error("Selected audio file has no usable name".into());
+                return;
+            };
+            let workflow = if let Some(workflow) = edited_workflow.borrow().clone() {
+                workflow
+            } else {
+                let Some(workflow_path) = metadata::workflow_path(&workspace, &audio_path) else {
+                    window.set_audio_error("Audio file is outside the workspace".into());
+                    return;
+                };
+                let Ok(contents) = fs::read_to_string(workflow_path) else {
+                    window.set_audio_error("Select a workflow before running it in ComfyUI".into());
+                    return;
+                };
+                let Ok(workflow) = serde_json::from_str(&contents) else {
+                    window.set_audio_error("Workflow JSON is invalid".into());
+                    return;
+                };
+                workflow
+            };
+            let Some(config) =
+                sync::load_config(&workspace).filter(|config| !config.url.is_empty())
+            else {
+                window.set_audio_error("Configure ComfyUI sync before running a workflow".into());
+                return;
+            };
+            let cancelled = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            *cancelled_state.borrow_mut() = Some(Arc::clone(&cancelled));
+            window.set_comfyui_run_progress(0.0);
+            window.set_comfyui_run_step("Submitting workflow to ComfyUI".into());
+            window.set_comfyui_run_cancel_requested(false);
+            window.set_comfyui_run_complete(false);
+            window.set_comfyui_run_visible(true);
+            let worker_updates = updates.clone();
+            thread::spawn(move || {
+                let result = ComfyUiClient::new().and_then(|client| {
+                    client.run_workflow(
+                        &config,
+                        &workflow,
+                        &workspace,
+                        &output_directory,
+                        &output_stem,
+                        &cancelled,
+                        &worker_updates,
+                    )
+                });
+                if let Err(error) = result {
+                    let _ = worker_updates.send(WorkflowRunUpdate::Error(error.to_string()));
+                }
+            });
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        let cancelled_state = Rc::clone(&workflow_run_cancelled);
+        window.on_run_workflow_cancelled(move || {
+            if let Some(window) = weak_window.upgrade() {
+                window.set_comfyui_run_cancel_requested(true);
+                window.set_comfyui_run_step("Cancelling on ComfyUI...".into());
+            }
+            if let Some(cancelled) = cancelled_state.borrow().as_ref() {
+                cancelled.store(true, std::sync::atomic::Ordering::Release);
+            }
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        let cancelled_state = Rc::clone(&workflow_run_cancelled);
+        window.on_run_workflow_closed(move || {
+            if let Some(window) = weak_window.upgrade() {
+                window.set_comfyui_run_visible(false);
+            }
+            *cancelled_state.borrow_mut() = None;
+        });
+    }
+
+    {
         let audio_folder = Rc::clone(&audio_folder);
         let audio_model = Rc::clone(&audio_model);
         window.on_comment_range_moved(move |path, old_start, old_end, start, end, text| {
@@ -1384,6 +1490,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let conversion_model = Rc::clone(&conversion_model);
         let conversion_temp_root = Rc::clone(&conversion_temp_root);
         let conversion_cancelled = Rc::clone(&conversion_cancelled);
+        let workflow_run_receiver = Rc::clone(&workflow_run_receiver);
+        let workflow_run_cancelled = Rc::clone(&workflow_run_cancelled);
         let tree_state_for_conversion = Rc::clone(&tree_state);
         let mut conversion_updates = 0usize;
         let mut spinner_frame = 0usize;
@@ -1397,6 +1505,44 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Duration::from_millis(40),
             move || {
                 if let Some(window) = weak_window.upgrade() {
+                    if let Some(receiver) = workflow_run_receiver.borrow_mut().as_mut() {
+                        while let Ok(update) = receiver.try_recv() {
+                            match update {
+                                WorkflowRunUpdate::Progress { progress, step } => {
+                                    window.set_comfyui_run_progress(progress);
+                                    window.set_comfyui_run_step(step.into());
+                                }
+                                WorkflowRunUpdate::Finished {
+                                    audio_path,
+                                    workflow_path,
+                                } => {
+                                    window.set_comfyui_run_progress(1.0);
+                                    window.set_comfyui_run_step(
+                                        format!(
+                                            "Saved {} and {}",
+                                            audio_path.display(),
+                                            workflow_path.display()
+                                        )
+                                        .into(),
+                                    );
+                                    window.set_comfyui_run_complete(true);
+                                    *workflow_run_cancelled.borrow_mut() = None;
+                                    refresh_tree(&window, &tree_state);
+                                }
+                                WorkflowRunUpdate::Cancelled => {
+                                    window.set_comfyui_run_step("Cancelled on ComfyUI".into());
+                                    window.set_comfyui_run_complete(true);
+                                    *workflow_run_cancelled.borrow_mut() = None;
+                                }
+                                WorkflowRunUpdate::Error(message) => {
+                                    window.set_comfyui_run_step(format!("Error: {message}").into());
+                                    window.set_comfyui_run_complete(true);
+                                    window.set_audio_error(format!("ComfyUI: {message}").into());
+                                    *workflow_run_cancelled.borrow_mut() = None;
+                                }
+                            }
+                        }
+                    }
                     let mut conversion_finished = false;
                     if let Some(receiver) = conversion_receiver.borrow_mut().as_mut() {
                         while let Ok(update) = receiver.try_recv() {
@@ -1448,8 +1594,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     if path.is_dir() {
                                         Some(path.clone())
                                     } else {
-                                        path.parent()
-                                            .map(Path::to_path_buf)
+                                        path.parent().map(Path::to_path_buf)
                                     }
                                 })
                                 .or_else(|| audio_folder.borrow().clone())
@@ -1621,12 +1766,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     engine.duration(),
                                 );
                                 scroll_audio_to_path(&window, &audio_model, &path);
-                                load_workflow_for_audio(
-                                    &window,
-                                    &folder,
-                                    &path,
-                                    &workflow_loading,
-                                );
+                                load_workflow_for_audio(&window, &folder, &path, &workflow_loading);
                                 save_playback_position(&folder, engine);
                             }
                             SyncEvent::WorkflowUpdated {
