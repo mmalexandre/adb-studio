@@ -346,21 +346,21 @@ component AudioRowView inherits Rectangle {
             }
             if root.differences.length > 0 : Text {
                 text: " - ";
-                color: root.light-theme ? #5c6878 : #aeb8c6;
-                font-size: 10px;
+                color: #000000;
+                font-size: 12px;
             }
             for difference in root.differences : HorizontalLayout {
                 spacing: 2px;
                 Text {
                     text: difference.label;
-                    color: root.light-theme ? #5c6878 : #aeb8c6;
-                    font-size: 9px;
+                    color: #000000;
+                    font-size: 12px;
                     font-weight: 700;
                 }
                 Text {
                     text: difference.value;
-                    color: root.light-theme ? #5c6878 : #aeb8c6;
-                    font-size: 9px;
+                    color: #000000;
+                    font-size: 12px;
                     overflow: elide;
                 }
             }
@@ -2521,7 +2521,7 @@ export component MainWindow inherits Window {
                 width: 576px;
                 height: 576px;
                 background: #f26a21;
-                border-color: #ffffff;
+                border-color: #000000;
                 border-width: 1px;
                 Text {
                     x: 28px;

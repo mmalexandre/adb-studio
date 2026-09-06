@@ -27,7 +27,6 @@ mod workspace;
 use audio::{loader, waveform};
 use metadata::AudioComment;
 use workspace::file_system::{self, TreeState};
-use workspace::pinned_track_sort;
 
 slint::include_modules!();
 
@@ -643,6 +642,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let weak_window = window.as_weak();
         let tree_state = Rc::clone(&tree_state);
         let settings = Rc::clone(&settings);
+        let audio_folder = Rc::clone(&audio_folder);
         window.on_tree_edit_accepted(move |path, text, mode| {
             let Some(window) = weak_window.upgrade() else {
                 return;
@@ -678,6 +678,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 window.set_audio_error(format!("File operation: {error}").into());
                 return;
             }
+            if mode != 2 {
+                if let Some(folder) = audio_folder.borrow().as_ref() {
+                    if let Err(error) = metadata::rename_associated_workflow(
+                        folder,
+                        &source,
+                        &destination,
+                    ) {
+                        window.set_audio_error(format!("Workflow file operation: {error}").into());
+                    }
+                }
+            }
             {
                 let mut state_ref = tree_state.borrow_mut();
                 let Some(state) = state_ref.as_mut() else {
@@ -708,6 +719,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let weak_window = window.as_weak();
         let tree_state = Rc::clone(&tree_state);
         let settings = Rc::clone(&settings);
+        let audio_folder = Rc::clone(&audio_folder);
         window.on_tree_drop_requested(move |source, source_index, pointer_y| {
             let Some(window) = weak_window.upgrade() else {
                 return;
@@ -764,6 +776,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if let Err(error) = fs::rename(source, destination) {
                     window.set_audio_error(format!("File operation: {error}").into());
                     return;
+                }
+                if let Some(folder) = audio_folder.borrow().as_ref() {
+                    if let Err(error) = metadata::rename_associated_workflow(
+                        folder,
+                        source,
+                        destination,
+                    ) {
+                        window.set_audio_error(format!("Workflow file operation: {error}").into());
+                    }
                 }
             }
             {
@@ -960,7 +981,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return;
             };
             let path_string = path.to_string();
-            let mut index = metadata::load_index(&folder);
+            let path = Path::new(path.as_str());
+            let metadata_folder = audio_metadata_folder(&folder, path);
+            let mut index = metadata::load_index(&metadata_folder);
             if let Some(file) = index
                 .audio_files
                 .iter_mut()
@@ -974,7 +997,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     ..Default::default()
                 });
             }
-            metadata::save_index(&folder, &index);
+            metadata::save_index(&metadata_folder, &index);
             if let Some(model) = audio_model.borrow().clone() {
                 for index in 0..model.row_count() {
                     let Some(row) = model.row_data(index) else {
@@ -1372,9 +1395,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return;
             };
             let path = PathBuf::from(path.as_str());
-            let Some(folder) = audio_folder.borrow().clone() else {
+            let Some(workspace) = audio_folder.borrow().clone() else {
                 return;
             };
+            let folder = audio_metadata_folder(&workspace, &path);
             let duration = comment_duration(&folder, &path, &playback);
             if duration <= 0.0 {
                 window.set_audio_error("Unable to determine audio duration".into());
@@ -1548,14 +1572,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let Some(window) = weak_window.upgrade() else {
                 return;
             };
-            let Some(folder) = audio_folder.borrow().clone() else {
+            let Some(workspace) = audio_folder.borrow().clone() else {
                 return;
             };
+            let path = PathBuf::from(path.as_str());
+            let folder = audio_metadata_folder(&workspace, &path);
             let mut index = metadata::load_index(&folder);
             let Some(file) = index
                 .audio_files
                 .iter_mut()
-                .find(|item| item.file_path == path.as_str())
+                .find(|item| item.file_path == path.to_string_lossy())
             else {
                 return;
             };
@@ -1725,9 +1751,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             }
                             if let Err(error) = trash::delete(&job.source) {
                                 errors.push(error.to_string());
-                            } else if let Err(error) = fs::rename(&job.temporary, &job.destination)
-                            {
+                            } else if let Err(error) = fs::rename(&job.temporary, &job.destination) {
                                 errors.push(error.to_string());
+                            } else if let Some(folder) = audio_folder.borrow().as_ref() {
+                                if let Err(error) = metadata::rename_associated_workflow(
+                                    folder,
+                                    &job.source,
+                                    &job.destination,
+                                ) {
+                                    errors.push(error.to_string());
+                                }
                             }
                         }
                         if let Some(root) = conversion_temp_root.borrow_mut().take() {
@@ -3286,22 +3319,14 @@ fn refresh_audio_with_changes(
         .and_then(|workspace| workspace::preferences::pinned_track(&workspace, &folder));
     let index = metadata::load_index(&folder);
     let mut rows = Vec::new();
-    let mut audio_entries = file_system::read_dir_sorted(
+    for entry in file_system::read_dir_sorted(
         &folder,
         file_system::SortOrder::from_i32(window.get_sort_order()),
-    )
-    .into_iter()
-    .filter(|entry| {
-        entry.kind == file_system::FileKind::Audio && matches_audio_filter(&entry.name, &filter)
-    })
-    .collect::<Vec<_>>();
-    pinned_track_sort::sort_tracks(
-        &folder,
-        pinned_path.as_deref(),
-        file_system::SortOrder::from_i32(window.get_sort_order()),
-        &mut audio_entries,
-    );
-    for entry in audio_entries {
+    ) {
+        if entry.kind != file_system::FileKind::Audio || !matches_audio_filter(&entry.name, &filter)
+        {
+            continue;
+        }
         let should_reload = reload_all || changed_audio_paths.contains(&entry.path);
         if !should_reload {
             if let Some(row) = existing_rows.get(&entry.path) {
@@ -3355,6 +3380,37 @@ fn refresh_audio_with_changes(
             selected_comment_end: -1.0,
         });
     }
+    let sort_order = file_system::SortOrder::from_i32(window.get_sort_order());
+    rows.sort_by(|left, right| match sort_order {
+        file_system::SortOrder::AlphabeticalAscending => left
+            .name
+            .to_ascii_lowercase()
+            .cmp(&right.name.to_ascii_lowercase()),
+        file_system::SortOrder::AlphabeticalDescending => right
+            .name
+            .to_ascii_lowercase()
+            .cmp(&left.name.to_ascii_lowercase()),
+        file_system::SortOrder::ModifiedAscending => left
+            .modified_date
+            .parse::<u64>()
+            .unwrap_or_default()
+            .cmp(&right.modified_date.parse::<u64>().unwrap_or_default())
+            .then_with(|| {
+                left.name
+                    .to_ascii_lowercase()
+                    .cmp(&right.name.to_ascii_lowercase())
+            }),
+        file_system::SortOrder::ModifiedDescending => right
+            .modified_date
+            .parse::<u64>()
+            .unwrap_or_default()
+            .cmp(&left.modified_date.parse::<u64>().unwrap_or_default())
+            .then_with(|| {
+                left.name
+                    .to_ascii_lowercase()
+                    .cmp(&right.name.to_ascii_lowercase())
+            }),
+    });
     let previous_selected_path = PathBuf::from(window.get_selected_audio_path().as_str());
     let selected_path = rows
         .iter()
@@ -3408,13 +3464,27 @@ fn matches_audio_filter(name: &str, filter: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::matches_audio_filter;
+    use std::path::{Path, PathBuf};
+
+    use super::{audio_metadata_folder, matches_audio_filter};
 
     #[test]
     fn audio_filter_matches_names_case_insensitively() {
         assert!(matches_audio_filter("My Voice.WAV", " voice "));
         assert!(matches_audio_filter("My Voice.WAV", ""));
         assert!(!matches_audio_filter("My Voice.WAV", "music"));
+    }
+
+    #[test]
+    fn audio_metadata_uses_the_track_folder() {
+        assert_eq!(
+            audio_metadata_folder(Path::new("/workspace"), Path::new("/workspace/sub/track.wav")),
+            PathBuf::from("/workspace/sub")
+        );
+        assert_eq!(
+            audio_metadata_folder(Path::new("/workspace"), Path::new("/other/track.wav")),
+            PathBuf::from("/workspace")
+        );
     }
 }
 
@@ -3423,8 +3493,9 @@ fn comment_duration(
     path: &Path,
     playback: &Rc<RefCell<Option<PlaybackEngine>>>,
 ) -> f32 {
+    let folder = audio_metadata_folder(folder, path);
     let path_string = path.to_string_lossy();
-    let stored_duration = metadata::load_index(folder)
+    let stored_duration = metadata::load_index(&folder)
         .audio_files
         .iter()
         .find(|item| item.file_path == path_string)
@@ -3442,7 +3513,7 @@ fn comment_duration(
     }
     let duration = engine.duration().as_secs_f32();
     if duration > 0.0 {
-        let mut index = metadata::load_index(folder);
+        let mut index = metadata::load_index(&folder);
         if let Some(file) = index
             .audio_files
             .iter_mut()
@@ -3456,9 +3527,17 @@ fn comment_duration(
                 ..Default::default()
             });
         }
-        metadata::save_index(folder, &index);
+        metadata::save_index(&folder, &index);
     }
     duration
+}
+
+fn audio_metadata_folder(workspace: &Path, audio_path: &Path) -> PathBuf {
+    audio_path
+        .parent()
+        .filter(|_| audio_path.starts_with(workspace))
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| workspace.to_path_buf())
 }
 
 fn save_playback_position(folder: &Path, engine: &PlaybackEngine) {

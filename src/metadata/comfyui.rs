@@ -53,7 +53,7 @@ pub fn compare_files(folder: &Path, pinned_path: &Path, track_path: &Path) -> Ve
         &pinned_workflow.bpm,
         &track_workflow.bpm,
     );
-    add_text_difference(
+    add_numeric_difference(
         &mut differences,
         "Seed: ",
         &pinned_workflow.seed,
@@ -838,6 +838,7 @@ mod tests {
         assert_eq!(edit_distance("kit", "kat"), 1);
         assert_eq!(edit_distance("same", "same"), 0);
         assert_eq!(format_number(130.0, Some(5.0)), "130 (+5)");
+        assert_eq!(format_number(34.0, Some(2.0)), "34 (+2)");
         assert_eq!(format_number(2.0, Some(2.0)), "2 (+2)");
         assert_eq!(format_number(2.0, Some(0.5)), "2 (+0.50)");
     }
