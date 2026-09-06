@@ -88,6 +88,16 @@ impl PlaybackEngine {
 
     pub fn seek(&mut self, position: Duration) -> Result<(), String> {
         let position = position.min(self.duration);
+        if self
+            .player
+            .as_ref()
+            .is_some_and(|player| player.empty())
+        {
+            let Some(path) = self.path.clone() else {
+                return Ok(());
+            };
+            return self.play(&path, position);
+        }
         if let Some(player) = &self.player {
             player
                 .try_seek(position)

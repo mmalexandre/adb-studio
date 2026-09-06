@@ -1532,18 +1532,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if engine.path() != Some(path.as_path()) {
                 return;
             }
+            let seek_end = engine
+                .duration()
+                .saturating_sub(Duration::from_micros(100));
             let target = if shift {
                 if seek_key < 0.0 {
                     Duration::ZERO
                 } else {
-                    engine.duration()
+                    seek_end
                 }
             } else {
                 let delta = Duration::from_secs_f32(seek_seconds.max(1.0));
                 if seek_key < 0.0 {
                     engine.position().saturating_sub(delta)
                 } else {
-                    engine.position().saturating_add(delta)
+                    engine.position().saturating_add(delta).min(seek_end)
                 }
             };
             if engine.seek(target).is_ok() {
