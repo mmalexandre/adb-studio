@@ -11,6 +11,8 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+use crate::metadata;
+
 pub const DEFAULT_REMOTE_DIRECTORY: &str = "output/audio";
 pub const DEFAULT_LOCAL_DIRECTORY: &str = "downloads";
 pub const DEFAULT_INTERVAL_MS: u64 = 4000;
@@ -278,42 +280,52 @@ fn sync_loop(
                 .file_name()
                 .and_then(|name| name.to_str())
                 .unwrap_or_default();
-            if filename.is_empty()
-                || destination.join(filename).exists()
-                || download_index.contains_completed(&config, file)
-            {
+            if filename.is_empty() {
                 continue;
             }
-            if let Err(error) = client.download_file(&config, file, &destination) {
-                let _ = event_sender.send(SyncEvent::Error {
-                    generation,
-                    message: error.to_string(),
-                });
-                return;
-            }
-            let size = match fs::metadata(destination.join(filename)) {
-                Ok(metadata) => metadata.len(),
-                Err(error) => {
+            if !destination.join(filename).exists()
+                && !download_index.contains_completed(&config, file)
+            {
+                if let Err(error) = client.download_file(&config, file, &destination) {
                     let _ = event_sender.send(SyncEvent::Error {
                         generation,
-                        message: SyncError::Io(error).to_string(),
+                        message: error.to_string(),
                     });
                     return;
                 }
-            };
-            download_index.record_completed(&config, file, size);
-            if let Err(error) = save_download_index(&workspace, &download_index) {
+                let size = match fs::metadata(destination.join(filename)) {
+                    Ok(metadata) => metadata.len(),
+                    Err(error) => {
+                        let _ = event_sender.send(SyncEvent::Error {
+                            generation,
+                            message: SyncError::Io(error).to_string(),
+                        });
+                        return;
+                    }
+                };
+                download_index.record_completed(&config, file, size);
+                if let Err(error) = save_download_index(&workspace, &download_index) {
+                    let _ = event_sender.send(SyncEvent::Error {
+                        generation,
+                        message: error.to_string(),
+                    });
+                    return;
+                }
+                current.present += 1;
+                let _ = event_sender.send(SyncEvent::Progress {
+                    generation,
+                    progress: current.clone(),
+                });
+            }
+            if let Err(error) =
+                sync_workflow(&client, &config, file, &workspace, &destination, filename)
+            {
                 let _ = event_sender.send(SyncEvent::Error {
                     generation,
                     message: error.to_string(),
                 });
                 return;
             }
-            current.present += 1;
-            let _ = event_sender.send(SyncEvent::Progress {
-                generation,
-                progress: current.clone(),
-            });
         }
 
         match command_receiver.recv_timeout(interval) {
@@ -321,6 +333,58 @@ fn sync_loop(
             Err(mpsc::RecvTimeoutError::Timeout) => {}
         }
     }
+}
+
+fn sync_workflow(
+    client: &ComfyUiClient,
+    config: &SyncConfig,
+    audio_file: &RemoteFile,
+    workspace: &Path,
+    audio_directory: &Path,
+    audio_filename: &str,
+) -> Result<(), SyncError> {
+    let workflow_path = workflow_local_path(workspace, audio_filename);
+    if !workflow_path.exists() {
+        let workflow_file = RemoteFile {
+            name: format!("{}workflow.json", audio_file.name),
+            path: format!("{}workflow.json", audio_file.path),
+        };
+        if client.download_optional_file(config, &workflow_file, &workflow_path)? {
+            assign_workflow(audio_directory.join(audio_filename), &workflow_path);
+        }
+    } else {
+        assign_workflow(audio_directory.join(audio_filename), &workflow_path);
+    }
+    Ok(())
+}
+
+fn workflow_local_path(workspace: &Path, audio_filename: &str) -> PathBuf {
+    workspace
+        .join(".adbstudio")
+        .join("workflows")
+        .join(format!("{audio_filename}workflow.json"))
+}
+
+fn assign_workflow(audio_path: PathBuf, workflow_path: &Path) {
+    let Some(audio_folder) = audio_path.parent() else {
+        return;
+    };
+    let audio_path = audio_path.to_string_lossy();
+    let mut index = metadata::load_index(audio_folder);
+    if let Some(file) = index
+        .audio_files
+        .iter_mut()
+        .find(|file| file.file_path == audio_path)
+    {
+        file.workflow_json_path = Some(workflow_path.to_string_lossy().into_owned());
+    } else {
+        index.audio_files.push(metadata::AudioFileMetadata {
+            file_path: audio_path.into_owned(),
+            workflow_json_path: Some(workflow_path.to_string_lossy().into_owned()),
+            ..Default::default()
+        });
+    }
+    metadata::save_index(audio_folder, &index);
 }
 
 #[derive(Debug)]
@@ -468,6 +532,55 @@ impl ComfyUiClient {
         }
         result
     }
+
+    fn download_optional_file(
+        &self,
+        config: &SyncConfig,
+        file: &RemoteFile,
+        destination: &Path,
+    ) -> Result<bool, SyncError> {
+        validate_request_config(config)?;
+        let filename = destination
+            .file_name()
+            .and_then(|name| name.to_str())
+            .filter(|name| !name.is_empty() && *name != "." && *name != "..")
+            .ok_or_else(|| SyncError::Response("Invalid workflow filename".to_string()))?;
+        if let Some(parent) = destination.parent() {
+            fs::create_dir_all(parent).map_err(SyncError::Io)?;
+        }
+        let temporary_path = temporary_download_path(
+            destination.parent().unwrap_or_else(|| Path::new(".")),
+            filename,
+        );
+        let result = (|| {
+            let response = self
+                .client
+                .get(format!("{}/adb-music-player/audio-download", config.url))
+                .query(&[("path", file.path.as_str())])
+                .send()
+                .map_err(SyncError::Request)?;
+            if response.status() == reqwest::StatusCode::NOT_FOUND {
+                return Ok(false);
+            }
+            let mut response = response.error_for_status().map_err(SyncError::Request)?;
+            let mut temporary_file = fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&temporary_path)
+                .map_err(SyncError::Io)?;
+            response
+                .copy_to(&mut temporary_file)
+                .map_err(SyncError::Request)?;
+            temporary_file.flush().map_err(SyncError::Io)?;
+            temporary_file.sync_all().map_err(SyncError::Io)?;
+            fs::rename(&temporary_path, destination).map_err(SyncError::Io)?;
+            Ok(true)
+        })();
+        if result.is_err() {
+            let _ = fs::remove_file(&temporary_path);
+        }
+        result
+    }
 }
 
 fn temporary_download_path(destination: &Path, filename: &str) -> PathBuf {
@@ -594,6 +707,15 @@ mod tests {
         let filename = path.file_name().unwrap().to_string_lossy();
         assert!(filename.starts_with(".myfile.opus."));
         assert_ne!(filename, "myfile.opus");
+    }
+
+    #[test]
+    fn workflow_path_is_private_and_derived_from_audio_name() {
+        let workspace = Path::new("/workspace");
+        assert_eq!(
+            super::workflow_local_path(workspace, "song.mp3"),
+            workspace.join(".adbstudio/workflows/song.mp3workflow.json")
+        );
     }
 
     #[test]
