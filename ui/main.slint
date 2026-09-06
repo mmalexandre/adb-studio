@@ -760,6 +760,7 @@ export component MainWindow inherits Window {
     in-out property <int> audio-total: 0;
     in-out property <string> audio-spinner: "|";
     in-out property <string> active-audio-path: "";
+    in-out property <string> selected-audio-path: "";
     in-out property <string> audio-file-name: "";
     in-out property <bool> audio-playing: false;
     in-out property <bool> loop-enabled: false;
@@ -850,6 +851,14 @@ export component MainWindow inherits Window {
             }
             if event.text == Key.F9 {
                 root.metadata-toggle();
+                accept;
+            }
+            if event.text == Key.Space {
+                if root.selected-audio-path != "" {
+                    root.audio-play(root.selected-audio-path);
+                } else if root.active-audio-path != "" {
+                    root.audio-play-pause();
+                }
                 accept;
             }
             if event.text == Key.Escape && root.tree-edit-path != "" {

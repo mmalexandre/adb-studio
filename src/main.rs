@@ -146,6 +146,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let Some(window) = weak_window.upgrade() else {
                 return;
             };
+            window.set_selected_audio_path(path.clone());
             select_tree_path(&window, &tree_state, &settings, Path::new(path.as_str()));
         });
     }
