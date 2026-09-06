@@ -292,7 +292,7 @@ component Waveform inherits Rectangle {
 component AudioRowView inherits Rectangle {
     height: 86px;
     background: root.light-theme ? #ffffff : #1a2029;
-    border-color: root.is-selected || root.is-active ? #000000 : (root.light-theme ? #d9dee6 : #2a3340);
+    border-color: root.is-selected ? #000000 : root.is-active ? (root.light-theme ? #d46b32 : #e58a4d) : (root.light-theme ? #d9dee6 : #2a3340);
     border-width: 1px;
     in property <bool> light-theme;
     in property <color> comment-background-color: #000000;
@@ -758,6 +758,8 @@ export component MainWindow inherits Window {
     in-out property <[BreadcrumbRow]> audio-breadcrumbs: [];
     in-out property <[AudioRow]> audio-rows: [];
     in-out property <int> audio-scroll-to-index: -1;
+    in-out property <int> audio-viewport-start: 0;
+    in-out property <int> audio-visible-rows: 0;
     in-out property <string> audio-filter: "";
     in-out property <string> selected-name: "";
     in-out property <bool> audio-loading: false;
@@ -807,6 +809,7 @@ export component MainWindow inherits Window {
     callback row-clicked(string, bool);
     callback breadcrumb-requested(string);
     callback audio-row-selected(string);
+    callback audio-navigate(int);
     callback tree-context-menu(string);
     callback tree-trash-requested(string);
     callback tree-drop-requested(string, int, float);
@@ -867,6 +870,13 @@ export component MainWindow inherits Window {
                     root.audio-play(root.selected-audio-path);
                 } else if root.active-audio-path != "" {
                     root.audio-play-pause();
+                }
+                accept;
+            }
+            if event.text == Key.UpArrow || event.text == Key.DownArrow {
+                if root.audio-rows.length > 0 {
+                    let direction = event.text == Key.UpArrow ? -1 : 1;
+                    root.audio-navigate(direction);
                 }
                 accept;
             }
@@ -1187,7 +1197,11 @@ export component MainWindow inherits Window {
                                 scroll-to-index: root.audio-scroll-to-index;
                                 width: 100%;
                                 height: 100%;
-                                viewport-changed(start-index, visible-rows) => { root.audio-viewport-changed(start-index, visible-rows); }
+                                viewport-changed(start-index, visible-rows) => {
+                                    root.audio-viewport-start = start-index;
+                                    root.audio-visible-rows = visible-rows;
+                                    root.audio-viewport-changed(start-index, visible-rows);
+                                }
                                 row-selected(path) => { root.audio-row-selected(path); }
                                 seek-requested(path, progress) => { root.audio-seek(path, progress); }
                                 play-requested(path) => { root.audio-play(path); }

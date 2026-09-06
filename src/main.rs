@@ -147,13 +147,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let tree_state = Rc::clone(&tree_state);
         let settings = Rc::clone(&settings);
         let audio_model = Rc::clone(&audio_model);
+        let audio_folder = Rc::clone(&audio_folder);
         window.on_audio_row_selected(move |path| {
             let Some(window) = weak_window.upgrade() else {
                 return;
             };
             window.set_selected_audio_path(path.clone());
-            select_audio_path(&audio_model, Path::new(path.as_str()));
-            select_tree_path(&window, &tree_state, &settings, Path::new(path.as_str()));
+            let path = Path::new(path.as_str());
+            select_audio_path(&audio_model, path);
+            select_tree_path(&window, &tree_state, &settings, path);
+            if let Some(folder) = audio_folder.borrow().clone() {
+                load_workflow_for_audio(&window, &folder, path);
+            }
         });
     }
 
@@ -464,7 +469,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let Some(folder) = workflow_audio_folder.borrow().clone() else {
                 return;
             };
-            let audio_path = window.get_active_audio_path().to_string();
+            let audio_path = window.get_selected_audio_path().to_string();
             if !audio_path.is_empty() {
                 let mut index = metadata::load_index(&folder);
                 if let Some(file) = index
@@ -531,7 +536,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             metadata::save_index(&folder, &index);
             window.set_lora_editor_visible(false);
-            let audio_path = window.get_active_audio_path().to_string();
+            let audio_path = window.get_selected_audio_path().to_string();
             if !audio_path.is_empty() {
                 load_workflow_for_audio(&window, &folder, Path::new(&audio_path));
             }
@@ -1447,6 +1452,41 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     {
         let weak_window = window.as_weak();
+        let audio_model = Rc::clone(&audio_model);
+        window.on_audio_navigate(move |direction| {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            let Some(model) = audio_model.borrow().clone() else {
+                return;
+            };
+            let row_count = model.row_count();
+            if row_count == 0 {
+                return;
+            }
+            let selected_index = (0..row_count).find(|index| {
+                model
+                    .row_data(*index)
+                    .is_some_and(|row| row.is_selected)
+            });
+            let next_index = selected_index
+                .map(|index| (index as i32 + direction).clamp(0, row_count as i32 - 1) as usize)
+                .unwrap_or(if direction < 0 { 0 } else { row_count - 1 });
+            if selected_index == Some(next_index) {
+                return;
+            }
+            let Some(row) = model.row_data(next_index) else {
+                return;
+            };
+            let path = PathBuf::from(row.path.as_str());
+            window.set_selected_audio_path(row.path.clone());
+            select_audio_path(&audio_model, &path);
+            window.invoke_audio_play(row.path);
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
         let playback = Rc::clone(&playback);
         let audio_model = Rc::clone(&audio_model);
         let audio_folder = Rc::clone(&audio_folder);
@@ -1540,7 +1580,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 engine.position(),
                 engine.duration(),
             );
-            scroll_audio_to_path(&window, &audio_model, &path);
+            let should_scroll = audio_model
+                .borrow()
+                .clone()
+                .and_then(|model| {
+                    (0..model.row_count()).find(|index| {
+                        model
+                            .row_data(*index)
+                            .is_some_and(|row| Path::new(row.path.as_str()) == path)
+                    })
+                })
+                .map(|index| {
+                    let viewport_start = window.get_audio_viewport_start().max(0) as usize;
+                    let viewport_end = viewport_start
+                        + window.get_audio_visible_rows().max(0) as usize;
+                    index < viewport_start || index >= viewport_end
+                })
+                .unwrap_or(true);
+            if should_scroll {
+                scroll_audio_to_path(&window, &audio_model, &path);
+            }
             if let Some(folder) = audio_folder.borrow().clone() {
                 load_workflow_for_audio(&window, &folder, &path);
                 save_playback_position(&folder, engine);
@@ -2266,15 +2325,17 @@ fn refresh_audio_with_changes(
         });
     }
     rows.sort_by(|left, right| right.modified_date.cmp(&left.modified_date));
-    if let Some(row) = rows.first_mut() {
-        row.is_selected = true;
+    let previous_selected_path = PathBuf::from(window.get_selected_audio_path().as_str());
+    let selected_path = rows
+        .iter()
+        .find(|row| Path::new(row.path.as_str()) == previous_selected_path)
+        .map(|row| row.path.clone())
+        .or_else(|| rows.first().map(|row| row.path.clone()))
+        .unwrap_or_default();
+    for row in &mut rows {
+        row.is_selected = row.path == selected_path;
     }
-    window.set_selected_audio_path(
-        rows.first()
-            .map(|row| row.path.to_string())
-            .unwrap_or_default()
-            .into(),
-    );
+    window.set_selected_audio_path(selected_path);
     let paths: Vec<PathBuf> = rows
         .iter()
         .map(|row| PathBuf::from(row.path.as_str()))
