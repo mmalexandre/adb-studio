@@ -291,8 +291,8 @@ component Waveform inherits Rectangle {
 component AudioRowView inherits Rectangle {
     height: 86px;
     background: root.light-theme ? #ffffff : #1a2029;
-    border-color: root.is-selected ? #000000 : root.is-active ? (root.light-theme ? #d46b32 : #e58a4d) : (root.light-theme ? #d9dee6 : #2a3340);
-    border-width: 1px;
+    border-color: root.is-pinned ? #f28c28 : root.is-selected ? #000000 : root.is-active ? (root.light-theme ? #d46b32 : #e58a4d) : (root.light-theme ? #d9dee6 : #2a3340);
+    border-width: root.is-pinned ? 5px : 1px;
     in property <bool> light-theme;
     in property <color> comment-background-color: #000000;
     in property <color> comment-text-color: #ffffff;
@@ -302,6 +302,7 @@ component AudioRowView inherits Rectangle {
     in property <bool> is-loading;
     in property <[CommentRow]> comments;
     in property <int> rating: 0;
+    in property <bool> is-pinned;
     property <int> hovered-rating: -1;
     in property <bool> is-selected;
     in property <bool> is-active;
@@ -317,6 +318,7 @@ component AudioRowView inherits Rectangle {
     callback comment-edit-requested(float, float, string);
     callback comment-range-moved(float, float, float, float, string);
     callback rating-requested(int);
+    callback pin-requested();
     callback trash-requested();
 
     VerticalBox {
@@ -392,6 +394,23 @@ component AudioRowView inherits Rectangle {
             Rectangle {
                 width: 40px;
                 height: 40px;
+                y: 12px;
+                background: transparent;
+                Image {
+                    source: @image-url("../assets/icons/pin.svg");
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    width: 18px;
+                    height: 18px;
+                    opacity: pin-area.has-hover ? 1 : (root.is-pinned ? 1 : 0.65);
+                }
+                pin-area := TouchArea {
+                    clicked => { root.pin-requested(); }
+                }
+            }
+            Rectangle {
+                width: 40px;
+                height: 40px;
                 VerticalBox {
                     alignment: center;
                     Rectangle {
@@ -460,6 +479,7 @@ component AudioList inherits ListView {
     callback comment-edit-requested(string, float, float, string);
     callback comment-range-moved(string, float, float, float, float, string);
     callback rating-requested(string, int);
+    callback pin-requested(string);
     callback trash-requested(string);
 
     changed viewport-y => {
@@ -484,6 +504,7 @@ component AudioList inherits ListView {
         peaks: row.peaks;
         comments: row.comments;
         rating: row.rating;
+        is-pinned: row.is-pinned;
         is-selected: row.is-selected;
         is-active: row.is-active;
         is-playing: row.is-playing;
@@ -499,6 +520,7 @@ component AudioList inherits ListView {
         comment-edit-requested(start, end, text) => { root.row-selected(row.path); root.comment-edit-requested(row.path, start, end, text); }
         comment-range-moved(old-start, old-end, start, end, text) => { root.row-selected(row.path); root.comment-range-moved(row.path, old-start, old-end, start, end, text); }
         rating-requested(rating) => { root.row-selected(row.path); root.rating-requested(row.path, rating); }
+        pin-requested => { root.pin-requested(row.path); }
         trash-requested => { root.trash-requested(row.path); }
     }
 }
@@ -884,6 +906,7 @@ export component MainWindow inherits Window {
     callback comment-edit-requested(string, float, float, string);
     callback comment-range-moved(string, float, float, float, float, string);
     callback rating-requested(string, int);
+    callback pin-requested(string);
     callback trash-requested(string);
     callback trash-confirmed(bool);
     callback trash-cancelled();
@@ -1273,6 +1296,7 @@ export component MainWindow inherits Window {
                                 comment-edit-requested(path, start, end, text) => { root.comment-edit-requested(path, start, end, text); }
                                 comment-range-moved(path, old-start, old-end, start, end, text) => { root.comment-range-moved(path, old-start, old-end, start, end, text); }
                                 rating-requested(path, rating) => { root.rating-requested(path, rating); }
+                                pin-requested(path) => { root.pin-requested(path); }
                                 trash-requested(path) => { root.trash-requested(path); }
                             }
                             if root.sort-menu-visible : Rectangle {

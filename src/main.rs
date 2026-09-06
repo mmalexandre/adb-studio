@@ -392,6 +392,69 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     {
         let weak_window = window.as_weak();
+        let audio_folder = Rc::clone(&audio_folder);
+        let audio_model = Rc::clone(&audio_model);
+        window.on_pin_requested(move |path| {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            let Some(workspace) = audio_folder.borrow().clone() else {
+                return;
+            };
+            let path = PathBuf::from(path.as_str());
+            let Some(folder) = path.parent() else {
+                return;
+            };
+            let already_pinned = audio_model
+                .borrow()
+                .as_ref()
+                .and_then(|model| {
+                    (0..model.row_count())
+                        .filter_map(|index| model.row_data(index))
+                        .find(|row| Path::new(row.path.as_str()) == path)
+                })
+                .is_some_and(|row| row.is_pinned);
+            workspace::preferences::set_pinned_track(
+                &workspace,
+                folder,
+                (!already_pinned).then_some(path.as_path()),
+            );
+            if let Some(model) = audio_model.borrow().clone() {
+                for index in 0..model.row_count() {
+                    let Some(row) = model.row_data(index) else {
+                        continue;
+                    };
+                    let is_pinned = !already_pinned && Path::new(row.path.as_str()) == path;
+                    if row.is_pinned != is_pinned {
+                        model.set_row_data(
+                            index,
+                            AudioRow {
+                                path: row.path,
+                                name: row.name,
+                                modified_date: row.modified_date,
+                                peaks: row.peaks,
+                                is_loading: row.is_loading,
+                                comments: row.comments,
+                                rating: row.rating,
+                                is_pinned,
+                                is_selected: row.is_selected,
+                                is_active: row.is_active,
+                                is_playing: row.is_playing,
+                                progress: row.progress,
+                                loop_enabled: row.loop_enabled,
+                                selected_comment_start: row.selected_comment_start,
+                                selected_comment_end: row.selected_comment_end,
+                            },
+                        );
+                    }
+                }
+            }
+            window.set_audio_error("".into());
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
         let target = Rc::clone(&conversion_target);
         let jobs_state = Rc::clone(&conversion_jobs);
         let model_state = Rc::clone(&conversion_model);
@@ -922,6 +985,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 is_loading: row.is_loading,
                                 comments: row.comments,
                                 rating: rating.clamp(0, 5),
+                                is_pinned: row.is_pinned,
                                 is_selected: row.is_selected,
                                 is_active: row.is_active,
                                 is_playing: row.is_playing,
@@ -1911,6 +1975,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             is_loading: false,
                             comments: row.comments,
                             rating: row.rating,
+                            is_pinned: row.is_pinned,
                             is_selected: row.is_selected,
                             is_active: row.is_active,
                             is_playing: row.is_playing,
@@ -3190,6 +3255,10 @@ fn refresh_audio_with_changes(
                 .collect::<HashMap<_, _>>()
         })
         .unwrap_or_default();
+    let pinned_path = audio_folder
+        .borrow()
+        .clone()
+        .and_then(|workspace| workspace::preferences::pinned_track(&workspace, &folder));
     let index = metadata::load_index(&folder);
     let mut rows = Vec::new();
     for entry in file_system::read_dir_sorted(
@@ -3238,6 +3307,7 @@ fn refresh_audio_with_changes(
                 .as_ref()
                 .map(|item| item.normalized_rating() as i32)
                 .unwrap_or(0),
+            is_pinned: pinned_path.as_deref() == Some(entry.path.as_path()),
             is_active: false,
             is_selected: false,
             is_playing: false,
