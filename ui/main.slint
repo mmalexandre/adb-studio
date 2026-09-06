@@ -1,6 +1,5 @@
 import { CheckBox, ComboBox, LineEdit, ListView, ScrollView, Slider, SpinBox, TextEdit, VerticalBox } from "std-widgets.slint";
 import { AudioRow, BreadcrumbRow, CommentRow, ConversionRow, TreeRow, WorkflowFileRow, WorkflowLoraRow } from "./models.slint";
-import { WorkflowSuggestionBox } from "./workflow_suggestion.slint";
 import { AppButton, CompactIconButton, IconButton, MenuButton, SortIconButton, SyncIconButton, ToolButton } from "./controls.slint";
 
 component Waveform inherits Rectangle {
@@ -887,8 +886,6 @@ export component MainWindow inherits Window {
     callback comment-delete(string, string, string, string);
     callback metadata-toggle();
     callback metadata-pane-height-changed(length);
-    callback workflow-selected(string);
-    callback workflow-search-changed(string);
     callback recreate-workflow-requested();
     callback workflow-metadata-changed(string, string);
     callback workflow-number-changed(string, int);
@@ -1348,15 +1345,6 @@ export component MainWindow inherits Window {
                                     alignment: start;
                                     spacing: 6px;
                                     Text { text: "Duration\n" + root.audio-total-duration; color: root.workflow-modified ? #ffffff : (root.light-theme ? #202833 : #e3e8ef); }
-                                    WorkflowSuggestionBox {
-                                        width: 100%;
-                                        files: root.workflow-json-files;
-                                        light-theme: root.light-theme;
-                                        list-visible <=> root.workflow-dropdown-visible;
-                                        query <=> root.selected-workflow;
-                                        selected(path) => { root.workflow-selected(path); }
-                                        search-requested(query) => { root.workflow-search-changed(query); }
-                                    }
                                     Text { text: "BPM"; color: root.workflow-modified ? #ffffff : (root.light-theme ? #202833 : #e3e8ef); }
                                     SpinBox {
                                         minimum: 0;
@@ -1389,7 +1377,7 @@ export component MainWindow inherits Window {
                                         height: 100%;
                                         text <=> root.workflow-prompt;
                                         wrap: word-wrap;
-                                        edited(text) => { root.workflow-metadata-changed("prompt", self.text); }
+                                        edited(text) => { root.workflow-metadata-changed("prompt", text); }
                                     }
                                 }
                                 VerticalBox {
@@ -1401,7 +1389,7 @@ export component MainWindow inherits Window {
                                         height: 100%;
                                         text <=> root.workflow-lyrics;
                                         wrap: word-wrap;
-                                        edited(text) => { root.workflow-metadata-changed("lyrics", self.text); }
+                                        edited(text) => { root.workflow-metadata-changed("lyrics", text); }
                                     }
                                 }
                                 VerticalBox {

@@ -40,7 +40,7 @@ use audio::view::{
 use settings::AppSettings;
 use sync::{ComfyUiClient, SyncConfig, SyncController, SyncEvent};
 use workspace::workflow::{
-    apply_workflow, clear_workflow, load_workflow_for_audio, scan_json_files,
+    clear_workflow, load_workflow_for_audio, scan_json_files,
 };
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -136,15 +136,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             window.set_audio_error("Select an audio file with a workflow first".into());
             return;
         }
-        let workflow_path = metadata::load_index(folder)
-            .audio_files
-            .iter()
-            .find(|file| file.file_path == audio_path)
-            .and_then(|file| file.workflow_json_path.clone());
-        let Some(workflow_path) = workflow_path else {
-            window.set_audio_error("Select a workflow before recreating it".into());
+        let Some(workflow_path) = metadata::workflow_path(folder, Path::new(&audio_path)) else {
+            window.set_audio_error("Audio file is outside the workspace".into());
             return;
         };
+        if !workflow_path.is_file() {
+            window.set_audio_error("Select a workflow before recreating it".into());
+            return;
+        }
         let workflow = if let Some(workflow) = edited_workflow.borrow().clone() {
             workflow
         } else {
@@ -184,12 +183,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             return true;
         }
         let audio_path = window.get_selected_audio_path().to_string();
-        let Some(workflow_path) = metadata::load_index(folder)
-            .audio_files
-            .iter()
-            .find(|file| file.file_path == audio_path)
-            .and_then(|file| file.workflow_json_path.clone())
-        else {
+        let Some(workflow_path) = metadata::workflow_path(folder, Path::new(&audio_path)) else {
             return false;
         };
         let Ok(contents) = fs::read_to_string(workflow_path) else {
@@ -713,10 +707,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         let weak_window = window.as_weak();
         let settings = Rc::clone(&settings);
-        let workflow_audio_folder = Rc::clone(&audio_folder);
-        let workflow_files_for_search = Rc::clone(&workflow_files);
-        let edited_workflow_for_selection = Rc::clone(&edited_workflow);
-        let workflow_loading_for_selection = Rc::clone(&workflow_loading);
         window.on_metadata_toggle(move || {
             if let Some(window) = weak_window.upgrade() {
                 let visible = !window.get_metadata_visible();
@@ -724,40 +714,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let mut settings = settings.borrow_mut();
                 settings.metadata_visible = visible;
                 settings::save(&settings);
-            }
-        });
-        let weak_window = window.as_weak();
-        window.on_workflow_selected(move |path| {
-            let Some(window) = weak_window.upgrade() else {
-                return;
-            };
-            let Some(folder) = workflow_audio_folder.borrow().clone() else {
-                return;
-            };
-            let audio_path = window.get_selected_audio_path().to_string();
-            if !audio_path.is_empty() {
-                let mut index = metadata::load_index(&folder);
-                if let Some(file) = index
-                    .audio_files
-                    .iter_mut()
-                    .find(|file| file.file_path == audio_path)
-                {
-                    file.workflow_json_path = Some(path.to_string());
-                    metadata::save_index(&folder, &index);
-                }
-            }
-            match metadata::comfyui::parse_file(Path::new(path.as_str())) {
-                Ok(workflow) => {
-                    let raw = fs::read_to_string(path.as_str())
-                        .ok()
-                        .and_then(|contents| serde_json::from_str(&contents).ok());
-                    *edited_workflow_for_selection.borrow_mut() = raw;
-                    *workflow_loading_for_selection.borrow_mut() = true;
-                    apply_workflow(&window, &folder, path.as_str(), workflow);
-                    *workflow_loading_for_selection.borrow_mut() = false;
-                    window.set_workflow_modified(false);
-                }
-                Err(error) => window.set_audio_error(format!("Workflow JSON: {error}").into()),
             }
         });
         let weak_window = window.as_weak();
@@ -825,23 +781,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if changed {
                 window.set_workflow_modified(true);
             }
-        });
-        let weak_window = window.as_weak();
-        window.on_workflow_search_changed(move |query| {
-            let Some(window) = weak_window.upgrade() else {
-                return;
-            };
-            let query = query.to_ascii_lowercase();
-            let rows = workflow_files_for_search
-                .borrow()
-                .iter()
-                .filter(|(name, _)| name.to_ascii_lowercase().contains(&query))
-                .map(|(name, path)| WorkflowFileRow {
-                    name: name.clone().into(),
-                    path: path.clone().into(),
-                })
-                .collect::<Vec<_>>();
-            window.set_workflow_json_files(ModelRc::new(VecModel::from(rows)));
         });
         let weak_window = window.as_weak();
         window.on_lora_edit_requested(move |filename, tag| {

@@ -37,8 +37,6 @@ pub struct AudioFileMetadata {
     pub last_position_seconds: f32,
     #[serde(default)]
     pub duration_seconds: f32,
-    #[serde(default)]
-    pub workflow_json_path: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -67,6 +65,14 @@ pub fn load_index(folder: &Path) -> MetadataIndex {
         .ok()
         .and_then(|contents| serde_json::from_str(&contents).ok())
         .unwrap_or_default()
+}
+
+pub fn workflow_path(folder: &Path, audio_path: &Path) -> Option<PathBuf> {
+    let relative_path = audio_path.strip_prefix(folder).ok()?;
+    let file_name = relative_path.file_name()?.to_str()?;
+    let mut workflow_relative_path = relative_path.to_path_buf();
+    workflow_relative_path.set_file_name(format!("{file_name}.workflow.json"));
+    Some(folder.join(".adbstudio").join("workflows").join(workflow_relative_path))
 }
 
 pub fn save_index(folder: &Path, index: &MetadataIndex) {

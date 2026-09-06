@@ -42,25 +42,6 @@ pub fn scan_json_files(folder: &Path) -> Vec<(String, String)> {
     }
     let mut files = Vec::new();
     visit(folder, &mut files);
-    for path in metadata::load_index(folder)
-        .audio_files
-        .into_iter()
-        .filter_map(|file| file.workflow_json_path)
-    {
-        let path = Path::new(&path);
-        if path.is_file()
-            && !files
-                .iter()
-                .any(|(_, existing)| existing == path.to_string_lossy().as_ref())
-        {
-            let name = path
-                .file_name()
-                .and_then(|name| name.to_str())
-                .unwrap_or_default()
-                .to_string();
-            files.push((name, path.to_string_lossy().into_owned()));
-        }
-    }
     files.sort_by_key(|(name, _)| name.to_ascii_lowercase());
     files
 }
