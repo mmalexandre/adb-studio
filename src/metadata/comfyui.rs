@@ -253,6 +253,18 @@ fn parse_visual_node(node: &Value, workflow: &mut ComfyUIWorkflow) {
             .or_else(|| values.get("unet_name"))
             .map(scalar_text)
             .unwrap_or_default();
+        if workflow.model.is_empty() {
+            workflow.model = object
+                .get("properties")
+                .and_then(Value::as_object)
+                .and_then(|properties| properties.get("models"))
+                .and_then(Value::as_array)
+                .and_then(|models| models.first())
+                .and_then(Value::as_object)
+                .and_then(|model| model.get("name"))
+                .map(scalar_text)
+                .unwrap_or_default();
+        }
     }
 
     if node_lower.contains("loraloader") || node_lower.contains("loadlora") {
@@ -381,6 +393,26 @@ mod tests {
         assert_eq!(workflow.model, "model.safetensors");
         assert_eq!(workflow.loras[0].filename, "style.safetensors");
         assert_eq!(workflow.loras[0].strength, "0.8");
+    }
+
+    #[test]
+    fn extracts_model_from_unet_loader_visual_node() {
+        let workflow = parse_value(&json!({
+            "nodes": [{
+                "type": "UNETLoader",
+                "inputs": [{
+                    "name": "unet_name",
+                    "widget": {"name": "unet_name"},
+                    "link": 55
+                }],
+                "properties": {
+                    "models": [{"name": "minimax_music3_dit_fp16.safetensors"}]
+                },
+                "widgets_values": ["minimax_music3_dit_fp16.safetensors", "default"]
+            }]
+        }));
+
+        assert_eq!(workflow.model, "minimax_music3_dit_fp16.safetensors");
     }
 
     #[test]

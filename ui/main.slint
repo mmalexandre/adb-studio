@@ -509,7 +509,7 @@ component ExplorerRow inherits Rectangle {
     height: 26px;
     background: root.is-selected ? (root.light-theme ? #d7e3f3 : #2a3546) : transparent;
     callback clicked(bool);
-    callback right-clicked();
+    callback right-clicked(length, length);
     callback drag-finished(bool, float);
     callback edit-accepted(string);
     callback edit-cancelled();
@@ -608,7 +608,7 @@ component ExplorerRow inherits Rectangle {
         }
         pointer-event(event) => {
             if event.kind == PointerEventKind.down && event.button == PointerEventButton.right {
-                root.right-clicked();
+                root.right-clicked(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
             } else if event.kind == PointerEventKind.down && event.button == PointerEventButton.left {
                 root.click-shift = event.modifiers.shift;
                 root.dragging = true;
@@ -663,7 +663,7 @@ component ExplorerList inherits ListView {
     property <length> row-top: root.scroll-to-index * 26px;
     property <length> viewport-top: 0px - root.viewport-y;
     callback row-clicked(string, bool);
-    callback tree-context-menu(string);
+    callback tree-context-menu(string, length, length);
     callback tree-trash-requested(string);
     callback tree-drop-requested(string, int, float);
     callback edit-accepted(string, string);
@@ -695,7 +695,7 @@ component ExplorerList inherits ListView {
             }
         }
         clicked(shift) => { root.row-clicked(row.path, shift); }
-        right-clicked => { root.tree-context-menu(row.path); }
+        right-clicked(x, y) => { root.tree-context-menu(row.path, x, y); }
         edit-accepted(text) => { root.edit-accepted(row.path, text); }
         edit-cancelled => { root.edit-cancelled(); }
     }
@@ -749,6 +749,8 @@ export component MainWindow inherits Window {
     in-out property <bool> sort-menu-visible: false;
     in-out property <int> sort-order: 3;
     in-out property <string> tree-menu-path: "";
+    in-out property <length> tree-menu-x: 0px;
+    in-out property <length> tree-menu-y: 0px;
     in-out property <string> tree-edit-path: "";
     in-out property <string> tree-edit-text: "";
     in-out property <int> tree-edit-mode: 0;
@@ -1050,6 +1052,7 @@ export component MainWindow inherits Window {
                                 edit-text <=> root.tree-edit-text;
                                 scroll-to-index: root.tree-scroll-to-index;
                                 row-clicked(path, shift) => {
+                                    root.tree-menu-visible = false;
                                     if root.tree-edit-path != "" && root.tree-edit-path != path {
                                         root.tree-edit-cancelled();
                                     } else {
@@ -1057,7 +1060,7 @@ export component MainWindow inherits Window {
                                         root.row-clicked(path, shift);
                                     }
                                 }
-                                tree-context-menu(path) => {
+                                tree-context-menu(path, x, y) => {
                                     if root.tree-edit-path != "" && root.tree-edit-path != path {
                                         root.tree-edit-cancelled();
                                     }
@@ -1067,6 +1070,8 @@ export component MainWindow inherits Window {
                                     root.help-menu-visible = false;
                                     tree-focus.focus();
                                     root.tree-menu-path = path;
+                                    root.tree-menu-x = x;
+                                    root.tree-menu-y = y;
                                     root.tree-menu-visible = true;
                                 }
                                 tree-trash-requested(path) => { root.tree-trash-requested(path); }
@@ -1680,26 +1685,32 @@ export component MainWindow inherits Window {
         }
 
         if root.tree-menu-visible : Rectangle {
-            x: 6px;
-            y: 86px;
+            x: (root.tree-menu-x + 6px).min(parent.width - self.width).max(0px);
+            y: (root.tree-menu-y + 6px).min(parent.height - self.height).max(0px);
             width: 210px;
-            height: 126px;
-            z: 100;
+            height: 93px;
+            z: 1000;
             background: root.light-theme ? #ffffff : #202832;
             border-color: root.light-theme ? #cbd2dc : #435064;
             border-width: 1px;
             Rectangle {
+                x: 0px;
+                y: 0px;
                 width: 100%;
-                height: 42px;
+                height: 31px;
                 background: rename-touch.has-hover ? (root.light-theme ? #e7ebf0 : #2a3546) : transparent;
                 Text {
                     text: "Rename...  F2";
                     color: root.light-theme ? #202833 : #f1f4f8;
                     x: 14px;
-                    width: parent.width - 14px;
+                    y: 0px;
+                    width: 196px;
+                    height: 31px;
                     vertical-alignment: center;
                 }
                 rename-touch := TouchArea {
+                    width: 100%;
+                    height: 31px;
                     clicked => {
                         root.tree-menu-visible = false;
                         root.rename-requested();
@@ -1707,18 +1718,23 @@ export component MainWindow inherits Window {
                 }
             }
             Rectangle {
-                y: 42px;
+                x: 0px;
+                y: 31px;
                 width: 100%;
-                height: 42px;
+                height: 31px;
                 background: folder-touch.has-hover ? (root.light-theme ? #e7ebf0 : #2a3546) : transparent;
                 Text {
                     text: "New Folder";
                     color: root.light-theme ? #202833 : #f1f4f8;
                     x: 14px;
-                    width: parent.width - 14px;
+                    y: 0px;
+                    width: 196px;
+                    height: 31px;
                     vertical-alignment: center;
                 }
                 folder-touch := TouchArea {
+                    width: 100%;
+                    height: 31px;
                     clicked => {
                         root.tree-menu-visible = false;
                         root.new-folder-requested(root.tree-menu-path);
@@ -1726,18 +1742,23 @@ export component MainWindow inherits Window {
                 }
             }
             Rectangle {
-                y: 84px;
+                x: 0px;
+                y: 62px;
                 width: 100%;
-                height: 42px;
+                height: 31px;
                 background: trash-touch.has-hover ? (root.light-theme ? #e7ebf0 : #2a3546) : transparent;
                 Text {
                     text: "Move to Trash";
                     color: root.light-theme ? #202833 : #f1f4f8;
                     x: 14px;
-                    width: parent.width - 14px;
+                    y: 0px;
+                    width: 196px;
+                    height: 31px;
                     vertical-alignment: center;
                 }
                 trash-touch := TouchArea {
+                    width: 100%;
+                    height: 31px;
                     clicked => {
                         root.tree-menu-visible = false;
                         root.tree-trash-requested(root.tree-menu-path);

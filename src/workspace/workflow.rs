@@ -6,6 +6,13 @@ use crate::{metadata, MainWindow, WorkflowLoraRow};
 
 use super::file_system;
 
+fn display_model_name(model: &str) -> String {
+    match model {
+        "ace_step_1.5_turbo_aio.safetensors" => "Ace Step 1.5 Turbo Aio".to_string(),
+        _ => model.to_string(),
+    }
+}
+
 pub fn scan_json_files(folder: &Path) -> Vec<(String, String)> {
     fn visit(folder: &Path, files: &mut Vec<(String, String)>) {
         for entry in file_system::read_dir_sorted(
@@ -70,7 +77,7 @@ pub fn apply_workflow(
     window.set_workflow_bpm(workflow.bpm.into());
     window.set_workflow_key(workflow.key.into());
     window.set_workflow_seed(workflow.seed.into());
-    window.set_workflow_model(workflow.model.into());
+    window.set_workflow_model(display_model_name(&workflow.model).into());
     window.set_workflow_prompt(workflow.prompt.into());
     window.set_workflow_lyrics(workflow.lyrics.into());
     let index = metadata::load_index(folder);

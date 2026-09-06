@@ -15,7 +15,7 @@ use std::{
 
 use audio::playback::PlaybackEngine;
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
-use slint::{ComponentHandle, Model, ModelRc, VecModel};
+use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 
 mod audio;
 mod metadata;
@@ -781,25 +781,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let playback = Rc::clone(&playback);
         let tree_state = Rc::clone(&tree_state);
         let settings = Rc::clone(&settings);
-        window.on_trash_requested(move |path| {
-            let Some(window) = weak_window.upgrade() else {
+        let weak_window_for_move = weak_window.clone();
+        let audio_folder_for_move = Rc::clone(&audio_folder);
+        let audio_model_for_move = Rc::clone(&audio_model);
+        let audio_load_state_for_move = Arc::clone(&audio_load_state);
+        let playback_for_move = Rc::clone(&playback);
+        let tree_state_for_move = Rc::clone(&tree_state);
+        let settings_for_move = Rc::clone(&settings);
+        let settings_for_request = Rc::clone(&settings);
+        let move_to_trash: Rc<dyn Fn(SharedString)> = Rc::new(move |path| {
+            let Some(window) = weak_window_for_move.upgrade() else {
                 return;
             };
-            let Some(folder) = audio_folder.borrow().clone() else {
+            let Some(folder) = audio_folder_for_move.borrow().clone() else {
                 return;
             };
             let source = PathBuf::from(path.as_str());
-            let workspace_key = folder.to_string_lossy().into_owned();
-            if !settings
-                .borrow()
-                .trash_confirmation_disabled_workspaces
-                .contains(&workspace_key)
-            {
-                window.set_trash_confirm_path(path);
-                window.set_trash_confirm_dont_ask(false);
-                window.set_trash_confirm_visible(true);
-                return;
-            }
             let Some(name) = source.file_name() else {
                 return;
             };
@@ -815,9 +812,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 window.set_audio_error(format!("File operation: {error}").into());
                 return;
             }
-            if playback.borrow().as_ref().and_then(|engine| engine.path()) == Some(source.as_path())
+            if playback_for_move
+                .borrow()
+                .as_ref()
+                .and_then(|engine| engine.path())
+                == Some(source.as_path())
             {
-                if let Some(engine) = playback.borrow_mut().as_mut() {
+                if let Some(engine) = playback_for_move.borrow_mut().as_mut() {
                     engine.stop();
                 }
                 window.set_active_audio_path("".into());
@@ -825,19 +826,39 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 window.set_audio_playing(false);
             }
             let parent = source.parent().unwrap_or(&folder).to_path_buf();
-            select_tree_path(&window, &tree_state, &settings, &parent);
+            select_tree_path(&window, &tree_state_for_move, &settings_for_move, &parent);
             refresh_audio(
                 &window,
-                &audio_folder,
-                &audio_model,
-                &audio_load_state,
+                &audio_folder_for_move,
+                &audio_model_for_move,
+                &audio_load_state_for_move,
                 parent,
             );
             window.set_audio_error("".into());
         });
-    }
+        let move_to_trash_for_request = Rc::clone(&move_to_trash);
+        window.on_trash_requested(move |path| {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            let Some(folder) = audio_folder.borrow().clone() else {
+                return;
+            };
+            let workspace_key = folder.to_string_lossy().into_owned();
+            if !settings_for_request
+                .borrow()
+                .trash_confirmation_disabled_workspaces
+                .contains(&workspace_key)
+            {
+                window.set_trash_confirm_path(path);
+                window.set_trash_confirm_dont_ask(false);
+                window.set_trash_confirm_visible(true);
+                return;
+            }
+            move_to_trash_for_request(path);
+        });
 
-    {
+        let move_to_trash_for_confirmation = Rc::clone(&move_to_trash);
         let weak_window = window.as_weak();
         let settings = Rc::clone(&settings);
         window.on_trash_confirmed(move |dont_ask| {
@@ -846,18 +867,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             };
             let path = window.get_trash_confirm_path();
             if dont_ask {
-                let Some(folder) = settings.borrow().last_folder.clone() else {
-                    return;
-                };
-                settings
-                    .borrow_mut()
-                    .trash_confirmation_disabled_workspaces
-                    .insert(folder);
-                settings::save(&settings.borrow());
+                if let Some(folder) = settings.borrow().last_folder.clone() {
+                    settings
+                        .borrow_mut()
+                        .trash_confirmation_disabled_workspaces
+                        .insert(folder);
+                    settings::save(&settings.borrow());
+                }
             }
             window.set_trash_confirm_visible(false);
             if !path.is_empty() {
-                window.invoke_trash_requested(path);
+                move_to_trash_for_confirmation(path);
             }
         });
     }
