@@ -177,6 +177,9 @@ fn parse_visual_node(node: &Value, workflow: &mut ComfyUIWorkflow) {
     if node_lower.contains("textencodeacestep")
         || (node_lower.contains("acestep") && node_lower.contains("textencode"))
     {
+        let uses_positional_metadata = widget_values.len() >= 9
+            && !values.contains_key("bpm")
+            && !values.contains_key("keyscale");
         if workflow.prompt.is_empty() {
             workflow.prompt = values
                 .get("tags")
@@ -200,6 +203,27 @@ fn parse_visual_node(node: &Value, workflow: &mut ComfyUIWorkflow) {
                 .or_else(|| values.get("tonality"))
                 .map(scalar_text)
                 .unwrap_or_default();
+        }
+        if uses_positional_metadata {
+            let positional = |index| {
+                widget_values
+                    .get(index)
+                    .map(scalar_text)
+                    .unwrap_or_default()
+            };
+            if workflow.prompt.is_empty() {
+                workflow.prompt = positional(0);
+            }
+            if workflow.lyrics.is_empty() {
+                workflow.lyrics = positional(1);
+            }
+            workflow.seed = positional(2);
+            if workflow.bpm.is_empty() {
+                workflow.bpm = positional(4);
+            }
+            if workflow.key.is_empty() {
+                workflow.key = positional(8);
+            }
         }
     }
 
@@ -335,5 +359,29 @@ mod tests {
         }));
 
         assert_eq!(workflow.bpm, "130");
+    }
+
+    #[test]
+    fn extracts_metadata_from_positional_acestep_export() {
+        let workflow = parse_value(&json!({
+            "nodes": [{
+                "type": "TextEncodeAceStepAudio1.5",
+                "inputs": [
+                    {"name": "clip"},
+                    {"name": "seed", "widget": {"name": "seed"}},
+                    {"name": "duration", "widget": {"name": "duration"}}
+                ],
+                "widgets_values": [
+                    "prompt text", "[Verse] lyrics", 32, "fixed", 125, 30,
+                    "4", "en", "E minor", true, 2, 0.85, 0.9, 0, 0
+                ]
+            }]
+        }));
+
+        assert_eq!(workflow.bpm, "125");
+        assert_eq!(workflow.key, "E minor");
+        assert_eq!(workflow.seed, "32");
+        assert_eq!(workflow.prompt, "prompt text");
+        assert_eq!(workflow.lyrics, "[Verse] lyrics");
     }
 }
