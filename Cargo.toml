@@ -9,6 +9,7 @@ description = "A cross-platform workspace for organizing and annotating generate
 [dependencies]
 display-info = "0.5"
 dirs = "6"
+filetime = "0.2"
 lucide-icons = "1.41"
 notify = "6"
 rfd = "0.15"

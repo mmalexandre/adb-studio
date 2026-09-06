@@ -1,5 +1,6 @@
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
+use filetime::{set_file_times, FileTime};
 use std::{
     collections::HashSet,
     fs,
@@ -75,6 +76,8 @@ fn default_interval_ms() -> u64 {
 pub struct RemoteFile {
     pub name: String,
     pub path: String,
+    #[serde(default)]
+    pub modified: u64,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -348,6 +351,7 @@ fn sync_workflow(
         let workflow_file = RemoteFile {
             name: format!("{}workflow.json", audio_file.name),
             path: format!("{}workflow.json", audio_file.path),
+            modified: audio_file.modified,
         };
         if client.download_optional_file(config, &workflow_file, &workflow_path)? {
             assign_workflow(audio_directory.join(audio_filename), &workflow_path);
@@ -477,7 +481,7 @@ impl ComfyUiClient {
             .map_err(SyncError::Request)?
             .error_for_status()
             .map_err(SyncError::Request)?;
-        let files: Vec<RemoteFile> = response.json().map_err(SyncError::Request)?;
+        let mut files: Vec<RemoteFile> = response.json().map_err(SyncError::Request)?;
         if files
             .iter()
             .any(|file| file.name.trim().is_empty() || file.path.trim().is_empty())
@@ -486,6 +490,7 @@ impl ComfyUiClient {
                 "ComfyUI returned a file without a name or path".to_string(),
             ));
         }
+        sort_remote_files(&mut files);
         Ok(files)
     }
 
@@ -525,7 +530,8 @@ impl ComfyUiClient {
                 .map_err(SyncError::Request)?;
             temporary_file.flush().map_err(SyncError::Io)?;
             temporary_file.sync_all().map_err(SyncError::Io)?;
-            fs::rename(&temporary_path, &final_path).map_err(SyncError::Io)
+            fs::rename(&temporary_path, &final_path).map_err(SyncError::Io)?;
+            set_downloaded_file_times(&final_path, file.modified)
         })();
         if result.is_err() {
             let _ = fs::remove_file(&temporary_path);
@@ -593,6 +599,26 @@ fn temporary_download_path(destination: &Path, filename: &str) -> PathBuf {
         ".{filename}.{}.{timestamp}.{counter}",
         std::process::id()
     ))
+}
+
+fn set_downloaded_file_times(path: &Path, modified: u64) -> Result<(), SyncError> {
+    if modified == 0 {
+        return Ok(());
+    }
+    let metadata = fs::metadata(path).map_err(SyncError::Io)?;
+    let modified_seconds = modified / 1_000_000_000;
+    let modified_nanoseconds = (modified % 1_000_000_000) as u32;
+    let modified_time = FileTime::from_unix_time(modified_seconds as i64, modified_nanoseconds);
+    set_file_times(
+        path,
+        FileTime::from_last_access_time(&metadata),
+        modified_time,
+    )
+    .map_err(SyncError::Io)
+}
+
+fn sort_remote_files(files: &mut [RemoteFile]) {
+    files.sort_by(|left, right| left.modified.cmp(&right.modified));
 }
 
 fn progress_with_index(
@@ -726,10 +752,12 @@ mod tests {
             RemoteFile {
                 name: "nested/song.mp3".to_string(),
                 path: "/remote/song.mp3".to_string(),
+                modified: 2,
             },
             RemoteFile {
                 name: "other.mp3".to_string(),
                 path: "/remote/other.mp3".to_string(),
+                modified: 1,
             },
         ];
         assert_eq!(
@@ -747,6 +775,25 @@ mod tests {
     }
 
     #[test]
+    fn remote_files_are_sorted_oldest_first() {
+        let mut files = vec![
+            RemoteFile {
+                name: "older.mp3".to_string(),
+                path: "/remote/older.mp3".to_string(),
+                modified: 1,
+            },
+            RemoteFile {
+                name: "newer.mp3".to_string(),
+                path: "/remote/newer.mp3".to_string(),
+                modified: 2,
+            },
+        ];
+        super::sort_remote_files(&mut files);
+        assert_eq!(files[0].name, "older.mp3");
+        assert_eq!(files[1].name, "newer.mp3");
+    }
+
+    #[test]
     fn completed_record_counts_after_local_file_is_removed() {
         let workspace = tempfile_directory();
         let config = SyncConfig {
@@ -756,6 +803,7 @@ mod tests {
         let file = RemoteFile {
             name: "song.mp3".to_string(),
             path: "/output/audio/song.mp3".to_string(),
+            modified: 0,
         };
         let mut index = DownloadIndex::default();
         index.record_completed(&config, &file, 1234);

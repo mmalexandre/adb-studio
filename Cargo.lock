@@ -132,6 +132,7 @@ version = "0.1.0"
 dependencies = [
  "dirs",
  "display-info",
+ "filetime",
  "lucide-icons",
  "notify",
  "reqwest",
