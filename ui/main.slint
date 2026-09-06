@@ -1,5 +1,5 @@
 import { CheckBox, ComboBox, LineEdit, ListView, ScrollView, Slider, TextEdit, VerticalBox } from "std-widgets.slint";
-import { AudioRow, BreadcrumbRow, CommentRow, TreeRow, WorkflowFileRow, WorkflowLoraRow } from "./models.slint";
+import { AudioRow, BreadcrumbRow, CommentRow, ConversionRow, TreeRow, WorkflowFileRow, WorkflowLoraRow } from "./models.slint";
 import { WorkflowSuggestionBox } from "./workflow_suggestion.slint";
 import { AppButton, CompactIconButton, IconButton, MenuButton, SortIconButton, SyncIconButton, ToolButton } from "./controls.slint";
 
@@ -754,6 +754,22 @@ export component MainWindow inherits Window {
     in-out property <string> tree-edit-path: "";
     in-out property <string> tree-edit-text: "";
     in-out property <int> tree-edit-mode: 0;
+    in-out property <bool> conversion-options-visible: false;
+    in-out property <bool> conversion-progress-visible: false;
+    in-out property <int> conversion-format-index: 0;
+    in-out property <int> conversion-quality-index: 1;
+    property <[string]> conversion-quality-labels: root.conversion-format-index == 0
+        ? ["96 kbps", "128 kbps", "192 kbps", "320 kbps (maximum)"]
+        : root.conversion-format-index == 1
+        ? ["96 kbps", "128 kbps", "192 kbps", "256 kbps (maximum)"]
+        : root.conversion-format-index == 2
+        ? ["64 kbps", "96 kbps", "128 kbps", "192 kbps (maximum)"]
+        : root.conversion-format-index == 3
+        ? ["Compression level 1", "Compression level 5", "Compression level 8", "Compression level 12 (maximum)"]
+        : ["PCM 16-bit", "PCM 24-bit", "PCM 32-bit", "PCM 32-bit float (maximum)"];
+    property <[string]> conversion-quality-values: ["Low", "Medium", "High", "Maximum"];
+    in-out property <[ConversionRow]> conversion-rows: [];
+    in-out property <bool> conversion-complete: false;
     in-out property <bool> left-pane-visible: true;
     in-out property <length> left-pane-width: 280px;
     callback left-pane-width-changed(length);
@@ -830,6 +846,10 @@ export component MainWindow inherits Window {
     callback audio-row-selected(string);
     callback audio-navigate(int);
     callback tree-context-menu(string);
+    callback conversion-requested(string);
+    callback conversion-started(string, string);
+    callback conversion-cancelled();
+    callback conversion-closed();
     callback sort-order-selected(int);
     callback tree-trash-requested(string);
     callback tree-drop-requested(string, int, float);
@@ -1688,7 +1708,7 @@ export component MainWindow inherits Window {
             x: (root.tree-menu-x + 6px).min(parent.width - self.width).max(0px);
             y: (root.tree-menu-y + 6px).min(parent.height - self.height).max(0px);
             width: 210px;
-            height: 93px;
+            height: 124px;
             z: 1000;
             background: root.light-theme ? #ffffff : #202832;
             border-color: root.light-theme ? #cbd2dc : #435064;
@@ -1746,6 +1766,30 @@ export component MainWindow inherits Window {
                 y: 62px;
                 width: 100%;
                 height: 31px;
+                background: convert-touch.has-hover ? (root.light-theme ? #e7ebf0 : #2a3546) : transparent;
+                Text {
+                    text: "Convert to file format...";
+                    color: root.light-theme ? #202833 : #f1f4f8;
+                    x: 14px;
+                    y: 0px;
+                    width: 196px;
+                    height: 31px;
+                    vertical-alignment: center;
+                }
+                convert-touch := TouchArea {
+                    width: 100%;
+                    height: 31px;
+                    clicked => {
+                        root.tree-menu-visible = false;
+                        root.conversion-requested(root.tree-menu-path);
+                    }
+                }
+            }
+            Rectangle {
+                x: 0px;
+                y: 93px;
+                width: 100%;
+                height: 31px;
                 background: trash-touch.has-hover ? (root.light-theme ? #e7ebf0 : #2a3546) : transparent;
                 Text {
                     text: "Move to Trash";
@@ -1762,6 +1806,103 @@ export component MainWindow inherits Window {
                     clicked => {
                         root.tree-menu-visible = false;
                         root.tree-trash-requested(root.tree-menu-path);
+                    }
+                }
+            }
+        }
+
+        if root.conversion-options-visible : Rectangle {
+            background: #00000080;
+            x: 0px;
+            y: 0px;
+            width: parent.width;
+            height: parent.height;
+            z: 30;
+            Rectangle {
+                width: 460px;
+                height: 270px;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                background: root.light-theme ? #ffffff : #202832;
+                border-color: root.light-theme ? #cbd2dc : #435064;
+                border-width: 1px;
+                VerticalBox {
+                    padding: 24px;
+                    spacing: 14px;
+                    Text { text: "Convert to file format"; color: root.light-theme ? #202833 : #f1f4f8; font-size: 21px; }
+                    Text { text: "Format"; color: root.light-theme ? #5c6878 : #c4ccd8; }
+                    ComboBox {
+                        model: ["mp3", "ogg", "opus", "flac", "wav"];
+                        current-index: root.conversion-format-index;
+                        changed current-index => { root.conversion-format-index = self.current-index; }
+                    }
+                    Text { text: "Quality"; color: root.light-theme ? #5c6878 : #c4ccd8; }
+                    ComboBox {
+                        model: root.conversion-quality-labels;
+                        current-index: root.conversion-quality-index;
+                        changed current-index => { root.conversion-quality-index = self.current-index; }
+                    }
+                    Rectangle { vertical-stretch: 1; }
+                    HorizontalLayout {
+                        alignment: end;
+                        spacing: 8px;
+                        AppButton { text: "Cancel"; clicked => { root.conversion-options-visible = false; } }
+                        AppButton {
+                            text: "Start conversion...";
+                            clicked => {
+                                root.conversion-options-visible = false;
+                                root.conversion-started(
+                                    ["mp3", "ogg", "opus", "flac", "wav"][root.conversion-format-index],
+                                    root.conversion-quality-values[root.conversion-quality-index]
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if root.conversion-progress-visible : Rectangle {
+            background: #00000080;
+            x: 0px;
+            y: 0px;
+            width: parent.width;
+            height: parent.height;
+            z: 31;
+            Rectangle {
+                width: 700px;
+                height: 520px;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                background: root.light-theme ? #ffffff : #202832;
+                border-color: root.light-theme ? #cbd2dc : #435064;
+                border-width: 1px;
+                VerticalBox {
+                    padding: 24px;
+                    spacing: 12px;
+                    Text { text: "Converting audio"; color: root.light-theme ? #202833 : #f1f4f8; font-size: 21px; }
+                    ListView {
+                        vertical-stretch: 1;
+                        for row in root.conversion-rows : VerticalBox {
+                            height: 54px;
+                            spacing: 4px;
+                            Text { text: row.name; color: root.light-theme ? #202833 : #f1f4f8; overflow: elide; }
+                            HorizontalLayout {
+                                height: 18px;
+                                Rectangle {
+                                    horizontal-stretch: 1;
+                                    background: root.light-theme ? #e1e6ed : #303b4b;
+                                    Rectangle { width: parent.width * row.progress; background: root.light-theme ? #d46b32 : #e58a4d; }
+                                }
+                                Text { text: row.status; width: 180px; color: root.light-theme ? #5c6878 : #aeb8c6; font-size: 11px; vertical-alignment: center; }
+                            }
+                        }
+                    }
+                    HorizontalLayout {
+                        alignment: end;
+                        spacing: 8px;
+                        AppButton { text: "Cancel"; enabled: !root.conversion-complete; clicked => { root.conversion-cancelled(); } }
+                        AppButton { text: "Close"; enabled: root.conversion-complete; clicked => { root.conversion-closed(); } }
                     }
                 }
             }

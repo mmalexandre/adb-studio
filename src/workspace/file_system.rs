@@ -43,7 +43,7 @@ impl FileKind {
             .map(|ext| ext.to_ascii_lowercase())
             .as_deref()
         {
-            Some("flac" | "mp3" | "opus" | "wav") => FileKind::Audio,
+            Some("flac" | "mp3" | "ogg" | "opus" | "wav") => FileKind::Audio,
             Some("safetensors") => FileKind::Safetensors,
             Some("json") => FileKind::Json,
             _ => FileKind::Other,
@@ -115,8 +115,12 @@ fn compare_names(left: &DirEntryInfo, right: &DirEntryInfo) -> std::cmp::Orderin
 }
 
 fn compare_modified(left: &DirEntryInfo, right: &DirEntryInfo) -> std::cmp::Ordering {
-    let left_modified = fs::metadata(&left.path).and_then(|metadata| metadata.modified()).ok();
-    let right_modified = fs::metadata(&right.path).and_then(|metadata| metadata.modified()).ok();
+    let left_modified = fs::metadata(&left.path)
+        .and_then(|metadata| metadata.modified())
+        .ok();
+    let right_modified = fs::metadata(&right.path)
+        .and_then(|metadata| metadata.modified())
+        .ok();
     left_modified
         .cmp(&right_modified)
         .then_with(|| compare_names(left, right))

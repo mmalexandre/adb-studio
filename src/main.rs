@@ -13,6 +13,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use audio::conversion::{self, ConversionJob, ConversionUpdate};
 use audio::playback::PlaybackEngine;
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
@@ -59,6 +60,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let comment_editor_original: Rc<RefCell<Option<AudioComment>>> = Rc::new(RefCell::new(None));
     let comment_editor_duration = Rc::new(RefCell::new(0.0_f32));
     let last_button_click: Rc<RefCell<Option<(PathBuf, Instant)>>> = Rc::new(RefCell::new(None));
+    let conversion_receiver: Rc<RefCell<Option<mpsc::Receiver<ConversionUpdate>>>> =
+        Rc::new(RefCell::new(None));
+    let conversion_cancelled: Rc<RefCell<Option<Arc<std::sync::atomic::AtomicBool>>>> =
+        Rc::new(RefCell::new(None));
+    let conversion_jobs: Rc<RefCell<Vec<ConversionJob>>> = Rc::new(RefCell::new(Vec::new()));
+    let conversion_temp_root: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(None));
+    let conversion_target: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(None));
+    let conversion_model: Rc<RefCell<Option<Rc<VecModel<ConversionRow>>>>> =
+        Rc::new(RefCell::new(None));
     let (playback, playback_error) = match PlaybackEngine::new() {
         Ok(engine) => (Rc::new(RefCell::new(Some(engine))), None),
         Err(error) => (Rc::new(RefCell::new(None)), Some(error)),
@@ -130,8 +140,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
         let workflow = match fs::read_to_string(&workflow_path)
             .map_err(|error| error.to_string())
-            .and_then(|contents| serde_json::from_str::<serde_json::Value>(&contents).map_err(|error| error.to_string()))
-        {
+            .and_then(|contents| {
+                serde_json::from_str::<serde_json::Value>(&contents)
+                    .map_err(|error| error.to_string())
+            }) {
             Ok(workflow) => workflow,
             Err(error) => {
                 window.set_audio_error(format!("Workflow JSON: {error}").into());
@@ -141,7 +153,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         match ComfyUiClient::new().and_then(|client| client.upload_workflow(config, &workflow)) {
             Ok(()) => match open_comfyui_workflow(config) {
                 Ok(()) => window.set_audio_error("Workflow opened in ComfyUI".into()),
-                Err(error) => window.set_audio_error(format!("ComfyUI opened upload failed: {error}").into()),
+                Err(error) => {
+                    window.set_audio_error(format!("ComfyUI opened upload failed: {error}").into())
+                }
             },
             Err(error) => window.set_audio_error(format!("ComfyUI: {error}").into()),
         }
@@ -283,6 +297,137 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             window.set_audio_error("".into());
             refresh_tree(&window, &tree_state);
+        });
+    }
+
+    {
+        let target = Rc::clone(&conversion_target);
+        let weak_window = window.as_weak();
+        window.on_conversion_requested(move |path| {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            let path = PathBuf::from(path.as_str());
+            if conversion::collect_files(&path).is_empty() {
+                window.set_audio_error("No supported audio files found".into());
+                return;
+            }
+            *target.borrow_mut() = Some(path);
+            window.set_conversion_options_visible(true);
+            window.set_audio_error("".into());
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        let target = Rc::clone(&conversion_target);
+        let jobs_state = Rc::clone(&conversion_jobs);
+        let model_state = Rc::clone(&conversion_model);
+        let receiver_state = Rc::clone(&conversion_receiver);
+        let cancelled_state = Rc::clone(&conversion_cancelled);
+        let temp_state = Rc::clone(&conversion_temp_root);
+        let playback = Rc::clone(&playback);
+        let audio_folder = Rc::clone(&audio_folder);
+        window.on_conversion_started(move |format, quality| {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            let Some(target) = target.borrow().clone() else {
+                return;
+            };
+            let Some(workspace) = audio_folder.borrow().clone() else {
+                return;
+            };
+            let files = conversion::collect_files(&target);
+            let source_set: HashSet<PathBuf> = files.iter().cloned().collect();
+            let mut destinations = HashSet::new();
+            for source in &files {
+                let destination = source.with_extension(format.as_str());
+                if !destinations.insert(destination.clone())
+                    || (destination.exists() && !source_set.contains(&destination))
+                {
+                    window.set_audio_error("Conversion would overwrite an existing file".into());
+                    return;
+                }
+            }
+            let temp_root = workspace
+                .join(".adbstudio")
+                .join(format!("conversion-{}", std::process::id()));
+            if let Err(error) = fs::create_dir_all(&temp_root) {
+                window.set_audio_error(format!("Conversion: {error}").into());
+                return;
+            }
+            let mut jobs = Vec::with_capacity(files.len());
+            let mut rows = Vec::with_capacity(files.len());
+            for (index, source) in files.into_iter().enumerate() {
+                let destination = source.with_extension(format.as_str());
+                let temporary = temp_root.join(format!("{index}.{format}"));
+                jobs.push(ConversionJob {
+                    source: source.clone(),
+                    temporary,
+                    destination,
+                });
+                rows.push(ConversionRow {
+                    name: source.to_string_lossy().into_owned().into(),
+                    path: source.to_string_lossy().into_owned().into(),
+                    progress: 0.0,
+                    status: "Waiting".into(),
+                });
+            }
+            if let Some(engine) = playback.borrow_mut().as_mut() {
+                engine.stop();
+            }
+            window.set_audio_playing(false);
+            let model = Rc::new(VecModel::from(rows));
+            window.set_conversion_rows(ModelRc::new(Rc::clone(&model)));
+            *model_state.borrow_mut() = Some(model);
+            *jobs_state.borrow_mut() = jobs.clone();
+            *temp_state.borrow_mut() = Some(temp_root);
+            let (sender, receiver) = mpsc::channel();
+            let cancelled = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            conversion::start(
+                jobs,
+                format.to_string(),
+                quality.to_string(),
+                sender,
+                Arc::clone(&cancelled),
+            );
+            *receiver_state.borrow_mut() = Some(receiver);
+            *cancelled_state.borrow_mut() = Some(cancelled);
+            window.set_conversion_complete(false);
+            window.set_conversion_progress_visible(true);
+        });
+    }
+
+    {
+        let cancelled_state = Rc::clone(&conversion_cancelled);
+        window.on_conversion_cancelled(move || {
+            if let Some(cancelled) = cancelled_state.borrow().as_ref() {
+                cancelled.store(true, Ordering::Release);
+            }
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        let jobs_state = Rc::clone(&conversion_jobs);
+        let temp_state = Rc::clone(&conversion_temp_root);
+        let receiver_state = Rc::clone(&conversion_receiver);
+        let cancelled_state = Rc::clone(&conversion_cancelled);
+        let model_state = Rc::clone(&conversion_model);
+        window.on_conversion_closed(move || {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            if let Some(root) = temp_state.borrow_mut().take() {
+                let _ = fs::remove_dir_all(root);
+            }
+            jobs_state.borrow_mut().clear();
+            *receiver_state.borrow_mut() = None;
+            *cancelled_state.borrow_mut() = None;
+            *model_state.borrow_mut() = None;
+            window.set_conversion_progress_visible(false);
+            window.set_conversion_rows(ModelRc::new(VecModel::from(Vec::new())));
         });
     }
 
@@ -724,7 +869,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 window.set_comfyui_sync_remote_directory(config.remote_directory.into());
                 window.set_comfyui_sync_local_directory(config.local_directory.into());
                 window.set_comfyui_sync_interval(config.interval_ms.to_string().into());
-                window.set_comfyui_sync_error("Configure ComfyUI sync to recreate this workflow".into());
+                window.set_comfyui_sync_error(
+                    "Configure ComfyUI sync to recreate this workflow".into(),
+                );
                 window.set_comfyui_sync_test_message("".into());
                 window.set_comfyui_sync_test_success(false);
                 window.set_comfyui_sync_visible(true);
@@ -1166,6 +1313,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let workspace_change_receiver = Rc::new(RefCell::new(workspace_change_receiver));
         let tree_state = Rc::clone(&tree_state);
         let workflow_files = Rc::clone(&workflow_files);
+        let conversion_receiver = Rc::clone(&conversion_receiver);
+        let conversion_jobs = Rc::clone(&conversion_jobs);
+        let conversion_model = Rc::clone(&conversion_model);
+        let conversion_temp_root = Rc::clone(&conversion_temp_root);
+        let conversion_cancelled = Rc::clone(&conversion_cancelled);
+        let tree_state_for_conversion = Rc::clone(&tree_state);
+        let mut conversion_updates = 0usize;
         let mut spinner_frame = 0usize;
         let mut sync_spinner_frame = 0usize;
         let mut workspace_change_pending = false;
@@ -1177,6 +1331,78 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Duration::from_millis(40),
             move || {
                 if let Some(window) = weak_window.upgrade() {
+                    let mut conversion_finished = false;
+                    if let Some(receiver) = conversion_receiver.borrow_mut().as_mut() {
+                        while let Ok(update) = receiver.try_recv() {
+                            conversion_updates += 1;
+                            if let Some(model) = conversion_model.borrow().as_ref() {
+                                if let Some(mut row) = model.row_data(update.index) {
+                                    row.progress = update.progress;
+                                    row.status = update.status.into();
+                                    model.set_row_data(update.index, row);
+                                }
+                            }
+                        }
+                        conversion_finished = conversion_updates >= conversion_jobs.borrow().len()
+                            && !conversion_jobs.borrow().is_empty();
+                    }
+                    if conversion_finished {
+                        let jobs = conversion_jobs.borrow().clone();
+                        let mut errors = Vec::new();
+                        for (index, job) in jobs.iter().enumerate() {
+                            let complete = conversion_model
+                                .borrow()
+                                .as_ref()
+                                .and_then(|model| model.row_data(index))
+                                .is_some_and(|row| row.status == "Complete");
+                            if !complete {
+                                continue;
+                            }
+                            if let Err(error) = trash::delete(&job.source) {
+                                errors.push(error.to_string());
+                            } else if let Err(error) = fs::rename(&job.temporary, &job.destination)
+                            {
+                                errors.push(error.to_string());
+                            }
+                        }
+                        if let Some(root) = conversion_temp_root.borrow_mut().take() {
+                            let _ = fs::remove_dir_all(root);
+                        }
+                        *conversion_receiver.borrow_mut() = None;
+                        *conversion_cancelled.borrow_mut() = None;
+                        conversion_updates = 0;
+                        window.set_conversion_complete(true);
+                        refresh_tree(&window, &tree_state_for_conversion);
+                        let audio_view_folder = {
+                            let state_ref = tree_state_for_conversion.borrow();
+                            state_ref
+                                .as_ref()
+                                .and_then(|state| state.selected.as_ref())
+                                .and_then(|path| {
+                                    if path.is_dir() {
+                                        Some(path.clone())
+                                    } else {
+                                        path.parent()
+                                            .map(Path::to_path_buf)
+                                    }
+                                })
+                                .or_else(|| audio_folder.borrow().clone())
+                        };
+                        if let Some(audio_view_folder) = audio_view_folder {
+                            refresh_audio(
+                                &window,
+                                &audio_folder,
+                                &audio_model,
+                                &audio_load_state,
+                                audio_view_folder,
+                            );
+                        }
+                        if !errors.is_empty() {
+                            window.set_audio_error(
+                                format!("Conversion: {}", errors.join("; ")).into(),
+                            );
+                        }
+                    }
                     let mut workspace_changed = false;
                     while let Ok(paths) = workspace_change_receiver.borrow_mut().try_recv() {
                         workspace_changed = true;
@@ -1636,9 +1862,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if engine.path() != Some(path.as_path()) {
                 return;
             }
-            let seek_end = engine
-                .duration()
-                .saturating_sub(Duration::from_micros(100));
+            let seek_end = engine.duration().saturating_sub(Duration::from_micros(100));
             let target = if shift {
                 if seek_key < 0.0 {
                     Duration::ZERO
@@ -1687,14 +1911,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let Some(state) = state_ref.as_mut() else {
                 return;
             };
-            if path.is_dir() {
-                state.toggle(&path);
-            }
+            let was_selected = state.selected.as_ref() == Some(&path);
             state.select_with_shift(
                 &path,
                 shift,
                 file_system::SortOrder::from_i32(window.get_sort_order()),
             );
+            if path.is_dir() && was_selected {
+                state.toggle(&path);
+            }
             if !path.is_dir() {
                 state.expand_to(&path);
             }
@@ -2725,13 +2950,21 @@ fn refresh_audio_with_changes(
             .parse::<u64>()
             .unwrap_or_default()
             .cmp(&right.modified_date.parse::<u64>().unwrap_or_default())
-            .then_with(|| left.name.to_ascii_lowercase().cmp(&right.name.to_ascii_lowercase())),
+            .then_with(|| {
+                left.name
+                    .to_ascii_lowercase()
+                    .cmp(&right.name.to_ascii_lowercase())
+            }),
         file_system::SortOrder::ModifiedDescending => right
             .modified_date
             .parse::<u64>()
             .unwrap_or_default()
             .cmp(&left.modified_date.parse::<u64>().unwrap_or_default())
-            .then_with(|| left.name.to_ascii_lowercase().cmp(&right.name.to_ascii_lowercase())),
+            .then_with(|| {
+                left.name
+                    .to_ascii_lowercase()
+                    .cmp(&right.name.to_ascii_lowercase())
+            }),
     });
     let previous_selected_path = PathBuf::from(window.get_selected_audio_path().as_str());
     let selected_path = rows
@@ -2878,9 +3111,9 @@ fn select_tree_path(
         state,
         file_system::SortOrder::from_i32(window.get_sort_order()),
     )
-        .iter()
-        .position(|row| row.path == path)
-        .map(|index| index as i32);
+    .iter()
+    .position(|row| row.path == path)
+    .map(|index| index as i32);
     settings.borrow_mut().last_selected_path = Some(path.to_string_lossy().into_owned());
     let settings_snapshot = settings.borrow().clone();
     settings::save(&settings_snapshot);
@@ -2941,17 +3174,17 @@ fn refresh_tree(window: &MainWindow, tree_state: &Rc<RefCell<Option<TreeState>>>
         state,
         file_system::SortOrder::from_i32(window.get_sort_order()),
     )
-        .into_iter()
-        .map(|row| TreeRow {
-            path: row.path.to_string_lossy().into_owned().into(),
-            name: row.name.into(),
-            depth: row.depth,
-            is_dir: row.is_dir,
-            is_expanded: row.is_expanded,
-            is_selected: row.is_selected,
-            kind: row.kind.as_str().into(),
-        })
-        .collect();
+    .into_iter()
+    .map(|row| TreeRow {
+        path: row.path.to_string_lossy().into_owned().into(),
+        name: row.name.into(),
+        depth: row.depth,
+        is_dir: row.is_dir,
+        is_expanded: row.is_expanded,
+        is_selected: row.is_selected,
+        kind: row.kind.as_str().into(),
+    })
+    .collect();
 
     window.set_tree_rows(ModelRc::new(VecModel::from(rows)));
 }
