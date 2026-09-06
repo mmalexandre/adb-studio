@@ -138,6 +138,10 @@ pub enum SyncEvent {
         generation: u64,
         progress: SyncProgress,
     },
+    WorkflowUpdated {
+        generation: u64,
+        audio_path: String,
+    },
     Error {
         generation: u64,
         message: String,
@@ -319,14 +323,21 @@ fn sync_loop(
                     progress: current.clone(),
                 });
             }
-            if let Err(error) =
-                sync_workflow(&client, &config, file, &workspace, &destination, filename)
-            {
-                let _ = event_sender.send(SyncEvent::Error {
-                    generation,
-                    message: error.to_string(),
-                });
-                return;
+            match sync_workflow(&client, &config, file, &workspace, &destination, filename) {
+                Ok(true) => {
+                    let _ = event_sender.send(SyncEvent::WorkflowUpdated {
+                        generation,
+                        audio_path: destination.join(filename).to_string_lossy().into_owned(),
+                    });
+                }
+                Ok(false) => {}
+                Err(error) => {
+                    let _ = event_sender.send(SyncEvent::Error {
+                        generation,
+                        message: error.to_string(),
+                    });
+                    return;
+                }
             }
         }
 
@@ -344,50 +355,66 @@ fn sync_workflow(
     workspace: &Path,
     audio_directory: &Path,
     audio_filename: &str,
-) -> Result<(), SyncError> {
+) -> Result<bool, SyncError> {
     let workflow_path = workflow_local_path(workspace, audio_filename);
     if !workflow_path.exists() {
         let workflow_file = RemoteFile {
-            name: format!("{}workflow.json", audio_file.name),
-            path: format!("{}workflow.json", audio_file.path),
+            name: format!("{}.workflow.json", audio_file.name),
+            path: format!("{}.workflow.json", audio_file.path),
             modified: audio_file.modified,
         };
         if client.download_optional_file(config, &workflow_file, &workflow_path)? {
-            assign_workflow(audio_directory.join(audio_filename), &workflow_path);
+            return Ok(assign_workflow(
+                audio_directory.join(audio_filename),
+                &workflow_path,
+            ));
         }
     } else {
-        assign_workflow(audio_directory.join(audio_filename), &workflow_path);
+        return Ok(assign_workflow(
+            audio_directory.join(audio_filename),
+            &workflow_path,
+        ));
     }
-    Ok(())
+    Ok(false)
 }
 
 fn workflow_local_path(workspace: &Path, audio_filename: &str) -> PathBuf {
     workspace
         .join(".adbstudio")
         .join("workflows")
-        .join(format!("{audio_filename}workflow.json"))
+        .join(format!("{audio_filename}.workflow.json"))
 }
 
-fn assign_workflow(audio_path: PathBuf, workflow_path: &Path) {
+fn assign_workflow(audio_path: PathBuf, workflow_path: &Path) -> bool {
     let Some(audio_folder) = audio_path.parent() else {
-        return;
+        return false;
     };
     let audio_path = audio_path.to_string_lossy();
+    let workflow_path = workflow_path.to_string_lossy().into_owned();
     let mut index = metadata::load_index(audio_folder);
-    if let Some(file) = index
+    let changed = if let Some(file) = index
         .audio_files
         .iter_mut()
         .find(|file| file.file_path == audio_path)
     {
-        file.workflow_json_path = Some(workflow_path.to_string_lossy().into_owned());
+        if file.workflow_json_path.as_deref() == Some(workflow_path.as_str()) {
+            false
+        } else {
+            file.workflow_json_path = Some(workflow_path);
+            true
+        }
     } else {
         index.audio_files.push(metadata::AudioFileMetadata {
             file_path: audio_path.into_owned(),
-            workflow_json_path: Some(workflow_path.to_string_lossy().into_owned()),
+            workflow_json_path: Some(workflow_path),
             ..Default::default()
         });
+        true
+    };
+    if changed {
+        metadata::save_index(audio_folder, &index);
     }
-    metadata::save_index(audio_folder, &index);
+    changed
 }
 
 #[derive(Debug)]
@@ -722,7 +749,7 @@ mod tests {
         let workspace = Path::new("/workspace");
         assert_eq!(
             super::workflow_local_path(workspace, "song.mp3"),
-            workspace.join(".adbstudio/workflows/song.mp3workflow.json")
+            workspace.join(".adbstudio/workflows/song.mp3.workflow.json")
         );
     }
 

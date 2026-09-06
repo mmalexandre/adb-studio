@@ -1104,6 +1104,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 window.set_comfyui_sync_total(progress.total as i32);
                                 window.set_comfyui_sync_status("Syncing".into());
                             }
+                            SyncEvent::WorkflowUpdated {
+                                generation,
+                                audio_path,
+                            } if generation == current_generation
+                                && window.get_active_audio_path() == audio_path.as_str() =>
+                            {
+                                if let Some(folder) = audio_folder.borrow().clone() {
+                                    load_workflow_for_audio(
+                                        &window,
+                                        &folder,
+                                        Path::new(audio_path.as_str()),
+                                    );
+                                }
+                            }
                             SyncEvent::Error {
                                 generation,
                                 message,
