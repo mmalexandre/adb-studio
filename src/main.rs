@@ -1825,7 +1825,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         && engine.position() >= engine.duration())
                             });
                         let loop_mode = settings.borrow().loop_mode;
-                        if loop_mode == 1
+                        if (loop_mode == 1 || (loop_mode == 2 && comment_loop.is_some()))
                             && !engine.duration().is_zero()
                             && should_loop
                         {
