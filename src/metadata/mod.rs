@@ -75,6 +75,42 @@ pub fn workflow_path(folder: &Path, audio_path: &Path) -> Option<PathBuf> {
     Some(folder.join(".adbstudio").join("workflows").join(workflow_relative_path))
 }
 
+pub fn comment_path(folder: &Path, audio_path: &Path) -> Option<PathBuf> {
+    let relative_path = audio_path.strip_prefix(folder).ok()?;
+    let mut comment_relative_path = relative_path.to_path_buf();
+    comment_relative_path.set_extension("json");
+    Some(folder.join(".adbstudio").join("comment").join(comment_relative_path))
+}
+
+pub fn load_audio_metadata(folder: &Path, audio_path: &Path) -> AudioFileMetadata {
+    let metadata = comment_path(folder, audio_path)
+        .and_then(|path| fs::read_to_string(path).ok())
+        .and_then(|contents| serde_json::from_str(&contents).ok());
+    metadata.or_else(|| {
+        let path_string = audio_path.to_string_lossy();
+        load_index(folder)
+            .audio_files
+            .into_iter()
+            .find(|item| item.file_path == path_string)
+    }).unwrap_or_default()
+}
+
+pub fn save_audio_metadata(folder: &Path, audio_path: &Path, metadata: &AudioFileMetadata) {
+    let Some(path) = comment_path(folder, audio_path) else {
+        return;
+    };
+    let Some(parent) = path.parent() else {
+        return;
+    };
+    if fs::create_dir_all(parent).is_err() {
+        return;
+    }
+    let Ok(contents) = serde_json::to_string_pretty(metadata) else {
+        return;
+    };
+    let _ = fs::write(path, contents);
+}
+
 pub fn rename_associated_workflow(
     folder: &Path,
     source: &Path,
@@ -133,7 +169,10 @@ pub fn save_index(folder: &Path, index: &MetadataIndex) {
 mod tests {
     use std::fs;
 
-    use super::{rename_associated_workflow, AudioComment, AudioFileMetadata};
+    use super::{
+        comment_path, load_audio_metadata, rename_associated_workflow, save_audio_metadata,
+        AudioComment, AudioFileMetadata,
+    };
 
     fn test_folder(name: &str) -> std::path::PathBuf {
         let folder = std::env::temp_dir().join(format!("adb-studio-{name}-{}", std::process::id()));
@@ -212,5 +251,29 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(metadata.normalized_rating(), 5);
+    }
+
+    #[test]
+    fn stores_audio_comments_under_workspace_relative_path() {
+        let folder = test_folder("comment-file");
+        let audio_path = folder.join("folder1/folder2/file-name.wav");
+        let metadata = AudioFileMetadata {
+            file_path: audio_path.to_string_lossy().into_owned(),
+            comments: vec![AudioComment {
+                start_seconds: 1.0,
+                end_seconds: 2.0,
+                text: "note".into(),
+            }],
+            ..Default::default()
+        };
+
+        save_audio_metadata(&folder, &audio_path, &metadata);
+
+        assert_eq!(
+            comment_path(&folder, &audio_path).unwrap(),
+            folder.join(".adbstudio/comment/folder1/folder2/file-name.json")
+        );
+        assert_eq!(load_audio_metadata(&folder, &audio_path).comments, metadata.comments);
+        let _ = fs::remove_dir_all(folder);
     }
 }

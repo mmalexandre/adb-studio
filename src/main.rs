@@ -981,9 +981,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return;
             };
             let path_string = path.to_string();
-            let path = Path::new(path.as_str());
-            let metadata_folder = audio_metadata_folder(&folder, path);
-            let mut index = metadata::load_index(&metadata_folder);
+            let mut index = metadata::load_index(&folder);
             if let Some(file) = index
                 .audio_files
                 .iter_mut()
@@ -997,7 +995,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     ..Default::default()
                 });
             }
-            metadata::save_index(&metadata_folder, &index);
+            metadata::save_index(&folder, &index);
             if let Some(model) = audio_model.borrow().clone() {
                 for index in 0..model.row_count() {
                     let Some(row) = model.row_data(index) else {
@@ -1236,15 +1234,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return;
             };
             let path_string = path.to_string();
-            let mut index = metadata::load_index(&folder);
+            let audio_path = Path::new(path.as_str());
+            let mut file = metadata::load_audio_metadata(&folder, audio_path);
+            if file.file_path.is_empty() {
+                return;
+            }
+            if file.file_path != path_string {
+                return;
+            }
             let comments = {
-                let Some(file) = index
-                    .audio_files
-                    .iter_mut()
-                    .find(|item| item.file_path == path_string)
-                else {
-                    return;
-                };
                 let duration = file.duration_seconds;
                 if duration <= 0.0 {
                     return;
@@ -1259,11 +1257,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 } else {
                     return;
                 }
-                comment_rows(file)
+                comment_rows(&file)
             };
-            metadata::save_index(&folder, &index);
-            update_comment_model(&audio_model, Path::new(path.as_str()), comments);
-            select_comment(&audio_model, Path::new(path.as_str()), start, end);
+            metadata::save_audio_metadata(&folder, audio_path, &file);
+            update_comment_model(&audio_model, audio_path, comments);
+            select_comment(&audio_model, audio_path, start, end);
         });
     }
 
@@ -1398,8 +1396,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let Some(workspace) = audio_folder.borrow().clone() else {
                 return;
             };
-            let folder = audio_metadata_folder(&workspace, &path);
-            let duration = comment_duration(&folder, &path, &playback);
+            let duration = comment_duration(&workspace, &path, &playback);
             if duration <= 0.0 {
                 window.set_audio_error("Unable to determine audio duration".into());
                 return;
@@ -1444,7 +1441,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 engine.position(),
                 engine.duration(),
             );
-            save_playback_position(&folder, engine);
+            save_playback_position(&workspace, engine);
         });
     }
 
@@ -1503,12 +1500,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 window.set_audio_error("Comment times must be numbers".into());
                 return;
             };
-            let duration = metadata::load_index(&folder)
-                .audio_files
-                .iter()
-                .find(|item| item.file_path == path.to_string_lossy())
-                .map(|item| item.duration_seconds)
-                .filter(|duration| *duration > 0.0)
+            let stored_metadata = metadata::load_audio_metadata(&folder, &path);
+            let duration = (stored_metadata.duration_seconds > 0.0)
+                .then_some(stored_metadata.duration_seconds)
                 .unwrap_or(*comment_editor_duration.borrow());
             if duration <= 0.0 {
                 window.set_audio_error("Unable to determine audio duration".into());
@@ -1522,40 +1516,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .normalized(duration);
             let selected_start = comment.start_seconds / duration;
             let selected_end = comment.end_seconds / duration;
-            let mut index = metadata::load_index(&folder);
-            let Some(file) = index
-                .audio_files
-                .iter_mut()
-                .find(|item| item.file_path == path.to_string_lossy())
-            else {
-                index.audio_files.push(metadata::AudioFileMetadata {
-                    file_path: path.to_string_lossy().into_owned(),
-                    comments: vec![comment],
-                    ..Default::default()
-                });
-                metadata::save_index(&folder, &index);
-                refresh_audio(
-                    &window,
-                    &audio_folder,
-                    &audio_model,
-                    &audio_load_state,
-                    folder,
-                );
-                select_comment(&audio_model, &path, selected_start, selected_end);
-                window.set_comment_editor_visible(false);
-                return;
-            };
+            let mut file = stored_metadata;
+            file.file_path = path.to_string_lossy().into_owned();
             if let Some(original) = comment_editor_original.borrow_mut().take() {
                 file.comments.retain(|item| item != &original);
             }
             file.comments.push(comment);
-            metadata::save_index(&folder, &index);
+            metadata::save_audio_metadata(&folder, &path, &file);
+            let view_folder = path.parent().unwrap_or(&folder).to_path_buf();
             refresh_audio(
                 &window,
                 &audio_folder,
                 &audio_model,
                 &audio_load_state,
-                folder,
+                view_folder,
             );
             select_comment(&audio_model, &path, selected_start, selected_end);
             window.set_comment_editor_visible(false);
@@ -1576,24 +1550,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return;
             };
             let path = PathBuf::from(path.as_str());
-            let folder = audio_metadata_folder(&workspace, &path);
-            let mut index = metadata::load_index(&folder);
-            let Some(file) = index
-                .audio_files
-                .iter_mut()
-                .find(|item| item.file_path == path.to_string_lossy())
-            else {
+            let mut file = metadata::load_audio_metadata(&workspace, &path);
+            if file.file_path.is_empty() {
                 return;
-            };
+            }
             if let Some(original) = comment_editor_original.borrow_mut().take() {
                 file.comments.retain(|item| item != &original);
-                metadata::save_index(&folder, &index);
+                metadata::save_audio_metadata(&workspace, &path, &file);
+                let view_folder = path.parent().unwrap_or(&workspace).to_path_buf();
                 refresh_audio(
                     &window,
                     &audio_folder,
                     &audio_model,
                     &audio_load_state,
-                    folder,
+                    view_folder,
                 );
             }
             window.set_comment_editor_visible(false);
@@ -3317,6 +3287,7 @@ fn refresh_audio_with_changes(
         .borrow()
         .clone()
         .and_then(|workspace| workspace::preferences::pinned_track(&workspace, &folder));
+    let workspace = audio_folder.borrow().clone().unwrap_or_default();
     let index = metadata::load_index(&folder);
     let mut rows = Vec::new();
     for entry in file_system::read_dir_sorted(
@@ -3345,10 +3316,7 @@ fn refresh_audio_with_changes(
             .audio_files
             .iter()
             .find(|item| item.file_path == path_string);
-        let comments = stored_position
-            .as_ref()
-            .map(|item| comment_rows(item))
-            .unwrap_or_else(|| ModelRc::new(VecModel::from(Vec::new())));
+        let comments = comment_rows(&metadata::load_audio_metadata(&workspace, &entry.path));
         let progress = stored_position
             .as_ref()
             .filter(|item| item.duration_seconds > 0.0)
@@ -3464,9 +3432,7 @@ fn matches_audio_filter(name: &str, filter: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::path::{Path, PathBuf};
-
-    use super::{audio_metadata_folder, matches_audio_filter};
+    use super::matches_audio_filter;
 
     #[test]
     fn audio_filter_matches_names_case_insensitively() {
@@ -3475,17 +3441,6 @@ mod tests {
         assert!(!matches_audio_filter("My Voice.WAV", "music"));
     }
 
-    #[test]
-    fn audio_metadata_uses_the_track_folder() {
-        assert_eq!(
-            audio_metadata_folder(Path::new("/workspace"), Path::new("/workspace/sub/track.wav")),
-            PathBuf::from("/workspace/sub")
-        );
-        assert_eq!(
-            audio_metadata_folder(Path::new("/workspace"), Path::new("/other/track.wav")),
-            PathBuf::from("/workspace")
-        );
-    }
 }
 
 fn comment_duration(
@@ -3493,14 +3448,8 @@ fn comment_duration(
     path: &Path,
     playback: &Rc<RefCell<Option<PlaybackEngine>>>,
 ) -> f32 {
-    let folder = audio_metadata_folder(folder, path);
     let path_string = path.to_string_lossy();
-    let stored_duration = metadata::load_index(&folder)
-        .audio_files
-        .iter()
-        .find(|item| item.file_path == path_string)
-        .map(|item| item.duration_seconds)
-        .unwrap_or_default();
+    let stored_duration = metadata::load_audio_metadata(folder, path).duration_seconds;
     if stored_duration > 0.0 {
         return stored_duration;
     }
@@ -3513,31 +3462,12 @@ fn comment_duration(
     }
     let duration = engine.duration().as_secs_f32();
     if duration > 0.0 {
-        let mut index = metadata::load_index(&folder);
-        if let Some(file) = index
-            .audio_files
-            .iter_mut()
-            .find(|item| item.file_path == path_string)
-        {
-            file.duration_seconds = duration;
-        } else {
-            index.audio_files.push(metadata::AudioFileMetadata {
-                file_path: path_string.into_owned(),
-                duration_seconds: duration,
-                ..Default::default()
-            });
-        }
-        metadata::save_index(&folder, &index);
+        let mut metadata = metadata::load_audio_metadata(folder, path);
+        metadata.file_path = path_string.into_owned();
+        metadata.duration_seconds = duration;
+        metadata::save_audio_metadata(folder, path, &metadata);
     }
     duration
-}
-
-fn audio_metadata_folder(workspace: &Path, audio_path: &Path) -> PathBuf {
-    audio_path
-        .parent()
-        .filter(|_| audio_path.starts_with(workspace))
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| workspace.to_path_buf())
 }
 
 fn save_playback_position(folder: &Path, engine: &PlaybackEngine) {
