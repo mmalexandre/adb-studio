@@ -7,18 +7,19 @@ use std::{
     rc::Rc,
     sync::mpsc,
     sync::{
-        atomic::{AtomicU64, Ordering},
+        atomic::Ordering,
         Arc, Mutex,
     },
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-use audio::conversion::{self, ConversionJob, ConversionUpdate};
+use audio::conversion::{self, ConversionJob};
 use audio::playback::PlaybackEngine;
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 
+mod app;
 mod audio;
 mod metadata;
 mod settings;
@@ -43,38 +44,36 @@ use sync::{ComfyUiClient, SyncConfig, SyncController, SyncEvent, WorkflowRunUpda
 use workspace::workflow::{clear_workflow, load_workflow_for_audio, scan_json_files};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    sync_cursor_environment();
+    app::env::sync_cursor_environment();
     let window = MainWindow::new()?;
     slint::set_xdg_app_id("com.adbstudio.AdbStudio")?;
-    let settings = Rc::new(RefCell::new(settings::load()));
+    let state = app::AppState::new();
+    let settings = state.settings.clone();
+    *settings.borrow_mut() = settings::load();
     settings::restore_window(&window, &mut settings.borrow_mut());
-    let tree_state: Rc<RefCell<Option<TreeState>>> = Rc::new(RefCell::new(None));
-    let audio_folder: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(None));
-    let workflow_files: Rc<RefCell<Vec<(String, String)>>> = Rc::new(RefCell::new(Vec::new()));
-    let edited_workflow: Rc<RefCell<Option<serde_json::Value>>> = Rc::new(RefCell::new(None));
-    let workflow_loading = Rc::new(RefCell::new(false));
-    let recreate_workflow_pending = Rc::new(RefCell::new(false));
-    let workspace_watcher: Rc<RefCell<Option<RecommendedWatcher>>> = Rc::new(RefCell::new(None));
+    let tree_state = state.tree_state.clone();
+    let audio_folder = state.audio_folder.clone();
+    let workflow_files = state.workflow_files.clone();
+    let edited_workflow = state.edited_workflow.clone();
+    let workflow_loading = state.workflow_loading.clone();
+    let recreate_workflow_pending = state.recreate_workflow_pending.clone();
+    let workspace_watcher = state.workspace_watcher.clone();
     let (workspace_change_sender, workspace_change_receiver) = mpsc::channel::<Vec<PathBuf>>();
-    let audio_model: Rc<RefCell<Option<Rc<VecModel<AudioRow>>>>> = Rc::new(RefCell::new(None));
-    let sync_controller = Rc::new(RefCell::new(SyncController::new()));
-    let comment_editor_original: Rc<RefCell<Option<AudioComment>>> = Rc::new(RefCell::new(None));
-    let comment_editor_duration = Rc::new(RefCell::new(0.0_f32));
-    let last_button_click: Rc<RefCell<Option<(PathBuf, Instant)>>> = Rc::new(RefCell::new(None));
-    let conversion_receiver: Rc<RefCell<Option<mpsc::Receiver<ConversionUpdate>>>> =
-        Rc::new(RefCell::new(None));
-    let conversion_cancelled: Rc<RefCell<Option<Arc<std::sync::atomic::AtomicBool>>>> =
-        Rc::new(RefCell::new(None));
-    let conversion_jobs: Rc<RefCell<Vec<ConversionJob>>> = Rc::new(RefCell::new(Vec::new()));
-    let conversion_temp_root: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(None));
-    let conversion_target: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(None));
-    let conversion_model: Rc<RefCell<Option<Rc<VecModel<ConversionRow>>>>> =
-        Rc::new(RefCell::new(None));
-    let (workflow_run_sender, workflow_run_receiver) = mpsc::channel::<WorkflowRunUpdate>();
-    let workflow_run_receiver: Rc<RefCell<Option<mpsc::Receiver<WorkflowRunUpdate>>>> =
-        Rc::new(RefCell::new(Some(workflow_run_receiver)));
-    let workflow_run_cancelled: Rc<RefCell<Option<Arc<std::sync::atomic::AtomicBool>>>> =
-        Rc::new(RefCell::new(None));
+    let audio_model = state.audio_model.clone();
+    let sync_controller = state.sync_controller.clone();
+    let comment_editor_original = state.comment_editor_original.clone();
+    let comment_editor_duration = state.comment_editor_duration.clone();
+    let last_button_click = state.last_button_click.clone();
+    let conversion_receiver = state.conversion_receiver.clone();
+    let conversion_cancelled = state.conversion_cancelled.clone();
+    let conversion_jobs = state.conversion_jobs.clone();
+    let conversion_temp_root = state.conversion_temp_root.clone();
+    let conversion_target = state.conversion_target.clone();
+    let conversion_model = state.conversion_model.clone();
+    let workflow_run_sender = state.workflow_run_sender.clone();
+    let workflow_run_receiver = state.workflow_run_receiver.clone();
+    let workflow_run_cancelled = state.workflow_run_cancelled.clone();
+    let audio_result_receiver = state.audio_result_receiver.clone();
     let (playback, playback_error) = match PlaybackEngine::new() {
         Ok(engine) => (Rc::new(RefCell::new(Some(engine))), None),
         Err(error) => (Rc::new(RefCell::new(None)), Some(error)),
@@ -82,20 +81,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(error) = playback_error {
         window.set_audio_error(error.into());
     }
-    let (audio_result_sender, audio_result_receiver) = mpsc::channel();
-    let audio_load_state = Arc::new(Mutex::new(AudioLoadState {
-        folder: PathBuf::new(),
-        paths: Vec::new(),
-        requested_range: None,
-        generated: std::collections::HashSet::new(),
-        loading: std::collections::HashSet::new(),
-        generation: 0,
-        cancellation_generation: Arc::new(AtomicU64::new(0)),
-        running: false,
-        completed: 0,
-        total: 0,
-        result_sender: audio_result_sender,
-    }));
+    let audio_load_state = state.audio_load_state.clone();
     window.set_build_number(BUILD_NUMBER.into());
     window.set_light_theme(settings.borrow().light_theme);
     window.set_theme_index(if settings.borrow().light_theme { 1 } else { 0 });
@@ -1655,7 +1641,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let settings = Rc::clone(&settings);
         let last_persisted_position = Rc::new(RefCell::new(Instant::now()));
         let last_persisted_position_for_timer = Rc::clone(&last_persisted_position);
-        let audio_result_receiver = Rc::new(RefCell::new(audio_result_receiver));
         let sync_controller = Rc::clone(&sync_controller);
         let workflow_loading = Rc::clone(&workflow_loading);
         let workspace_change_receiver = Rc::new(RefCell::new(workspace_change_receiver));
@@ -2016,38 +2001,40 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 };
                 let loading = audio_load_state.lock().unwrap().loading.clone();
                 update_audio_loading_rows(&audio_model, &loading);
-                for result in audio_result_receiver.borrow_mut().try_iter().take(3) {
-                    let current_generation = audio_load_state.lock().unwrap().generation;
-                    if result.generation != current_generation || result.index >= model.row_count()
-                    {
-                        continue;
+                if let Some(receiver) = audio_result_receiver.borrow_mut().as_mut() {
+                    for result in receiver.try_iter().take(3) {
+                        let current_generation = audio_load_state.lock().unwrap().generation;
+                        if result.generation != current_generation || result.index >= model.row_count()
+                        {
+                            continue;
+                        }
+                        let Some(row) = model.row_data(result.index) else {
+                            continue;
+                        };
+                        model.set_row_data(
+                            result.index,
+                            AudioRow {
+                                path: result.path.into(),
+                                name: row.name,
+                                modified_date: row.modified_date,
+                                peaks: ModelRc::new(VecModel::from(waveform::aggregate_peaks(
+                                    &result.peaks,
+                                ))),
+                                is_loading: false,
+                                comments: row.comments,
+                                differences: row.differences,
+                                rating: row.rating,
+                                is_pinned: row.is_pinned,
+                                is_selected: row.is_selected,
+                                is_active: row.is_active,
+                                is_playing: row.is_playing,
+                                progress: row.progress,
+                                loop_enabled: row.loop_enabled,
+                                selected_comment_start: row.selected_comment_start,
+                                selected_comment_end: row.selected_comment_end,
+                            },
+                        );
                     }
-                    let Some(row) = model.row_data(result.index) else {
-                        continue;
-                    };
-                    model.set_row_data(
-                        result.index,
-                        AudioRow {
-                            path: result.path.into(),
-                            name: row.name,
-                            modified_date: row.modified_date,
-                            peaks: ModelRc::new(VecModel::from(waveform::aggregate_peaks(
-                                &result.peaks,
-                            ))),
-                            is_loading: false,
-                            comments: row.comments,
-                            differences: row.differences,
-                            rating: row.rating,
-                            is_pinned: row.is_pinned,
-                            is_selected: row.is_selected,
-                            is_active: row.is_active,
-                            is_playing: row.is_playing,
-                            progress: row.progress,
-                            loop_enabled: row.loop_enabled,
-                            selected_comment_start: row.selected_comment_start,
-                            selected_comment_end: row.selected_comment_end,
-                        },
-                    );
                 }
             },
         );
@@ -2962,31 +2949,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     settings::save_window(&window, &mut settings.borrow_mut());
     settings::save(&settings.borrow());
     Ok(())
-}
-
-fn sync_cursor_environment() {
-    if std::env::var_os("XCURSOR_THEME").is_none() {
-        if let Some(theme) = gsettings_value("org.gnome.desktop.interface", "cursor-theme") {
-            std::env::set_var("XCURSOR_THEME", theme);
-        }
-    }
-    if std::env::var_os("XCURSOR_SIZE").is_none() {
-        if let Some(size) = gsettings_value("org.gnome.desktop.interface", "cursor-size") {
-            std::env::set_var("XCURSOR_SIZE", size);
-        }
-    }
-}
-
-fn gsettings_value(schema: &str, key: &str) -> Option<String> {
-    let output = Command::new("gsettings")
-        .args(["get", schema, key])
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    let value = String::from_utf8(output.stdout).ok()?.trim().to_owned();
-    Some(value.trim_matches('\'').to_owned())
 }
 
 fn set_workspace(
