@@ -19,6 +19,8 @@ use crate::{
 };
 
 pub mod env;
+pub mod playback_controller;
+pub mod window_controller;
 
 pub struct AppState {
     pub settings: Rc<RefCell<AppSettings>>,
