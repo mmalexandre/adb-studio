@@ -11,10 +11,12 @@ use crate::{
     audio::{
         playback::PlaybackEngine,
         session::{comment_duration, save_playback_position},
-        view::{scroll_to_path as scroll_audio_to_path, select_audio_path, select_comment, update_audio_rows},
+        view::{
+            format_duration, scroll_to_path as scroll_audio_to_path, select_audio_path,
+            select_comment, update_audio_rows,
+        },
     },
     metadata::AudioComment,
-    settings,
     workspace::{file_system::TreeState, tree_nav::select_tree_path},
     MainWindow,
 };
@@ -326,7 +328,7 @@ pub fn register_playback_callbacks(
         let weak_window = window.as_weak();
         let audio_model = Rc::clone(audio_model);
         let audio_folder = Rc::clone(audio_folder);
-        let playback = Rc::clone(playback);
+        let _playback = Rc::clone(playback);
         let last_button_click = Rc::clone(last_button_click);
         let tree_state = Rc::clone(tree_state);
         let settings = Rc::clone(settings);
@@ -367,4 +369,79 @@ fn format_seconds(seconds: f32) -> String {
     let mins = total / 60;
     let secs = total % 60;
     format!("{mins}:{secs:02}")
+}
+
+/// Advances playback position, handles loop/auto-advance, and persists position periodically.
+pub fn tick(
+    window: &MainWindow,
+    playback: &Rc<RefCell<Option<PlaybackEngine>>>,
+    audio_model: &Rc<RefCell<Option<Rc<slint::VecModel<crate::AudioRow>>>>>,
+    audio_folder: &Rc<RefCell<Option<PathBuf>>>,
+    settings: &Rc<RefCell<crate::settings::AppSettings>>,
+    last_persisted_position: &Rc<RefCell<Instant>>,
+) {
+    let mut folder_next_path = None;
+    if let Some(engine) = playback.borrow_mut().as_mut() {
+        engine.update_position();
+        let comment_loop = engine.comment_loop();
+        let should_loop = comment_loop
+            .map(|(_, end)| engine.position() >= end)
+            .unwrap_or_else(|| {
+                engine.has_finished() || (!engine.is_playing() && engine.position() >= engine.duration())
+            });
+        let loop_mode = settings.borrow().loop_mode;
+        if (loop_mode == 1 || (loop_mode == 2 && comment_loop.is_some()))
+            && !engine.duration().is_zero()
+            && should_loop
+        {
+            if let Some(path) = engine.path().map(Path::to_path_buf) {
+                let loop_start = comment_loop.map(|(start, _)| start).unwrap_or(Duration::ZERO);
+                let _ = engine.play(&path, loop_start);
+            }
+        } else if loop_mode == 2 && !engine.duration().is_zero() && should_loop {
+            if let Some(path) = engine.path() {
+                if let Some(model) = audio_model.borrow().clone() {
+                    let row_count = model.row_count();
+                    let current_index = (0..row_count).find(|index| {
+                        model
+                            .row_data(*index)
+                            .is_some_and(|row| row.path.as_str() == path.to_string_lossy().as_ref())
+                    });
+                    if let Some(current_index) = current_index {
+                        let next_index = (current_index + 1) % row_count;
+                        folder_next_path = model.row_data(next_index).map(|row| row.path);
+                    }
+                }
+            }
+        }
+        let active_path = engine
+            .path()
+            .map(|path| path.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let position = engine.position();
+        let duration = engine.duration();
+        let playing = engine.is_playing();
+        window.set_active_audio_path(active_path.into());
+        window.set_audio_file_name(
+            engine
+                .path()
+                .and_then(|path| path.file_name())
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default()
+                .into(),
+        );
+        window.set_audio_playing(playing);
+        window.set_audio_current_time(format_duration(position).into());
+        window.set_audio_total_duration(format_duration(duration).into());
+        update_audio_rows(audio_model, engine.path(), playing, position, duration);
+        if last_persisted_position.borrow().elapsed() >= Duration::from_millis(500) {
+            if let Some(folder) = audio_folder.borrow().clone() {
+                save_playback_position(&folder, engine);
+            }
+            *last_persisted_position.borrow_mut() = Instant::now();
+        }
+    }
+    if let Some(path) = folder_next_path {
+        window.invoke_audio_play(path);
+    }
 }

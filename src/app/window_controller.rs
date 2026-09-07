@@ -7,13 +7,13 @@ use std::{
 };
 
 use notify::RecommendedWatcher;
-use slint::{ComponentHandle, Model};
+use slint::ComponentHandle;
 
 use crate::{
     audio::{
         loader::State as AudioLoadState,
         playback::PlaybackEngine,
-        view::{format_duration, scroll_to_path as scroll_audio_to_path, select_audio_path, update_audio_rows},
+        view::{format_duration, scroll_to_path as scroll_audio_to_path, update_audio_rows},
     },
     settings::{self, AppSettings},
     workspace::{

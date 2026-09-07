@@ -18,9 +18,12 @@ use crate::{
     workspace::file_system::TreeState,
 };
 
+pub mod conversion_controller;
 pub mod env;
+pub mod metadata_pane_controller;
 pub mod playback_controller;
 pub mod sync_ui_controller;
+pub mod tree_controller;
 pub mod window_controller;
 pub mod workflow_controller;
 

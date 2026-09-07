@@ -1,20 +1,27 @@
 use std::{
     cell::RefCell,
-    path::PathBuf,
+    path::{Path, PathBuf},
     rc::Rc,
     sync::{Arc, Mutex},
+    time::Duration,
 };
 
-use slint::{ComponentHandle, Model};
+use slint::ComponentHandle;
 
 use crate::{
-    audio::loader::State as AudioLoadState,
+    audio::{
+        loader::State as AudioLoadState,
+        playback::PlaybackEngine,
+        session::save_playback_position,
+        view::{scroll_to_path as scroll_audio_to_path, select_audio_path, update_audio_rows},
+    },
     settings::{self, AppSettings},
-    sync::{self, ComfyUiClient, SyncConfig},
+    sync::{self, ComfyUiClient, SyncConfig, SyncEvent},
     workspace::{
         file_system::TreeState,
         library::refresh_audio,
         tree_nav::{refresh_tree, select_tree_path},
+        workflow::load_workflow_for_audio,
     },
     MainWindow,
 };
@@ -341,5 +348,109 @@ pub fn register_sync_ui_callbacks(
                 folder,
             );
         });
+    }
+}
+
+/// Drains ComfyUI sync events and applies them to the window/audio state; advances the spinner.
+#[allow(clippy::too_many_arguments)]
+pub fn tick(
+    window: &MainWindow,
+    settings: &Rc<RefCell<AppSettings>>,
+    tree_state: &Rc<RefCell<Option<TreeState>>>,
+    audio_folder: &Rc<RefCell<Option<PathBuf>>>,
+    audio_model: &Rc<RefCell<Option<Rc<slint::VecModel<crate::AudioRow>>>>>,
+    audio_load_state: &Arc<Mutex<AudioLoadState>>,
+    sync_controller: &Rc<RefCell<crate::sync::SyncController>>,
+    playback: &Rc<RefCell<Option<PlaybackEngine>>>,
+    workflow_loading: &Rc<RefCell<bool>>,
+    sync_spinner_frame: &mut usize,
+) {
+    let current_generation = sync_controller.borrow().generation();
+    for event in sync_controller.borrow().events().try_iter() {
+        match event {
+            SyncEvent::Running { generation } if generation == current_generation => {
+                window.set_comfyui_sync_active(true);
+                window.set_comfyui_sync_error_state(false);
+                window.set_comfyui_sync_status("Syncing".into());
+            }
+            SyncEvent::Progress {
+                generation,
+                progress,
+            } if generation == current_generation => {
+                window.set_comfyui_sync_active(true);
+                window.set_comfyui_sync_error_state(false);
+                window.set_comfyui_sync_present(progress.present as i32);
+                window.set_comfyui_sync_total(progress.total as i32);
+                window.set_comfyui_sync_status("Syncing".into());
+            }
+            SyncEvent::Downloaded {
+                generation,
+                audio_path,
+            } if generation == current_generation && settings.borrow().auto_play_new_tracks => {
+                let path = PathBuf::from(&audio_path);
+                let Some(folder) = audio_folder.borrow().clone() else {
+                    continue;
+                };
+                let Some(parent) = path.parent().map(Path::to_path_buf) else {
+                    continue;
+                };
+                select_tree_path(window, tree_state, settings, &path);
+                refresh_audio(window, audio_folder, audio_model, audio_load_state, parent);
+                window.set_selected_audio_path(audio_path.clone().into());
+                select_audio_path(audio_model, &path);
+                let mut playback_ref = playback.borrow_mut();
+                let Some(engine) = playback_ref.as_mut() else {
+                    continue;
+                };
+                engine.clear_comment_loop();
+                if let Err(error) = engine.play(&path, Duration::ZERO) {
+                    window.set_audio_error(error.into());
+                    continue;
+                }
+                window.set_audio_error("".into());
+                window.set_active_audio_path(audio_path.clone().into());
+                window.set_audio_file_name(
+                    path.file_name()
+                        .and_then(|name| name.to_str())
+                        .unwrap_or_default()
+                        .into(),
+                );
+                window.set_audio_playing(engine.is_playing());
+                update_audio_rows(
+                    audio_model,
+                    engine.path(),
+                    engine.is_playing(),
+                    engine.position(),
+                    engine.duration(),
+                );
+                scroll_audio_to_path(window, audio_model, &path);
+                load_workflow_for_audio(window, &folder, &path, workflow_loading);
+                save_playback_position(&folder, engine);
+            }
+            SyncEvent::WorkflowUpdated {
+                generation,
+                audio_path,
+            } if generation == current_generation
+                && window.get_active_audio_path() == audio_path.as_str() =>
+            {
+                if let Some(folder) = audio_folder.borrow().clone() {
+                    load_workflow_for_audio(window, &folder, Path::new(audio_path.as_str()), workflow_loading);
+                }
+            }
+            SyncEvent::Error {
+                generation,
+                message,
+            } if generation == current_generation => {
+                window.set_comfyui_sync_active(false);
+                window.set_comfyui_sync_error_state(true);
+                window.set_comfyui_sync_status("Sync stopped".into());
+                window.set_comfyui_sync_error(message.into());
+            }
+            _ => {}
+        }
+    }
+    if window.get_comfyui_sync_active() {
+        window.set_comfyui_sync_spinner(["|", "/", "-", "\\"][*sync_spinner_frame].into());
+        *sync_spinner_frame = (*sync_spinner_frame + 1) % 4;
     }
 }
