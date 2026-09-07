@@ -148,7 +148,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             window.set_audio_error("Select a workflow before recreating it".into());
             return;
         }
-        let workflow = if let Some(workflow) = edited_workflow.borrow().clone() {
+        let mut workflow = if let Some(workflow) = edited_workflow.borrow().clone() {
             workflow
         } else {
             match fs::read_to_string(&workflow_path)
@@ -164,6 +164,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         };
+        for (field, value) in [
+            ("bpm", window.get_workflow_bpm().to_string()),
+            ("key", window.get_workflow_key().to_string()),
+            ("seed", window.get_workflow_seed().to_string()),
+            ("prompt", window.get_workflow_prompt().to_string()),
+            ("lyrics", window.get_workflow_lyrics().to_string()),
+        ] {
+            metadata::comfyui::update_metadata(&mut workflow, field, &value);
+        }
         match ComfyUiClient::new().and_then(|client| client.upload_workflow(config, &workflow)) {
             Ok(()) => {
                 *edited_workflow.borrow_mut() = None;

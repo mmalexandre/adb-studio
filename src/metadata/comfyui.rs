@@ -828,6 +828,8 @@ mod tests {
         assert!(super::update_metadata(&mut value, "bpm", "150"));
         assert!(super::update_metadata(&mut value, "key", "D minor"));
         assert!(super::update_metadata(&mut value, "lyrics", "new lyrics"));
+        assert!(super::update_metadata(&mut value, "seed", "42"));
+        assert_eq!(value["nodes"][0]["widgets_values"][2], json!(42));
         assert_eq!(value["nodes"][0]["widgets_values"][4], json!(150));
         assert_eq!(value["nodes"][0]["widgets_values"][5], json!("D minor"));
         assert_eq!(value["nodes"][0]["widgets_values"][1], json!("new lyrics"));
