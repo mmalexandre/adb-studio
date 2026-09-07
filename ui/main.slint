@@ -1477,9 +1477,9 @@ export component MainWindow inherits Window {
                     }
                     Rectangle {
                         height: root.metadata-pane-height + 20px;
-                        background: root.workflow-modified ? #d46b32 : (root.light-theme ? #eef1f5 : #1a2029);
-                        border-color: root.light-theme ? #cbd2dc : #2a3340;
-                        border-width: 1px;
+                        background: root.light-theme ? #eef1f5 : #1a2029;
+                        border-color: root.workflow-modified ? #d46b32 : (root.light-theme ? #cbd2dc : #2a3340);
+                        border-width: 5px;
                         CompactIconButton {
                             x: parent.width - self.width - 6px;
                             y: 6px;
@@ -1500,15 +1500,15 @@ export component MainWindow inherits Window {
                                     height: 100%;
                                     alignment: start;
                                     spacing: 6px;
-                                    Text { text: "Duration\n" + root.audio-total-duration; color: root.workflow-modified ? #ffffff : (root.light-theme ? #202833 : #e3e8ef); }
-                                    Text { text: "BPM"; color: root.workflow-modified ? #ffffff : (root.light-theme ? #202833 : #e3e8ef); }
+                                    Text { text: "Duration\n" + root.audio-total-duration; color: root.light-theme ? #202833 : #e3e8ef; }
+                                    Text { text: "BPM"; color: root.light-theme ? #202833 : #e3e8ef; }
                                     SpinBox {
                                         minimum: 0;
                                         value <=> root.workflow-bpm-number;
                                         edited(value) => { root.workflow-number-changed("bpm", self.value); }
                                         changed has-focus => { root.text-input-focused = self.has-focus; }
                                     }
-                                    Text { text: "Key"; color: root.workflow-modified ? #ffffff : (root.light-theme ? #202833 : #e3e8ef); }
+                                    Text { text: "Key"; color: root.light-theme ? #202833 : #e3e8ef; }
                                     ComboBox {
                                         model: ["C major", "C minor", "C# major", "C# minor", "D major", "D minor", "Eb major", "Eb minor", "E major", "E minor", "F major", "F minor", "F# major", "F# minor", "G major", "G minor", "Ab major", "Ab minor", "A major", "A minor", "Bb major", "Bb minor", "B major", "B minor"];
                                         current-index: root.workflow-key-index;
@@ -1519,7 +1519,7 @@ export component MainWindow inherits Window {
                                             }
                                         }
                                     }
-                                    Text { text: "Seed"; color: root.workflow-modified ? #ffffff : (root.light-theme ? #202833 : #e3e8ef); }
+                                    Text { text: "Seed"; color: root.light-theme ? #202833 : #e3e8ef; }
                                     SpinBox {
                                         minimum: 0;
                                         value <=> root.workflow-seed-number;
@@ -1530,7 +1530,7 @@ export component MainWindow inherits Window {
                                     VerticalBox {
                                     width: (parent.width - 36px) / 4;
                                     height: 100%;
-                                    Text { text: "Prompt"; color: root.workflow-modified ? #ffffff : (root.light-theme ? #202833 : #e3e8ef); }
+                                    Text { text: "Prompt"; color: root.light-theme ? #202833 : #e3e8ef; }
                                     TextEdit {
                                         width: 100%;
                                         height: 100%;
@@ -1543,7 +1543,7 @@ export component MainWindow inherits Window {
                                 VerticalBox {
                                     width: (parent.width - 36px) / 4;
                                     height: 100%;
-                                    Text { text: "Lyrics"; color: root.workflow-modified ? #ffffff : (root.light-theme ? #202833 : #e3e8ef); }
+                                    Text { text: "Lyrics"; color: root.light-theme ? #202833 : #e3e8ef; }
                                     TextEdit {
                                         width: 100%;
                                         height: 100%;
@@ -1556,8 +1556,8 @@ export component MainWindow inherits Window {
                                 VerticalBox {
                                     width: (parent.width - 36px) / 4;
                                     height: 100%;
-                                    Text { text: "Model\n" + (root.workflow-model == "" ? "-" : root.workflow-model); color: root.workflow-modified ? #ffffff : (root.light-theme ? #202833 : #e3e8ef); overflow: elide; }
-                                    Text { text: "LoRAs"; color: root.workflow-modified ? #ffffff : (root.light-theme ? #202833 : #e3e8ef); }
+                                    Text { text: "Model\n" + (root.workflow-model == "" ? "-" : root.workflow-model); color: root.light-theme ? #202833 : #e3e8ef; overflow: elide; }
+                                    Text { text: "LoRAs"; color: root.light-theme ? #202833 : #e3e8ef; }
                                     ListView {
                                         height: 100%;
                                         vertical-scrollbar-policy: always-on;
