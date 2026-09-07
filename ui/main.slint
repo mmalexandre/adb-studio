@@ -413,6 +413,7 @@ component AudioRowView inherits Rectangle {
                     y: (parent.height - self.height) / 2;
                     width: 18px;
                     height: 18px;
+                    colorize: #ffffff;
                     opacity: trash-area.has-hover ? 1 : 0.65;
                 }
                 trash-area := TouchArea {
@@ -430,6 +431,7 @@ component AudioRowView inherits Rectangle {
                     y: (parent.height - self.height) / 2;
                     width: 18px;
                     height: 18px;
+                    colorize: #ffffff;
                     opacity: pin-area.has-hover ? 1 : (root.is-pinned ? 1 : 0.65);
                 }
                 pin-area := TouchArea {
@@ -445,7 +447,7 @@ component AudioRowView inherits Rectangle {
                         width: 40px;
                         height: 40px;
                         border-radius: 20px;
-                        background: #ffffff;
+                        background: root.light-theme ? #ffffff : #242d38;
                         border-color: root.light-theme ? (play-area.has-hover ? #b8c0ca : #b8c0ca80) : (play-area.has-hover ? #566171 : #56617180);
                         border-width: 2px;
                         Image {
@@ -456,6 +458,7 @@ component AudioRowView inherits Rectangle {
                             y: (parent.height - self.height) / 2;
                             width: 18px;
                             height: 18px;
+                            colorize: root.light-theme ? #566171 : #f1f4f8;
                             opacity: play-area.has-hover ? 1 : 0.5;
                         }
                         play-area := TouchArea {
@@ -760,6 +763,7 @@ component ExplorerList inherits ListView {
 
 export component MainWindow inherits Window {
     title: "Adb Studio";
+    no-frame: true;
     preferred-width: 1280px;
     preferred-height: 800px;
     min-width: 900px;
@@ -1024,7 +1028,7 @@ export component MainWindow inherits Window {
             spacing: 0px;
 
             Rectangle {
-                height: 40px;
+                height: 35px;
                 background: root.light-theme ? #eef1f5 : #1a2029;
                 border-color: root.light-theme ? #cbd2dc : #2a3340;
                 border-width: 1px;
@@ -1081,6 +1085,61 @@ export component MainWindow inherits Window {
                             horizontal-alignment: right;
                             vertical-alignment: center;
                             font-size: 13px;
+                        }
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                    Rectangle {
+                        width: 35px;
+                        height: 35px;
+                        border-radius: 17.5px;
+                        background: minimize-area.has-hover ? (root.light-theme ? #dfe4ea : #2a3340) : transparent;
+                        Image {
+                            source: @image-url("../assets/icons/minimize.svg");
+                            x: (parent.width - self.width) / 2;
+                            y: (parent.height - self.height) / 2;
+                            width: 13px;
+                            height: 13px;
+                            colorize: root.light-theme ? #202833 : #f1f4f8;
+                        }
+                        minimize-area := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => { root.minimized = true; }
+                        }
+                    }
+                    Rectangle {
+                        width: 35px;
+                        height: 35px;
+                        border-radius: 17.5px;
+                        background: maximize-area.has-hover ? (root.light-theme ? #dfe4ea : #2a3340) : transparent;
+                        Image {
+                            source: @image-url("../assets/icons/maximize.svg");
+                            x: (parent.width - self.width) / 2;
+                            y: (parent.height - self.height) / 2;
+                            width: 13px;
+                            height: 13px;
+                            colorize: root.light-theme ? #202833 : #f1f4f8;
+                        }
+                        maximize-area := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => { root.maximized = !root.maximized; }
+                        }
+                    }
+                    Rectangle {
+                        width: 35px;
+                        height: 35px;
+                        border-radius: 17.5px;
+                        background: close-area.has-hover ? #c94f45 : transparent;
+                        Image {
+                            source: @image-url("../assets/icons/x.svg");
+                            x: (parent.width - self.width) / 2;
+                            y: (parent.height - self.height) / 2;
+                            width: 13px;
+                            height: 13px;
+                            colorize: root.light-theme ? #202833 : #f1f4f8;
+                        }
+                        close-area := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => { root.close(); }
                         }
                     }
                 }
@@ -1539,7 +1598,7 @@ export component MainWindow inherits Window {
 
             Rectangle {
                 height: 80px;
-                background: #ffffff;
+                background: root.light-theme ? #ffffff : #1a2029;
                 HorizontalLayout {
                     height: 100%;
                     padding-left: 24px;
@@ -1550,7 +1609,7 @@ export component MainWindow inherits Window {
                         height: 40px;
                         y: (parent.height - self.height) / 2;
                         border-radius: 20px;
-                        background: #ffffff;
+                        background: root.light-theme ? #ffffff : #242d38;
                         border-color: root.light-theme ? (play-area.has-hover ? #b8c0ca : #b8c0ca80) : (play-area.has-hover ? #566171 : #56617180);
                         border-width: 2px;
                         Image {
@@ -1561,6 +1620,7 @@ export component MainWindow inherits Window {
                             y: (parent.height - self.height) / 2;
                             width: 18px;
                             height: 18px;
+                            colorize: root.light-theme ? #566171 : #f1f4f8;
                             opacity: root.active-audio-path != "" && root.audio-error == "" ? (play-area.has-hover ? 1 : 0.5) : 0.35;
                         }
                         play-area := TouchArea {
@@ -1570,6 +1630,7 @@ export component MainWindow inherits Window {
                     }
                     IconButton {
                         y: (parent.height - self.height) / 2;
+                        light-theme: root.light-theme;
                         icon: @image-url("../assets/icons/repeat-2.svg");
                         active: root.loop-mode != 0;
                         Text {
@@ -1590,6 +1651,7 @@ export component MainWindow inherits Window {
                     }
                     IconButton {
                         y: (parent.height - self.height) / 2;
+                        light-theme: root.light-theme;
                         icon: @image-url("../assets/icons/audio-lines.svg");
                         active: root.auto-play-new-tracks;
                         clicked => {
@@ -1607,6 +1669,7 @@ export component MainWindow inherits Window {
                         source: @image-url("../assets/icons/volume-2.svg");
                         width: 20px;
                         height: 20px;
+                        colorize: root.light-theme ? #566171 : #f1f4f8;
                         vertical-alignment: center;
                     }
                     Slider {
@@ -1617,6 +1680,7 @@ export component MainWindow inherits Window {
                         changed => { root.volume-changed(self.value); }
                     }
                     SyncIconButton {
+                        light-theme: root.light-theme;
                         icon: root.comfyui-sync-error-state
                             ? @image-url("../assets/icons/cloud-alert.svg")
                             : root.comfyui-sync-active

@@ -21,7 +21,7 @@ export component AppButton inherits Rectangle {
 
 export component MenuButton inherits Rectangle {
     width: 70px;
-    height: 40px;
+    height: 35px;
     background: root.light-theme ? #eef1f5 : #1a2029;
     callback clicked();
     in property <bool> light-theme;
@@ -61,10 +61,11 @@ export component ToolButton inherits Rectangle {
 export component IconButton inherits Rectangle {
     width: 40px;
     height: 40px;
-    background: #ffffff;
+    background: root.light-theme ? #ffffff : #242d38;
     border-radius: 4px;
     callback clicked();
     in property <image> icon;
+    in property <bool> light-theme: true;
     in property <bool> enabled: true;
     in property <bool> active: false;
     Image {
@@ -73,6 +74,7 @@ export component IconButton inherits Rectangle {
         y: (parent.height - self.height) / 2;
         width: 20px;
         height: 20px;
+        colorize: root.light-theme ? #566171 : #f1f4f8;
         opacity: root.enabled ? (root.active ? 1 : 0.45) : 0.35;
     }
     TouchArea {
@@ -135,12 +137,14 @@ export component SyncIconButton inherits Rectangle {
     in property <string> status;
     in property <bool> active: false;
     in property <bool> enabled: true;
+    in property <bool> light-theme: true;
     Image {
         source: root.icon;
         x: (parent.width - self.width) / 2;
         y: (parent.height - self.height) / 2;
         width: 20px;
         height: 20px;
+        colorize: root.light-theme ? #566171 : #f1f4f8;
         opacity: root.enabled ? 1 : 0.35;
     }
     TouchArea {
