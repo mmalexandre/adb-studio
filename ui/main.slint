@@ -979,6 +979,10 @@ export component MainWindow inherits Window {
 
     keyboard-focus := FocusScope {
         key-pressed(event) => {
+            if event.modifiers.control && event.text == "," {
+                root.settings-visible = true;
+                accept;
+            }
             if (root.text-input-focused || root.tree-edit-path != "") && (
                 event.text == Key.Space
                 || event.text == Key.UpArrow
