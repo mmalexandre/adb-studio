@@ -20,7 +20,9 @@ use crate::{
 
 pub mod env;
 pub mod playback_controller;
+pub mod sync_ui_controller;
 pub mod window_controller;
+pub mod workflow_controller;
 
 pub struct AppState {
     pub settings: Rc<RefCell<AppSettings>>,
