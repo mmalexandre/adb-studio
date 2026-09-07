@@ -1,4 +1,4 @@
-import { CheckBox, ComboBox, LineEdit, ListView, ScrollView, Slider, SpinBox, TextEdit, VerticalBox } from "std-widgets.slint";
+import { CheckBox, ComboBox, LineEdit, ListView, Palette, ScrollView, Slider, SpinBox, TextEdit, VerticalBox } from "std-widgets.slint";
 import { AudioRow, BreadcrumbRow, CommentRow, ConversionRow, TrackDifference, TreeRow, WorkflowFileRow, WorkflowLoraRow } from "./models.slint";
 import { AppButton, CompactIconButton, IconButton, MenuButton, SortIconButton, SyncIconButton, ToolButton } from "./controls.slint";
 
@@ -979,6 +979,14 @@ export component MainWindow inherits Window {
 
     changed metadata-pane-height => {
         root.metadata-pane-height-changed(root.metadata-pane-height);
+    }
+
+    init => {
+        Palette.color-scheme = root.light-theme ? ColorScheme.light : ColorScheme.dark;
+    }
+
+    changed light-theme => {
+        Palette.color-scheme = root.light-theme ? ColorScheme.light : ColorScheme.dark;
     }
 
     keyboard-focus := FocusScope {
