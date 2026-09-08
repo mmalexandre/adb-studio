@@ -98,12 +98,10 @@ pub fn recreated_metadata_path(folder: &Path, audio_path: &Path) -> Option<PathB
     )))
 }
 
-pub fn workflow_was_recreated(folder: &Path, audio_path: &Path) -> bool {
-    recreated_metadata_path(folder, audio_path)
-        .and_then(|path| fs::read_to_string(path).ok())
-        .and_then(|contents| serde_json::from_str::<serde_json::Value>(&contents).ok())
-        .and_then(|value| value.get("recreated_by_script").and_then(serde_json::Value::as_bool))
-        .unwrap_or(false)
+pub fn clear_workflow_recreated(folder: &Path, audio_path: &Path) {
+    if let Some(path) = recreated_metadata_path(folder, audio_path) {
+        let _ = fs::remove_file(path);
+    }
 }
 
 pub fn comment_path(folder: &Path, audio_path: &Path) -> Option<PathBuf> {

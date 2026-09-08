@@ -148,10 +148,13 @@ pub fn load_workflow_for_audio(
         return;
     }
     match metadata::comfyui::parse_file(&workflow_path) {
-        Ok(workflow) => apply_workflow(window, folder, &workflow_path.to_string_lossy(), workflow),
+        Ok(workflow) => {
+            apply_workflow(window, folder, &workflow_path.to_string_lossy(), workflow);
+            metadata::clear_workflow_recreated(folder, path);
+        }
         Err(error) => window.set_audio_error(format!("Workflow JSON: {error}").into()),
     }
-    window.set_workflow_recreated(metadata::workflow_was_recreated(folder, path));
+    window.set_workflow_recreated(false);
     window.set_workflow_modified(false);
     window.set_workflow_loading(false);
     *workflow_loading.borrow_mut() = false;

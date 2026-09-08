@@ -601,6 +601,9 @@ fn save_workflow(
             return;
         }
     }
+    for audio_path in selected_paths {
+        metadata::clear_workflow_recreated(folder, audio_path);
+    }
     *edited_workflow.borrow_mut() = None;
     *edited_workflow_path.borrow_mut() = None;
     window.set_workflow_modified(false);
