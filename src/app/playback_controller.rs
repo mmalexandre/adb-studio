@@ -133,8 +133,6 @@ pub fn register_playback_callbacks(
             *comment_editor_original.borrow_mut() = None;
             *comment_editor_duration.borrow_mut() = duration;
             window.set_comment_editor_path(path.to_string_lossy().into_owned().into());
-            window.set_comment_editor_start(format_seconds(start * duration).into());
-            window.set_comment_editor_end(format_seconds(end * duration).into());
             window.set_comment_editor_text("".into());
             window.set_comment_editor_visible(true);
         });
@@ -369,13 +367,6 @@ pub fn register_playback_callbacks(
             let _ = (&last_button_click, &tree_state, &settings, &workflow_loading, &audio_folder);
         });
     }
-}
-
-fn format_seconds(seconds: f32) -> String {
-    let total = seconds.max(0.0) as i64;
-    let mins = total / 60;
-    let secs = total % 60;
-    format!("{mins}:{secs:02}")
 }
 
 /// Advances playback position, handles loop/auto-advance, and persists position periodically.

@@ -203,9 +203,9 @@ export component MainWindow inherits Window {
     callback trash-cancelled();
     callback workflow-save-confirmed(bool);
     callback workflow-save-cancelled();
-    callback comment-save(string, string, string, string);
+    callback comment-save(string, string);
     callback comment-cancel();
-    callback comment-delete(string, string, string, string);
+    callback comment-delete(string);
     callback metadata-toggle();
     callback metadata-pane-height-changed(length);
     callback assign-workflow-requested();
@@ -223,8 +223,6 @@ export component MainWindow inherits Window {
     callback lora-cancel();
     in-out property <bool> comment-editor-visible: false;
     in-out property <string> comment-editor-path: "";
-    in-out property <string> comment-editor-start: "0";
-    in-out property <string> comment-editor-end: "0";
     in-out property <string> comment-editor-text: "";
 
     changed left-pane-width => {
@@ -1928,9 +1926,9 @@ export component MainWindow inherits Window {
                     Rectangle { vertical-stretch: 1; }
                     HorizontalLayout {
                         spacing: 8px;
-                        AppButton { text: "Save"; clicked => { root.comment-save(root.comment-editor-path, root.comment-editor-start, root.comment-editor-end, root.comment-editor-text); } }
+                        AppButton { text: "Save"; clicked => { root.comment-save(root.comment-editor-path, root.comment-editor-text); } }
                         AppButton { text: "Cancel"; clicked => { root.comment-cancel(); } }
-                        AppButton { text: "Delete"; enabled: root.comment-editor-path != ""; clicked => { root.comment-delete(root.comment-editor-path, root.comment-editor-start, root.comment-editor-end, root.comment-editor-text); } }
+                        AppButton { text: "Delete"; enabled: root.comment-editor-path != ""; clicked => { root.comment-delete(root.comment-editor-path); } }
                     }
                 }
             }

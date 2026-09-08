@@ -292,10 +292,6 @@ pub fn scroll_to_path_if_needed(
     }
 }
 
-pub fn format_seconds(seconds: f32) -> String {
-    format!("{seconds:.3}")
-}
-
 pub fn format_duration(duration: Duration) -> String {
     let total_seconds = duration.as_secs();
     format!("{:02}:{:02}", total_seconds / 60, total_seconds % 60)
@@ -307,7 +303,7 @@ mod tests {
 
     use slint::Model;
 
-    use super::{comment_rows, format_duration, format_seconds};
+    use super::{comment_rows, format_duration};
     use crate::metadata::{AudioComment, AudioFileMetadata};
 
     #[test]
@@ -361,7 +357,6 @@ mod tests {
 
     #[test]
     fn time_formatters_use_fixed_audio_display_formats() {
-        assert_eq!(format_seconds(1.2), "1.200");
         assert_eq!(format_duration(Duration::from_secs(125)), "02:05");
     }
 }

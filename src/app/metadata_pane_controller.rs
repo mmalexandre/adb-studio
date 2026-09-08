@@ -13,7 +13,7 @@ use crate::{
         loader::State as AudioLoadState,
         playback::PlaybackEngine,
         session::comment_duration,
-        view::{comment_rows, format_seconds, select_comment, update_comment_model},
+        view::{comment_rows, select_comment, update_comment_model},
     },
     metadata::{self, AudioComment},
     settings::{self, AppSettings},
@@ -309,8 +309,6 @@ pub fn register_metadata_pane_callbacks(
             select_comment(&audio_model, &path, start, end);
             *comment_editor_original.borrow_mut() = Some(original.clone());
             window.set_comment_editor_path(path.to_string_lossy().into_owned().into());
-            window.set_comment_editor_start(format_seconds(original.start_seconds).into());
-            window.set_comment_editor_end(format_seconds(original.end_seconds).into());
             window.set_comment_editor_text(original.text.into());
             window.set_comment_editor_visible(true);
         });
@@ -323,16 +321,12 @@ pub fn register_metadata_pane_callbacks(
         let audio_load_state = Arc::clone(audio_load_state);
         let comment_editor_original = Rc::clone(comment_editor_original);
         let comment_editor_duration = Rc::clone(comment_editor_duration);
-        window.on_comment_save(move |path, start, end, text| {
+        window.on_comment_save(move |path, text| {
             let Some(window) = weak_window.upgrade() else {
                 return;
             };
             let path = PathBuf::from(path.as_str());
             let Some(folder) = audio_folder.borrow().clone() else {
-                return;
-            };
-            let (Ok(start_seconds), Ok(end_seconds)) = (start.parse::<f32>(), end.parse::<f32>()) else {
-                window.set_audio_error("Comment times must be numbers".into());
                 return;
             };
             let stored_metadata = metadata::load_audio_metadata(&folder, &path);
@@ -343,6 +337,11 @@ pub fn register_metadata_pane_callbacks(
                 window.set_audio_error("Unable to determine audio duration".into());
                 return;
             }
+            let original = comment_editor_original.borrow().clone();
+            let (start_seconds, end_seconds) = original
+                .as_ref()
+                .map(|comment| (comment.start_seconds, comment.end_seconds))
+                .unwrap_or((0.0, duration));
             let comment = AudioComment {
                 start_seconds,
                 end_seconds,
@@ -374,7 +373,7 @@ pub fn register_metadata_pane_callbacks(
         let audio_model = Rc::clone(audio_model);
         let audio_load_state = Arc::clone(audio_load_state);
         let comment_editor_original = Rc::clone(comment_editor_original);
-        window.on_comment_delete(move |path, _start, _end, _text| {
+        window.on_comment_delete(move |path| {
             let Some(window) = weak_window.upgrade() else {
                 return;
             };
@@ -389,8 +388,7 @@ pub fn register_metadata_pane_callbacks(
             if let Some(original) = comment_editor_original.borrow_mut().take() {
                 file.comments.retain(|item| item != &original);
                 metadata::save_audio_metadata(&workspace, &path, &file);
-                let view_folder = path.parent().unwrap_or(&workspace).to_path_buf();
-                refresh_audio(&window, &audio_folder, &audio_model, &audio_load_state, view_folder);
+                refresh_audio(&window, &audio_folder, &audio_model, &audio_load_state, workspace.clone());
             }
             window.set_comment_editor_visible(false);
         });
