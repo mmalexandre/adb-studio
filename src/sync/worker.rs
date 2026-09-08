@@ -141,7 +141,7 @@ pub(super) fn sync_loop(
                 });
                 last_downloaded_path = Some(destination.join(filename));
             }
-            match sync_workflow(&client, &config, file, &workspace, filename) {
+            match sync_workflow(&client, &config, file, &workspace, &destination.join(filename)) {
                 Ok(true) => {
                     let _ = event_sender.send(SyncEvent::WorkflowUpdated {
                         generation,
@@ -178,9 +178,9 @@ fn sync_workflow(
     config: &SyncConfig,
     audio_file: &RemoteFile,
     workspace: &Path,
-    audio_filename: &str,
+    audio_path: &Path,
 ) -> Result<bool, SyncError> {
-    let workflow_path = workflow_local_path(workspace, audio_filename);
+    let workflow_path = workflow_local_path(workspace, audio_path);
     if !workflow_path.exists() {
         let workflow_file = RemoteFile {
             name: format!("{}.workflow.json", audio_file.name),
@@ -194,9 +194,8 @@ fn sync_workflow(
     Ok(false)
 }
 
-fn workflow_local_path(workspace: &Path, audio_filename: &str) -> PathBuf {
-    metadata::workflow_path(workspace, &workspace.join(audio_filename))
-        .expect("audio filename must be inside workspace")
+fn workflow_local_path(workspace: &Path, audio_path: &Path) -> PathBuf {
+    metadata::workflow_path(workspace, audio_path).expect("audio path must be inside workspace")
 }
 
 fn load_download_index(workspace: &Path) -> Result<DownloadIndex, SyncError> {
@@ -260,7 +259,7 @@ mod tests {
     fn workflow_path_mirrors_audio_path_inside_private_directory() {
         let workspace = Path::new("/workspace");
         assert_eq!(
-            workflow_local_path(workspace, "folder1/folder2/song.mp3"),
+            workflow_local_path(workspace, Path::new("/workspace/folder1/folder2/song.mp3")),
             workspace.join(".adbstudio/workflows/folder1/folder2/song.mp3.workflow.json")
         );
     }
