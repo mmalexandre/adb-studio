@@ -1910,6 +1910,9 @@ export component MainWindow inherits Window {
             y: 0px;
             width: parent.width;
             height: parent.height;
+            changed visible => {
+                if self.visible { comment-text-editor.focus(); }
+            }
             Rectangle {
                 width: 430px;
                 height: 270px;
@@ -1922,7 +1925,12 @@ export component MainWindow inherits Window {
                     padding: 24px;
                     spacing: 12px;
                     Text { text: "Comment"; color: root.light-theme ? #202833 : #f1f4f8; font-size: 22px; }
-                    LineEdit { placeholder-text: "Comment text"; text <=> root.comment-editor-text; changed has-focus => { root.text-input-focused = self.has-focus; } }
+                    comment-text-editor := LineEdit {
+                        placeholder-text: "Comment text";
+                        text <=> root.comment-editor-text;
+                        accepted(text) => { root.comment-save(root.comment-editor-path, text); }
+                        changed has-focus => { root.text-input-focused = self.has-focus; }
+                    }
                     Rectangle { vertical-stretch: 1; }
                     HorizontalLayout {
                         spacing: 8px;
