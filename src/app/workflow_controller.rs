@@ -601,6 +601,13 @@ fn save_workflow(
             return;
         }
     }
+    let user_comments = window.get_user_comments().to_string();
+    for audio_path in selected_paths {
+        let mut metadata = metadata::load_audio_metadata(folder, audio_path);
+        metadata.file_path = audio_path.to_string_lossy().into_owned();
+        metadata.user_comments = user_comments.clone();
+        metadata::save_audio_metadata(folder, audio_path, &metadata);
+    }
     for audio_path in selected_paths {
         metadata::clear_workflow_recreated(folder, audio_path);
     }

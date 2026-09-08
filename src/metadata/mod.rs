@@ -429,14 +429,18 @@ mod tests {
 
     #[test]
     fn round_trips_user_comments() {
+        let folder = test_folder("user-comments-file");
+        let audio_path = folder.join("track.wav");
         let metadata = AudioFileMetadata {
+            file_path: audio_path.to_string_lossy().into_owned(),
             user_comments: "Remember the alternate mix".to_string(),
             ..Default::default()
         };
 
-        let encoded = serde_json::to_string(&metadata).unwrap();
-        let decoded: AudioFileMetadata = serde_json::from_str(&encoded).unwrap();
-        assert_eq!(decoded.user_comments, metadata.user_comments);
+        save_audio_metadata(&folder, &audio_path, &metadata);
+
+        assert_eq!(load_audio_metadata(&folder, &audio_path).user_comments, metadata.user_comments);
+        let _ = fs::remove_dir_all(folder);
     }
 
     #[test]
