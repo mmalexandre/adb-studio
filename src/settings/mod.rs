@@ -182,3 +182,57 @@ pub fn parse_hex_color(value: &str) -> Option<slint::Color> {
 pub fn parse_color(value: &str, fallback: slint::Color) -> slint::Color {
     parse_hex_color(value).unwrap_or(fallback)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_color, parse_hex_color, AppSettings};
+
+    #[test]
+    fn defaults_are_applied_when_optional_settings_are_missing() {
+        let settings: AppSettings = serde_json::from_str("{\"light_theme\":true}").unwrap();
+
+        assert!(settings.light_theme);
+        assert_eq!(settings.loop_mode, 0);
+        assert_eq!(settings.seek_seconds, 5.0);
+        assert_eq!(settings.sort_order, 3);
+        assert_eq!(settings.left_pane_width, 280.0);
+        assert_eq!(settings.metadata_pane_height, 190.0);
+        assert_eq!(settings.comment_background_color, "#000000");
+        assert_eq!(settings.comment_text_color, "#ffffff");
+    }
+
+    #[test]
+    fn loop_mode_accepts_legacy_booleans_and_clamps_numbers() {
+        let enabled: AppSettings = serde_json::from_str(
+            "{\"light_theme\":false,\"loop_enabled\":true}",
+        )
+        .unwrap();
+        let clamped: AppSettings = serde_json::from_str(
+            "{\"light_theme\":false,\"loop_mode\":99}",
+        )
+        .unwrap();
+
+        assert_eq!(enabled.loop_mode, 1);
+        assert_eq!(clamped.loop_mode, 2);
+    }
+
+    #[test]
+    fn hex_colors_accept_hash_prefix_and_reject_invalid_values() {
+        assert_eq!(
+            parse_hex_color("#1234ab"),
+            Some(slint::Color::from_argb_u8(255, 0x12, 0x34, 0xab))
+        );
+        assert_eq!(
+            parse_hex_color("1234ab"),
+            Some(slint::Color::from_argb_u8(255, 0x12, 0x34, 0xab))
+        );
+        assert_eq!(parse_hex_color("#12345"), None);
+        assert_eq!(parse_hex_color("#gggggg"), None);
+    }
+
+    #[test]
+    fn parse_color_returns_fallback_for_invalid_values() {
+        let fallback = slint::Color::from_argb_u8(255, 1, 2, 3);
+        assert_eq!(parse_color("not-a-color", fallback), fallback);
+    }
+}

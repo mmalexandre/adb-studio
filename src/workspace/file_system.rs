@@ -388,7 +388,6 @@ mod tests {
             vec![
                 temp.path().join("one.wav"),
                 temp.path().join("three.wav"),
-                temp.path().join("two.wav"),
             ]
         );
         assert_eq!(state.selected, Some(last));

@@ -194,3 +194,70 @@ fn generate(state: Arc<Mutex<State>>) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{request, State};
+    use std::{
+        collections::HashSet,
+        path::PathBuf,
+        sync::{atomic::AtomicU64, mpsc, Arc, Mutex},
+    };
+
+    fn state(paths: Vec<PathBuf>) -> Arc<Mutex<State>> {
+        let (result_sender, _result_receiver) = mpsc::channel();
+        Arc::new(Mutex::new(State {
+            folder: PathBuf::from("/workspace"),
+            paths,
+            requested_range: None,
+            generated: HashSet::new(),
+            loading: HashSet::new(),
+            generation: 0,
+            cancellation_generation: Arc::new(AtomicU64::new(0)),
+            running: true,
+            completed: 0,
+            total: 0,
+            result_sender,
+        }))
+    }
+
+    #[test]
+    fn request_clamps_visible_range_and_marks_ungenerated_paths_loading() {
+        let first = PathBuf::from("/workspace/one.wav");
+        let second = PathBuf::from("/workspace/two.wav");
+        let state = state(vec![first.clone(), second.clone()]);
+
+        request(&state, 1, 10);
+
+        let state_ref = state.lock().unwrap();
+        assert_eq!(state_ref.requested_range, Some((1, 2)));
+        assert_eq!(state_ref.generation, 1);
+        assert_eq!(state_ref.cancellation_generation.load(std::sync::atomic::Ordering::Acquire), 1);
+        assert!(!state_ref.loading.contains(&first));
+        assert!(state_ref.loading.contains(&second));
+    }
+
+    #[test]
+    fn requesting_the_same_range_does_not_restart_generation() {
+        let path = PathBuf::from("/workspace/one.wav");
+        let state = state(vec![path]);
+
+        request(&state, 0, 1);
+        request(&state, 0, 1);
+
+        let state_ref = state.lock().unwrap();
+        assert_eq!(state_ref.requested_range, Some((0, 1)));
+        assert_eq!(state_ref.generation, 1);
+    }
+
+    #[test]
+    fn generated_paths_are_not_added_to_loading() {
+        let path = PathBuf::from("/workspace/one.wav");
+        let state = state(vec![path.clone()]);
+        state.lock().unwrap().generated.insert(path.clone());
+
+        request(&state, 0, 1);
+
+        assert!(!state.lock().unwrap().loading.contains(&path));
+    }
+}

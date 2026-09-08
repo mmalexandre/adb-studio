@@ -167,3 +167,76 @@ fn decode_peaks(
         })
         .collect())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{aggregate_peaks, load_or_generate_cancelable, DISPLAY_PEAK_COUNT};
+    use std::{fs, path::PathBuf, time::{SystemTime, UNIX_EPOCH}};
+
+    struct TempDirectory(PathBuf);
+
+    impl TempDirectory {
+        fn new() -> Self {
+            let suffix = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let path = std::env::temp_dir().join(format!("adb-studio-waveform-{suffix}"));
+            fs::create_dir_all(&path).unwrap();
+            Self(path)
+        }
+    }
+
+    impl Drop for TempDirectory {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn empty_input_produces_zero_display_peaks() {
+        let peaks = aggregate_peaks(&[]);
+
+        assert_eq!(peaks.len(), DISPLAY_PEAK_COUNT);
+        assert!(peaks.iter().all(|peak| *peak == 0.0));
+    }
+
+    #[test]
+    fn aggregation_preserves_bucket_maxima() {
+        let mut source = vec![0.0; DISPLAY_PEAK_COUNT * 2];
+        source[1] = 0.5;
+        source[DISPLAY_PEAK_COUNT + 1] = 0.75;
+
+        let display = aggregate_peaks(&source);
+
+        assert_eq!(display[0], 0.5);
+        assert_eq!(display[DISPLAY_PEAK_COUNT / 2], 0.75);
+    }
+
+    #[test]
+    fn cancellation_prevents_generation_and_cache_creation() {
+        let temp = TempDirectory::new();
+        let source = temp.0.join("missing.wav");
+        let result = load_or_generate_cancelable(&source, &temp.0, || true);
+
+        assert_eq!(result, None);
+        assert!(!temp.0.join(".adbstudio/waveforms").exists());
+    }
+
+    #[test]
+    fn failed_decode_is_cached_as_empty_peaks() {
+        let temp = TempDirectory::new();
+        let source = temp.0.join("missing.wav");
+        let (cache_key, peaks) =
+            load_or_generate_cancelable(&source, &temp.0, || false).unwrap();
+        let cache_path = temp
+            .0
+            .join(".adbstudio")
+            .join("waveforms")
+            .join(format!("{cache_key}.json"));
+
+        assert!(peaks.is_empty());
+        assert!(cache_path.is_file());
+        assert!(load_or_generate_cancelable(&source, &temp.0, || true).is_some());
+    }
+}

@@ -315,3 +315,52 @@ fn workflow_change_affects_folder(path: &Path, workspace: &Path, folder: &Path) 
     workspace.join(relative_folder) == folder
         && file_system::FileKind::from_path(Path::new(audio_name)) == file_system::FileKind::Audio
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{is_internal_path, is_workflow_path, workflow_change_affects_folder};
+    use std::path::Path;
+
+    #[test]
+    fn internal_paths_are_detected_at_any_depth() {
+        assert!(is_internal_path(Path::new("/workspace/.adbstudio/index.json")));
+        assert!(is_internal_path(Path::new("/workspace/album/.adbstudio/cache")));
+        assert!(!is_internal_path(Path::new("/workspace/album/song.wav")));
+    }
+
+    #[test]
+    fn only_workflow_sidecars_are_workflow_paths() {
+        assert!(is_workflow_path(Path::new("song.workflow.json")));
+        assert!(is_workflow_path(Path::new("nested/song.workflow.json")));
+        assert!(!is_workflow_path(Path::new("song.json")));
+        assert!(!is_workflow_path(Path::new("song.workflow.JSON")));
+    }
+
+    #[test]
+    fn workflow_changes_match_the_audio_folder_and_extension() {
+        let workspace = Path::new("/workspace");
+        let folder = workspace.join("album");
+        let workflows = workspace.join(".adbstudio/workflows/album");
+
+        assert!(workflow_change_affects_folder(
+            &workflows.join("song.wav.workflow.json"),
+            workspace,
+            &folder,
+        ));
+        assert!(!workflow_change_affects_folder(
+            &workflows.join("song.txt.workflow.json"),
+            workspace,
+            &folder,
+        ));
+        assert!(!workflow_change_affects_folder(
+            &workspace.join(".adbstudio/workflows/other/song.wav.workflow.json"),
+            workspace,
+            &folder,
+        ));
+        assert!(!workflow_change_affects_folder(
+            &workspace.join("album/song.wav.workflow.json"),
+            workspace,
+            &folder,
+        ));
+    }
+}

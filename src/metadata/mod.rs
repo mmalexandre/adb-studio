@@ -263,8 +263,9 @@ mod tests {
     use std::fs;
 
     use super::{
-        comment_path, load_audio_metadata, rename_associated_workflow, rename_audio_metadata,
-        save_audio_metadata, save_index, AudioComment, AudioFileMetadata, MetadataIndex,
+        comment_path, has_downloaded_audio, load_audio_metadata, load_index, record_downloaded_audio,
+        rename_associated_workflow, rename_audio_metadata, save_audio_metadata, save_index,
+        AudioComment, AudioFileMetadata, MetadataIndex,
     };
 
     fn test_folder(name: &str) -> std::path::PathBuf {
@@ -344,6 +345,33 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(metadata.normalized_rating(), 5);
+    }
+
+    #[test]
+    fn metadata_paths_reject_files_outside_the_workspace() {
+        let folder = test_folder("outside-path");
+        let outside = std::path::Path::new("/tmp/outside.wav");
+
+        assert_eq!(super::workflow_path(&folder, outside), None);
+        assert_eq!(comment_path(&folder, outside), None);
+        let _ = fs::remove_dir_all(folder);
+    }
+
+    #[test]
+    fn downloaded_audio_is_recorded_once_and_requires_an_existing_file() {
+        let folder = test_folder("download-record");
+        let audio_path = folder.join("downloads/song.wav");
+        fs::create_dir_all(audio_path.parent().unwrap()).unwrap();
+        fs::write(&audio_path, b"audio").unwrap();
+
+        record_downloaded_audio(&folder, "remote-song.wav", &audio_path);
+        record_downloaded_audio(&folder, "remote-song.wav", &audio_path);
+
+        assert!(has_downloaded_audio(&folder, "remote-song.wav"));
+        assert_eq!(load_index(&folder).audio_files.len(), 1);
+        fs::remove_file(audio_path).unwrap();
+        assert!(!has_downloaded_audio(&folder, "remote-song.wav"));
+        let _ = fs::remove_dir_all(folder);
     }
 
     #[test]

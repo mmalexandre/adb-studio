@@ -270,8 +270,8 @@ pub fn ensure_destination(workspace: &Path, config: &SyncConfig) -> Result<PathB
 #[cfg(test)]
 mod tests {
     use super::{
-        ensure_destination, SyncConfig, DEFAULT_INTERVAL_MS, DEFAULT_LOCAL_DIRECTORY,
-        DEFAULT_REMOTE_DIRECTORY,
+        ensure_destination, load_config, DownloadIndex, RemoteFile, SyncConfig,
+        DEFAULT_INTERVAL_MS, DEFAULT_LOCAL_DIRECTORY, DEFAULT_REMOTE_DIRECTORY,
     };
     use std::{
         fs,
@@ -318,6 +318,62 @@ mod tests {
         assert_eq!(destination, workspace.join(DEFAULT_LOCAL_DIRECTORY));
         fs::remove_dir_all(destination).unwrap();
         fs::remove_dir_all(workspace).unwrap();
+    }
+
+    #[test]
+    fn config_round_trips_through_workspace_storage() {
+        let workspace = tempfile_directory();
+        let config = SyncConfig {
+            url: " https://example.test/// ".to_string(),
+            local_directory: "downloads/audio".to_string(),
+            interval_ms: 50,
+            ..SyncConfig::default()
+        };
+
+        super::save_config(&workspace, &config).unwrap();
+
+        assert_eq!(
+            load_config(&workspace),
+            Some(SyncConfig {
+                url: "https://example.test".to_string(),
+                local_directory: "downloads/audio".to_string(),
+                interval_ms: 100,
+                ..SyncConfig::default()
+            })
+        );
+        fs::remove_dir_all(workspace).unwrap();
+    }
+
+    #[test]
+    fn local_path_rejects_absolute_and_parent_directories() {
+        for local_directory in ["/tmp/downloads", "downloads/../../outside"] {
+            let config = SyncConfig {
+                local_directory: local_directory.to_string(),
+                ..SyncConfig::default()
+            };
+            assert!(config.local_path(Path::new("/workspace")).is_err());
+        }
+    }
+
+    #[test]
+    fn completed_downloads_replace_the_same_remote_record() {
+        let config = SyncConfig {
+            url: "https://example.test".to_string(),
+            ..SyncConfig::default()
+        };
+        let file = RemoteFile {
+            name: "nested/song.wav".to_string(),
+            path: "/output/song.wav".to_string(),
+            modified: 1,
+        };
+        let mut index = DownloadIndex::default();
+
+        index.record_completed(&config, &file, 10);
+        index.record_completed(&config, &file, 20);
+
+        assert_eq!(index.downloads.len(), 1);
+        assert_eq!(index.downloads[0].filename, "song.wav");
+        assert_eq!(index.downloads[0].size, 20);
     }
 
     fn tempfile_directory() -> std::path::PathBuf {

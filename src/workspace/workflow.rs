@@ -157,6 +157,27 @@ pub fn load_workflow_for_audio(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{fs, path::PathBuf, time::{SystemTime, UNIX_EPOCH}};
+
+    struct TempDirectory(PathBuf);
+
+    impl TempDirectory {
+        fn new() -> Self {
+            let suffix = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let path = std::env::temp_dir().join(format!("adb-studio-workflow-{suffix}"));
+            fs::create_dir_all(&path).unwrap();
+            Self(path)
+        }
+    }
+
+    impl Drop for TempDirectory {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
 
     #[test]
     fn same_path_is_not_reloaded_without_force() {
@@ -171,5 +192,37 @@ mod tests {
         let next = std::path::Path::new("/workspace/other.wav");
         assert!(should_reload_workflow(Some(current), next, false));
         assert!(should_reload_workflow(Some(current), next, true));
+    }
+
+    #[test]
+    fn key_lookup_is_case_insensitive_and_unknown_keys_are_missing() {
+        assert_eq!(key_index("c major"), 0);
+        assert_eq!(key_index("B MINOR"), 23);
+        assert_eq!(key_index("H major"), -1);
+    }
+
+    #[test]
+    fn display_name_shortens_the_known_model_filename_only() {
+        assert_eq!(
+            display_model_name("ace_step_1.5_turbo_aio.safetensors"),
+            "Ace Step 1.5 Turbo Aio"
+        );
+        assert_eq!(display_model_name("other.safetensors"), "other.safetensors");
+    }
+
+    #[test]
+    fn scan_json_files_is_recursive_and_skips_internal_metadata() {
+        let temp = TempDirectory::new();
+        fs::create_dir_all(temp.0.join("nested/.adbstudio")).unwrap();
+        fs::write(temp.0.join("z.json"), "{}").unwrap();
+        fs::write(temp.0.join("nested/a.JSON"), "{}").unwrap();
+        fs::write(temp.0.join("nested/.adbstudio/hidden.json"), "{}").unwrap();
+        fs::write(temp.0.join("song.wav"), []).unwrap();
+
+        let files = scan_json_files(&temp.0);
+
+        assert_eq!(files.len(), 2);
+        assert_eq!(files[0].0, "a.JSON");
+        assert_eq!(files[1].0, "z.json");
     }
 }
