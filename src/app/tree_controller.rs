@@ -284,7 +284,13 @@ pub fn register_tree_callbacks(
                 };
                 state.select_and_expand(&parent);
             }
-            window.set_tree_edit_path(parent.to_string_lossy().into_owned().into());
+            window.set_tree_edit_path(
+                parent
+                    .join(".adbstudio-new-folder")
+                    .to_string_lossy()
+                    .into_owned()
+                    .into(),
+            );
             window.set_tree_edit_text("".into());
             window.set_tree_edit_mode(2);
             window.set_tree_menu_path("".into());
@@ -316,7 +322,7 @@ pub fn register_tree_callbacks(
             }
             let source = PathBuf::from(path.as_str());
             let destination = if mode == 2 {
-                source.join(name)
+                source.parent().unwrap_or(&source).join(name)
             } else {
                 let Some(parent) = source.parent() else {
                     return;

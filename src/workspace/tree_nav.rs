@@ -85,7 +85,7 @@ pub fn refresh_tree(window: &MainWindow, tree_state: &Rc<RefCell<Option<TreeStat
     window.set_tree_selection_count(state.selected_paths().len() as i32);
 
     let filter = window.get_audio_filter().to_string();
-    let rows: Vec<TreeRow> = file_system::build_visible_rows(
+    let mut rows: Vec<TreeRow> = file_system::build_visible_rows(
         state,
         file_system::SortOrder::from_i32(window.get_sort_order()),
     )
@@ -105,6 +105,27 @@ pub fn refresh_tree(window: &MainWindow, tree_state: &Rc<RefCell<Option<TreeStat
         kind: row.kind.as_str().into(),
     })
     .collect();
+
+    if window.get_tree_edit_mode() == 2 {
+        let pending_path = std::path::PathBuf::from(window.get_tree_edit_path().as_str());
+        if let Some(parent) = pending_path.parent() {
+            if let Some(parent_index) = rows.iter().position(|row| row.path.as_str() == parent.to_string_lossy()) {
+                let parent_depth = rows[parent_index].depth;
+                rows.insert(
+                    parent_index + 1,
+                    TreeRow {
+                        path: pending_path.to_string_lossy().into_owned().into(),
+                        name: "".into(),
+                        depth: parent_depth + 1,
+                        is_dir: true,
+                        is_expanded: false,
+                        is_selected: false,
+                        kind: "dir".into(),
+                    },
+                );
+            }
+        }
+    }
 
     window.set_tree_rows(ModelRc::new(VecModel::from(rows)));
 }
