@@ -513,6 +513,22 @@ mod tests {
     }
 
     #[test]
+    fn round_trips_audio_rating() {
+        let folder = test_folder("rating-file");
+        let audio_path = folder.join("track.wav");
+        let metadata = AudioFileMetadata {
+            file_path: audio_path.to_string_lossy().into_owned(),
+            rating: 2,
+            ..Default::default()
+        };
+
+        save_audio_metadata(&folder, &audio_path, &metadata);
+
+        assert_eq!(load_audio_metadata(&folder, &audio_path).rating, 2);
+        let _ = fs::remove_dir_all(folder);
+    }
+
+    #[test]
     fn preserves_original_name_and_updates_current_path_after_rename() {
         let folder = test_folder("audio-metadata-rename");
         let source = folder.join("downloads/original.wav");

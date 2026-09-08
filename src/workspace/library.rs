@@ -120,7 +120,8 @@ fn refresh_audio_with_changes(
             .audio_files
             .iter()
             .find(|item| item.file_path == path_string);
-        let comments = comment_rows(&metadata::load_audio_metadata(&workspace, &entry.path));
+        let audio_metadata = metadata::load_audio_metadata(&workspace, &entry.path);
+        let comments = comment_rows(&audio_metadata);
         let progress = stored_position
             .as_ref()
             .filter(|item| item.duration_seconds > 0.0)
@@ -134,10 +135,7 @@ fn refresh_audio_with_changes(
             is_loading: false,
             comments,
             differences: track_differences(&workspace, pinned_path.as_deref(), &entry.path),
-            rating: stored_position
-                .as_ref()
-                .map(|item| item.normalized_rating() as i32)
-                .unwrap_or(0),
+            rating: audio_metadata.normalized_rating() as i32,
             is_pinned: pinned_path.as_deref() == Some(entry.path.as_path()),
             is_active: false,
             is_selected: false,

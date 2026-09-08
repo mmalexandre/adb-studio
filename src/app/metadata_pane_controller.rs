@@ -95,17 +95,23 @@ pub fn register_metadata_pane_callbacks(
                 return;
             };
             let path_string = path.to_string();
+            let rating = rating.clamp(0, 5) as u8;
             let mut index = metadata::load_index(&folder);
             if let Some(file) = index.audio_files.iter_mut().find(|item| item.file_path == path_string) {
-                file.rating = rating.clamp(0, 5) as u8;
+                file.rating = rating;
             } else {
                 index.audio_files.push(metadata::AudioFileMetadata {
                     file_path: path_string.clone(),
-                    rating: rating.clamp(0, 5) as u8,
+                    rating,
                     ..Default::default()
                 });
             }
             metadata::save_index(&folder, &index);
+            let audio_path = PathBuf::from(path.as_str());
+            let mut file = metadata::load_audio_metadata(&folder, &audio_path);
+            file.file_path = path_string.clone();
+            file.rating = rating;
+            metadata::save_audio_metadata(&folder, &audio_path, &file);
             if let Some(model) = audio_model.borrow().clone() {
                 for index in 0..model.row_count() {
                     let Some(row) = model.row_data(index) else {
@@ -122,7 +128,7 @@ pub fn register_metadata_pane_callbacks(
                                 is_loading: row.is_loading,
                                 comments: row.comments,
                                 differences: row.differences,
-                                rating: rating.clamp(0, 5),
+                                rating: rating as i32,
                                 is_pinned: row.is_pinned,
                                 is_selected: row.is_selected,
                                 is_primary: row.is_primary,
