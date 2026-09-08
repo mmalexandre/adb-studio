@@ -30,8 +30,9 @@ pub fn select_tree_path(
     )
     .iter()
     .filter(|row| {
-        row.kind != file_system::FileKind::Audio
-            || file_system::matches_audio_filter(&row.name, &filter)
+        file_system::is_visible_in_tree(row.kind)
+            && (row.kind != file_system::FileKind::Audio
+                || file_system::matches_audio_filter(&row.name, &filter))
     })
     .position(|row| row.path == path)
     .map(|index| index as i32);
@@ -90,8 +91,9 @@ pub fn refresh_tree(window: &MainWindow, tree_state: &Rc<RefCell<Option<TreeStat
     )
     .into_iter()
     .filter(|row| {
-        row.kind != file_system::FileKind::Audio
-            || file_system::matches_audio_filter(&row.name, &filter)
+        file_system::is_visible_in_tree(row.kind)
+            && (row.kind != file_system::FileKind::Audio
+                || file_system::matches_audio_filter(&row.name, &filter))
     })
     .map(|row| TreeRow {
         path: row.path.to_string_lossy().into_owned().into(),

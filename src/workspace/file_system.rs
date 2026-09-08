@@ -299,6 +299,10 @@ pub fn matches_audio_filter(name: &str, filter: &str) -> bool {
     filter.is_empty() || name.to_lowercase().contains(&filter.to_lowercase())
 }
 
+pub fn is_visible_in_tree(kind: FileKind) -> bool {
+    matches!(kind, FileKind::Directory | FileKind::Audio | FileKind::Safetensors)
+}
+
 fn push_children(
     dir: &Path,
     depth: i32,
@@ -326,7 +330,10 @@ fn push_children(
 
 #[cfg(test)]
 mod tests {
-    use super::{build_visible_rows, matches_audio_filter, read_dir_sorted, FileKind, SortOrder, TreeState};
+    use super::{
+        build_visible_rows, is_visible_in_tree, matches_audio_filter, read_dir_sorted, FileKind,
+        SortOrder, TreeState,
+    };
     use std::{
         fs,
         path::{Path, PathBuf},
@@ -457,5 +464,14 @@ mod tests {
         assert!(matches_audio_filter("My Voice.WAV", " voice "));
         assert!(matches_audio_filter("My Voice.WAV", ""));
         assert!(!matches_audio_filter("My Voice.WAV", "music"));
+    }
+
+    #[test]
+    fn tree_visibility_keeps_directories_audio_and_safetensors() {
+        assert!(is_visible_in_tree(FileKind::Directory));
+        assert!(is_visible_in_tree(FileKind::Audio));
+        assert!(is_visible_in_tree(FileKind::Safetensors));
+        assert!(!is_visible_in_tree(FileKind::Json));
+        assert!(!is_visible_in_tree(FileKind::Other));
     }
 }
