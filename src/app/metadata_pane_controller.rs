@@ -371,7 +371,6 @@ pub fn register_metadata_pane_callbacks(
         let weak_window = window.as_weak();
         let audio_folder = Rc::clone(audio_folder);
         let audio_model = Rc::clone(audio_model);
-        let audio_load_state = Arc::clone(audio_load_state);
         let comment_editor_original = Rc::clone(comment_editor_original);
         window.on_comment_delete(move |path| {
             let Some(window) = weak_window.upgrade() else {
@@ -387,10 +386,14 @@ pub fn register_metadata_pane_callbacks(
             }
             if let Some(original) = comment_editor_original.borrow_mut().take() {
                 file.comments.retain(|item| item != &original);
-                metadata::save_audio_metadata(&workspace, &path, &file);
-                refresh_audio(&window, &audio_folder, &audio_model, &audio_load_state, workspace.clone());
+                if let Err(error) = metadata::save_audio_metadata_checked(&workspace, &path, &file) {
+                    window.set_audio_error(format!("Delete comment: {error}").into());
+                    return;
+                }
+                update_comment_model(&audio_model, &path, comment_rows(&file));
             }
             window.set_comment_editor_visible(false);
+            window.set_audio_error("Comment deleted".into());
         });
     }
 
