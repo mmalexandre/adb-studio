@@ -255,11 +255,27 @@ pub fn rename_audio_metadata(folder: &Path, source: &Path, destination: &Path) {
 }
 
 fn rename_comment_metadata(folder: &Path, source: &Path, destination: &Path) -> bool {
-    let Some(source_comment) = comment_path(folder, source) else {
-        return false;
-    };
-    let Some(destination_comment) = comment_path(folder, destination) else {
-        return false;
+    let (source_comment, destination_comment) = if source.is_dir() || destination.is_dir() {
+        let Some(source_relative) = source.strip_prefix(folder).ok() else {
+            return false;
+        };
+        let Some(destination_relative) = destination.strip_prefix(folder).ok() else {
+            return false;
+        };
+        (
+            folder.join(".adbstudio/comment").join(source_relative),
+            folder
+                .join(".adbstudio/comment")
+                .join(destination_relative),
+        )
+    } else {
+        let Some(source_comment) = comment_path(folder, source) else {
+            return false;
+        };
+        let Some(destination_comment) = comment_path(folder, destination) else {
+            return false;
+        };
+        (source_comment, destination_comment)
     };
     if !source_comment.exists() {
         return false;
@@ -270,19 +286,45 @@ fn rename_comment_metadata(folder: &Path, source: &Path, destination: &Path) -> 
     if fs::rename(&source_comment, &destination_comment).is_err() {
         return false;
     }
-    if let Ok(contents) = fs::read_to_string(&destination_comment) {
-        if let Ok(mut metadata) = serde_json::from_str::<AudioFileMetadata>(&contents) {
-            metadata.current_file_name = destination
-                .file_name()
-                .map(|name| name.to_string_lossy().into_owned())
-                .unwrap_or_default();
-            metadata.file_path = destination.to_string_lossy().into_owned();
-            if let Ok(contents) = serde_json::to_string_pretty(&metadata) {
-                let _ = fs::write(destination_comment, contents);
-            }
+    update_comment_metadata(&destination_comment, source, destination)
+}
+
+fn update_comment_metadata(path: &Path, source: &Path, destination: &Path) -> bool {
+    if path.is_dir() {
+        let Ok(entries) = fs::read_dir(path) else {
+            return false;
+        };
+        let mut changed = false;
+        for entry in entries.flatten() {
+            changed |= update_comment_metadata(&entry.path(), source, destination);
         }
+        return changed;
     }
-    true
+
+    let Ok(contents) = fs::read_to_string(path) else {
+        return false;
+    };
+    let Ok(mut metadata) = serde_json::from_str::<AudioFileMetadata>(&contents) else {
+        return false;
+    };
+    let metadata_path = Path::new(&metadata.file_path);
+    let current_path = if metadata_path == source {
+        destination.to_path_buf()
+    } else {
+        let Some(relative_path) = metadata_path.strip_prefix(source).ok() else {
+            return false;
+        };
+        destination.join(relative_path)
+    };
+    metadata.current_file_name = current_path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    metadata.file_path = current_path.to_string_lossy().into_owned();
+    let Ok(contents) = serde_json::to_string_pretty(&metadata) else {
+        return false;
+    };
+    fs::write(path, contents).is_ok()
 }
 
 #[cfg(test)]
@@ -333,6 +375,39 @@ mod tests {
         assert!(folder
             .join(".adbstudio/workflows/new/track.wav.workflow.json")
             .exists());
+        let _ = fs::remove_dir_all(folder);
+    }
+
+    #[test]
+    fn renames_nested_directory_metadata_paths() {
+        let folder = test_folder("metadata-directory");
+        let source = folder.join("old");
+        let destination = folder.join("new");
+        let source_track = source.join("nested/track.wav");
+        let metadata_path = folder.join(".adbstudio/comment/old/nested/track.json");
+        let metadata = AudioFileMetadata {
+            current_file_name: "track.wav".to_string(),
+            file_path: source_track.to_string_lossy().into_owned(),
+            ..Default::default()
+        };
+        fs::create_dir_all(source_track.parent().unwrap()).unwrap();
+        fs::write(&source_track, "audio").unwrap();
+        fs::create_dir_all(metadata_path.parent().unwrap()).unwrap();
+        fs::write(&metadata_path, serde_json::to_string(&metadata).unwrap()).unwrap();
+
+        fs::rename(&source, &destination).unwrap();
+        rename_audio_metadata(&folder, &source, &destination);
+
+        let metadata: AudioFileMetadata = serde_json::from_str(
+            &fs::read_to_string(folder.join(".adbstudio/comment/new/nested/track.json"))
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            metadata.file_path,
+            destination.join("nested/track.wav").to_string_lossy()
+        );
+        assert_eq!(metadata.current_file_name, "track.wav");
         let _ = fs::remove_dir_all(folder);
     }
 
