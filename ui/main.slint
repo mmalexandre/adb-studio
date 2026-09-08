@@ -1504,6 +1504,7 @@ export component MainWindow inherits Window {
                                     Text { text: "BPM"; color: root.light-theme ? #202833 : #e3e8ef; }
                                     SpinBox {
                                         minimum: 0;
+                                        maximum: 2147483647;
                                         value <=> root.workflow-bpm-number;
                                         edited(value) => { root.workflow-number-changed("bpm", value); }
                                         changed has-focus => { root.text-input-focused = self.has-focus; }
@@ -1522,6 +1523,7 @@ export component MainWindow inherits Window {
                                     Text { text: "Seed"; color: root.light-theme ? #202833 : #e3e8ef; }
                                     SpinBox {
                                         minimum: 0;
+                                        maximum: 2147483647;
                                         value <=> root.workflow-seed-number;
                                         edited(value) => { root.workflow-number-changed("seed", value); }
                                         changed has-focus => { root.text-input-focused = self.has-focus; }
