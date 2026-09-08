@@ -1910,9 +1910,7 @@ export component MainWindow inherits Window {
             y: 0px;
             width: parent.width;
             height: parent.height;
-            changed visible => {
-                if self.visible { comment-text-editor.focus(); }
-            }
+            init => { comment-text-editor.focus(); }
             Rectangle {
                 width: 430px;
                 height: 270px;
@@ -1929,6 +1927,13 @@ export component MainWindow inherits Window {
                         placeholder-text: "Comment text";
                         text <=> root.comment-editor-text;
                         accepted(text) => { root.comment-save(root.comment-editor-path, text); }
+                        key-pressed(event) => {
+                            if event.text == Key.Escape {
+                                root.comment-cancel();
+                                accept;
+                            }
+                            reject;
+                        }
                         changed has-focus => { root.text-input-focused = self.has-focus; }
                     }
                     Rectangle { vertical-stretch: 1; }
