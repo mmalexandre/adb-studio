@@ -40,6 +40,7 @@ pub fn register_workflow_callbacks(
         let audio_folder = Rc::clone(audio_folder);
         let recreate_workflow_pending = Rc::clone(recreate_workflow_pending);
         let edited_workflow = Rc::clone(edited_workflow);
+        let edited_workflow_path = Rc::clone(edited_workflow_path);
         window.on_recreate_workflow_requested(move || {
             let Some(window) = weak_window.upgrade() else {
                 return;
@@ -65,7 +66,13 @@ pub fn register_workflow_callbacks(
                 window.set_comfyui_sync_visible(true);
                 return;
             };
-            recreate_workflow(&window, &folder, &config, &edited_workflow);
+            recreate_workflow(
+                &window,
+                &folder,
+                &config,
+                &edited_workflow,
+                &edited_workflow_path,
+            );
         });
     }
 
@@ -674,6 +681,7 @@ fn recreate_workflow(
     folder: &Path,
     config: &SyncConfig,
     edited_workflow: &Rc<RefCell<Option<serde_json::Value>>>,
+    edited_workflow_path: &Rc<RefCell<Option<PathBuf>>>,
 ) {
     let audio_path = window.get_selected_audio_path().to_string();
     if audio_path.is_empty() {
@@ -685,6 +693,10 @@ fn recreate_workflow(
         return;
     };
     if !workflow_path.is_file() {
+        window.set_audio_error("Select a workflow before recreating it".into());
+        return;
+    }
+    if !ensure_edit_copy(window, folder, edited_workflow, edited_workflow_path) {
         window.set_audio_error("Select a workflow before recreating it".into());
         return;
     }
@@ -716,6 +728,7 @@ fn recreate_workflow(
     match ComfyUiClient::new().and_then(|client| client.upload_workflow(config, &workflow)) {
         Ok(()) => {
             *edited_workflow.borrow_mut() = None;
+            *edited_workflow_path.borrow_mut() = None;
             window.set_workflow_modified(false);
             match open_comfyui_workflow(config) {
                 Ok(()) => window.set_audio_error("Workflow opened in ComfyUI".into()),
