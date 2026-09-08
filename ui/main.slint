@@ -1924,8 +1924,6 @@ export component MainWindow inherits Window {
                     padding: 24px;
                     spacing: 12px;
                     Text { text: "Comment"; color: root.light-theme ? #202833 : #f1f4f8; font-size: 22px; }
-                    LineEdit { placeholder-text: "Start (seconds)"; text <=> root.comment-editor-start; changed has-focus => { root.text-input-focused = self.has-focus; } }
-                    LineEdit { placeholder-text: "End (seconds)"; text <=> root.comment-editor-end; changed has-focus => { root.text-input-focused = self.has-focus; } }
                     LineEdit { placeholder-text: "Comment text"; text <=> root.comment-editor-text; changed has-focus => { root.text-input-focused = self.has-focus; } }
                     Rectangle { vertical-stretch: 1; }
                     HorizontalLayout {
