@@ -70,6 +70,128 @@ pub fn register_workflow_callbacks(
     {
         let weak_window = window.as_weak();
         let audio_folder = Rc::clone(audio_folder);
+        let workflow_loading = Rc::clone(workflow_loading);
+        let loaded_workflow_path = Rc::clone(loaded_workflow_path);
+        let edited_workflow = Rc::clone(edited_workflow);
+        let edited_workflow_path = Rc::clone(edited_workflow_path);
+        window.on_assign_workflow_requested(move || {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            let Some(folder) = audio_folder.borrow().clone() else {
+                window.set_audio_error("Open a workspace before assigning a workflow".into());
+                return;
+            };
+            let audio_path = PathBuf::from(window.get_selected_audio_path().as_str());
+            if audio_path.as_os_str().is_empty() {
+                window.set_audio_error("Select an audio file before assigning a workflow".into());
+                return;
+            }
+            let Some(workflow_path) = metadata::workflow_path(&folder, &audio_path) else {
+                window.set_audio_error("Audio file is outside the workspace".into());
+                return;
+            };
+            let Some(source_path) = rfd::FileDialog::new()
+                .set_title("Assign Workflow JSON")
+                .add_filter("Workflow JSON", &["json"])
+                .pick_file()
+            else {
+                return;
+            };
+            let Ok(contents) = fs::read_to_string(&source_path) else {
+                window.set_audio_error("Read workflow JSON failed".into());
+                return;
+            };
+            if let Err(error) = serde_json::from_str::<serde_json::Value>(&contents) {
+                window.set_audio_error(format!("Workflow JSON: {error}").into());
+                return;
+            }
+            if source_path != workflow_path {
+                if let Some(parent) = workflow_path.parent() {
+                    if let Err(error) = fs::create_dir_all(parent) {
+                        window.set_audio_error(format!("Create workflow directory: {error}").into());
+                        return;
+                    }
+                }
+                if let Err(error) = fs::copy(&source_path, &workflow_path) {
+                    window.set_audio_error(format!("Assign workflow: {error}").into());
+                    return;
+                }
+            }
+            *edited_workflow.borrow_mut() = None;
+            *edited_workflow_path.borrow_mut() = None;
+            load_workflow_for_audio(
+                &window,
+                &folder,
+                &audio_path,
+                &workflow_loading,
+                &loaded_workflow_path,
+                true,
+            );
+            window.set_audio_error("Workflow assigned".into());
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        let audio_folder = Rc::clone(audio_folder);
+        let settings = Rc::clone(settings);
+        let edited_workflow = Rc::clone(edited_workflow);
+        let edited_workflow_path = Rc::clone(edited_workflow_path);
+        window.on_save_workflow_requested(move || {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            let Some(folder) = audio_folder.borrow().clone() else {
+                window.set_audio_error("Open a workspace before saving a workflow".into());
+                return;
+            };
+            let workspace_key = folder.to_string_lossy().to_string();
+            if settings.borrow().workflow_save_confirmation_disabled_workspaces.contains(&workspace_key) {
+                save_workflow(&window, &folder, &edited_workflow, &edited_workflow_path);
+                return;
+            }
+            window.set_workflow_save_confirm_dont_ask(false);
+            window.set_workflow_save_confirm_visible(true);
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        let audio_folder = Rc::clone(audio_folder);
+        let settings = Rc::clone(settings);
+        let edited_workflow = Rc::clone(edited_workflow);
+        let edited_workflow_path = Rc::clone(edited_workflow_path);
+        window.on_workflow_save_confirmed(move |dont_ask| {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            let Some(folder) = audio_folder.borrow().clone() else {
+                window.set_workflow_save_confirm_visible(false);
+                window.set_audio_error("Open a workspace before saving a workflow".into());
+                return;
+            };
+            if dont_ask {
+                settings.borrow_mut().workflow_save_confirmation_disabled_workspaces.insert(folder.to_string_lossy().to_string());
+                settings::save(&settings.borrow());
+            }
+            window.set_workflow_save_confirm_visible(false);
+            save_workflow(&window, &folder, &edited_workflow, &edited_workflow_path);
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        window.on_workflow_save_cancelled(move || {
+            if let Some(window) = weak_window.upgrade() {
+                window.set_workflow_save_confirm_visible(false);
+            }
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        let audio_folder = Rc::clone(audio_folder);
         let edited_workflow = Rc::clone(edited_workflow);
         let edited_workflow_path = Rc::clone(edited_workflow_path);
         window.on_open_workflow_requested(move || {
@@ -409,6 +531,49 @@ fn recreate_workflow(
             }
         }
         Err(error) => window.set_audio_error(format!("ComfyUI: {error}").into()),
+    }
+}
+
+fn save_workflow(
+    window: &MainWindow,
+    folder: &Path,
+    edited_workflow: &Rc<RefCell<Option<serde_json::Value>>>,
+    edited_workflow_path: &Rc<RefCell<Option<PathBuf>>>,
+) {
+    let audio_path = window.get_selected_audio_path().to_string();
+    let Some(workflow_path) = metadata::workflow_path(folder, Path::new(&audio_path)) else {
+        window.set_audio_error("Audio file is outside the workspace".into());
+        return;
+    };
+    if !ensure_edit_copy(window, folder, edited_workflow, edited_workflow_path) {
+        window.set_audio_error("Select a workflow before saving it".into());
+        return;
+    }
+    let mut workflow = edited_workflow.borrow().clone().unwrap_or_default();
+    for (field, value) in [
+        ("bpm", window.get_workflow_bpm().to_string()),
+        ("key", window.get_workflow_key().to_string()),
+        ("seed", window.get_workflow_seed().to_string()),
+        ("prompt", window.get_workflow_prompt().to_string()),
+        ("lyrics", window.get_workflow_lyrics().to_string()),
+    ] {
+        metadata::comfyui::update_metadata(&mut workflow, field, &value);
+    }
+    let contents = match serde_json::to_string_pretty(&workflow) {
+        Ok(contents) => contents,
+        Err(error) => {
+            window.set_audio_error(format!("Serialize workflow: {error}").into());
+            return;
+        }
+    };
+    match fs::write(&workflow_path, contents) {
+        Ok(()) => {
+            *edited_workflow.borrow_mut() = None;
+            *edited_workflow_path.borrow_mut() = None;
+            window.set_workflow_modified(false);
+            window.set_audio_error("Workflow saved".into());
+        }
+        Err(error) => window.set_audio_error(format!("Save workflow: {error}").into()),
     }
 }
 

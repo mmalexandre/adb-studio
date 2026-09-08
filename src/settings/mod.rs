@@ -45,6 +45,8 @@ pub struct AppSettings {
     pub shortcut_trash: i32,
     #[serde(default)]
     pub trash_confirmation_disabled_workspaces: HashSet<String>,
+    #[serde(default)]
+    pub workflow_save_confirmation_disabled_workspaces: HashSet<String>,
     #[serde(default = "default_left_pane_width")]
     pub left_pane_width: f32,
     #[serde(default = "default_metadata_pane_height")]
@@ -153,6 +155,7 @@ impl Default for AppSettings {
             shortcut_seek_forward: default_shortcut_seek_forward(),
             shortcut_trash: default_shortcut_trash(),
             trash_confirmation_disabled_workspaces: HashSet::new(),
+            workflow_save_confirmation_disabled_workspaces: HashSet::new(),
             left_pane_width: default_left_pane_width(),
             metadata_pane_height: default_metadata_pane_height(),
             metadata_visible: false,

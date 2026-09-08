@@ -23,11 +23,16 @@ pub fn select_tree_path(
         return;
     };
     state.select_and_expand(path);
+    let filter = window.get_audio_filter().to_string();
     let tree_index = file_system::build_visible_rows(
         state,
         file_system::SortOrder::from_i32(window.get_sort_order()),
     )
     .iter()
+    .filter(|row| {
+        row.kind != file_system::FileKind::Audio
+            || file_system::matches_audio_filter(&row.name, &filter)
+    })
     .position(|row| row.path == path)
     .map(|index| index as i32);
     settings.borrow_mut().last_selected_path = Some(path.to_string_lossy().into_owned());
@@ -78,11 +83,16 @@ pub fn refresh_tree(window: &MainWindow, tree_state: &Rc<RefCell<Option<TreeStat
     };
     window.set_tree_selection_count(state.selected_paths().len() as i32);
 
+    let filter = window.get_audio_filter().to_string();
     let rows: Vec<TreeRow> = file_system::build_visible_rows(
         state,
         file_system::SortOrder::from_i32(window.get_sort_order()),
     )
     .into_iter()
+    .filter(|row| {
+        row.kind != file_system::FileKind::Audio
+            || file_system::matches_audio_filter(&row.name, &filter)
+    })
     .map(|row| TreeRow {
         path: row.path.to_string_lossy().into_owned().into(),
         name: row.name.into(),

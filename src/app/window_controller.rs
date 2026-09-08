@@ -419,6 +419,7 @@ pub fn register_window_callbacks(
 
     {
         let weak_window = window.as_weak();
+        let tree_state = Rc::clone(tree_state);
         let audio_folder = Rc::clone(audio_folder);
         let audio_model = Rc::clone(audio_model);
         let audio_load_state = Arc::clone(audio_load_state);
@@ -427,8 +428,20 @@ pub fn register_window_callbacks(
                 return;
             };
             window.set_audio_filter(filter);
-            let folder = audio_folder.borrow().clone();
+            let folder = tree_state
+                .borrow()
+                .as_ref()
+                .and_then(|state| state.selected.as_ref())
+                .and_then(|path| {
+                    if path.is_dir() {
+                        Some(path.clone())
+                    } else {
+                        path.parent().map(Path::to_path_buf)
+                    }
+                })
+                .or_else(|| audio_folder.borrow().clone());
             if let Some(folder) = folder {
+                refresh_tree(&window, &tree_state);
                 crate::workspace::library::refresh_audio(
                     &window,
                     &audio_folder,

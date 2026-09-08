@@ -879,6 +879,8 @@ export component MainWindow inherits Window {
     in-out property <bool> trash-confirm-visible: false;
     in-out property <string> trash-confirm-path: "";
     in-out property <bool> trash-confirm-dont-ask: false;
+    in-out property <bool> workflow-save-confirm-visible: false;
+    in-out property <bool> workflow-save-confirm-dont-ask: false;
     in-out property <bool> metadata-visible: false;
     in-out property <length> metadata-pane-height: 190px;
     property <length> metadata-drag-start-y: 0px;
@@ -960,11 +962,15 @@ export component MainWindow inherits Window {
     callback trash-requested(string);
     callback trash-confirmed(bool);
     callback trash-cancelled();
+    callback workflow-save-confirmed(bool);
+    callback workflow-save-cancelled();
     callback comment-save(string, string, string, string);
     callback comment-cancel();
     callback comment-delete(string, string, string, string);
     callback metadata-toggle();
     callback metadata-pane-height-changed(length);
+    callback assign-workflow-requested();
+    callback save-workflow-requested();
     callback recreate-workflow-requested();
     callback open-workflow-requested();
     callback run-workflow-requested();
@@ -1497,7 +1503,10 @@ export component MainWindow inherits Window {
                         VerticalBox {
                             width: 100%;
                             height: 100%;
-                            padding: 12px;
+                            padding-left: 12px;
+                            padding-right: 12px;
+                            padding-top: 12px;
+                            padding-bottom: 27px;
                             spacing: 8px;
                             HorizontalLayout {
                                 width: 100%;
@@ -1603,19 +1612,32 @@ export component MainWindow inherits Window {
                                     horizontal-alignment: right;
                                 }
                             }
-                            HorizontalLayout {
-                                alignment: end;
-                                AppButton {
-                                    text: "Recreate in ComfyUI";
-                                    clicked => { root.recreate-workflow-requested(); }
-                                }
-                                AppButton {
-                                    text: "Open Workflow File";
-                                    clicked => { root.open-workflow-requested(); }
-                                }
-                                AppButton {
-                                    text: "Run in ComfyUI";
-                                    clicked => { root.run-workflow-requested(); }
+                            Rectangle {
+                                height: 26px;
+                                HorizontalLayout {
+                                    y: -15px;
+                                    alignment: end;
+                                    spacing: 5px;
+                                    AppButton {
+                                        text: "Assign workflow...";
+                                        clicked => { root.assign-workflow-requested(); }
+                                    }
+                                    AppButton {
+                                        text: "Save workflow";
+                                        clicked => { root.save-workflow-requested(); }
+                                    }
+                                    AppButton {
+                                        text: "Recreate in ComfyUI";
+                                        clicked => { root.recreate-workflow-requested(); }
+                                    }
+                                    AppButton {
+                                        text: "Open Workflow File";
+                                        clicked => { root.open-workflow-requested(); }
+                                    }
+                                    AppButton {
+                                        text: "Run in ComfyUI";
+                                        clicked => { root.run-workflow-requested(); }
+                                    }
                                 }
                             }
                         }
@@ -2429,6 +2451,37 @@ export component MainWindow inherits Window {
                         spacing: 8px;
                         AppButton { text: "Cancel"; clicked => { root.trash-cancelled(); } }
                         AppButton { text: "Move to Trash"; clicked => { root.trash-confirmed(root.trash-confirm-dont-ask); } }
+                    }
+                }
+            }
+        }
+
+        if root.workflow-save-confirm-visible : Rectangle {
+            background: #00000080;
+            x: 0px;
+            y: 0px;
+            width: parent.width;
+            height: parent.height;
+            z: 20;
+            Rectangle {
+                width: 460px;
+                height: 190px;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                background: root.light-theme ? #ffffff : #202832;
+                border-color: root.light-theme ? #cbd2dc : #435064;
+                border-width: 1px;
+                VerticalBox {
+                    padding: 24px;
+                    spacing: 14px;
+                    Text { text: "Overwrite original workflow?"; color: root.light-theme ? #202833 : #f1f4f8; font-size: 20px; }
+                    Text { text: "This will replace the original workflow with your edits."; color: root.light-theme ? #5c6878 : #c4ccd8; overflow: elide; }
+                    CheckBox { text: "Don't ask me again in this workspace"; checked: root.workflow-save-confirm-dont-ask; toggled => { root.workflow-save-confirm-dont-ask = self.checked; } }
+                    HorizontalLayout {
+                        alignment: end;
+                        spacing: 8px;
+                        AppButton { text: "Cancel"; clicked => { root.workflow-save-cancelled(); } }
+                        AppButton { text: "Save workflow"; clicked => { root.workflow-save-confirmed(root.workflow-save-confirm-dont-ask); } }
                     }
                 }
             }

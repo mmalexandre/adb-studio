@@ -97,7 +97,8 @@ fn refresh_audio_with_changes(
     pinned_track_sort::sort_tracks(&folder, pinned_path.as_deref(), sort_order, &mut entries);
     let mut rows = Vec::new();
     for entry in entries {
-        if entry.kind != file_system::FileKind::Audio || !matches_audio_filter(&entry.name, &filter)
+        if entry.kind != file_system::FileKind::Audio
+            || !file_system::matches_audio_filter(&entry.name, &filter)
         {
             continue;
         }
@@ -208,21 +209,4 @@ pub fn track_differences(
         })
         .collect::<Vec<_>>();
     ModelRc::new(VecModel::from(differences))
-}
-
-fn matches_audio_filter(name: &str, filter: &str) -> bool {
-    let filter = filter.trim();
-    filter.is_empty() || name.to_lowercase().contains(&filter.to_lowercase())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::matches_audio_filter;
-
-    #[test]
-    fn audio_filter_matches_names_case_insensitively() {
-        assert!(matches_audio_filter("My Voice.WAV", " voice "));
-        assert!(matches_audio_filter("My Voice.WAV", ""));
-        assert!(!matches_audio_filter("My Voice.WAV", "music"));
-    }
 }
