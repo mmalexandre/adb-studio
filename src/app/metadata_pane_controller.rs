@@ -318,7 +318,6 @@ pub fn register_metadata_pane_callbacks(
         let weak_window = window.as_weak();
         let audio_folder = Rc::clone(audio_folder);
         let audio_model = Rc::clone(audio_model);
-        let audio_load_state = Arc::clone(audio_load_state);
         let comment_editor_original = Rc::clone(comment_editor_original);
         let comment_editor_duration = Rc::clone(comment_editor_duration);
         window.on_comment_save(move |path, text| {
@@ -361,7 +360,7 @@ pub fn register_metadata_pane_callbacks(
                 window.set_audio_error(format!("Save comment: {error}").into());
                 return;
             }
-            refresh_audio(&window, &audio_folder, &audio_model, &audio_load_state, folder.clone());
+            update_comment_model(&audio_model, &path, comment_rows(&file));
             select_comment(&audio_model, &path, selected_start, selected_end);
             window.set_comment_editor_visible(false);
             window.set_audio_error("Comment saved".into());
