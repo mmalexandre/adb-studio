@@ -36,6 +36,27 @@ pub fn register_metadata_pane_callbacks(
 ) {
     {
         let weak_window = window.as_weak();
+        let audio_folder = Rc::clone(audio_folder);
+        window.on_user_comments_changed(move |comments| {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            let Some(folder) = audio_folder.borrow().clone() else {
+                return;
+            };
+            let path = PathBuf::from(window.get_selected_audio_path().as_str());
+            if path.as_os_str().is_empty() {
+                return;
+            }
+            let mut file = metadata::load_audio_metadata(&folder, &path);
+            file.file_path = path.to_string_lossy().into_owned();
+            file.user_comments = comments.to_string();
+            metadata::save_audio_metadata(&folder, &path, &file);
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
         let settings = Rc::clone(settings);
         window.on_comment_colors_selected(move |background, text| {
             let background = background.to_string();

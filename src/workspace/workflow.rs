@@ -130,6 +130,7 @@ pub fn load_workflow_for_audio(
     window.set_workflow_loading(true);
     window.set_workflow_modified(false);
     *loaded_workflow_path.borrow_mut() = Some(path.to_path_buf());
+    window.set_user_comments(metadata::load_audio_metadata(folder, path).user_comments.into());
     let Some(workflow_path) = metadata::workflow_path(folder, path) else {
         window.set_selected_workflow("".into());
         clear_workflow(window);

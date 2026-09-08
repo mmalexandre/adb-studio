@@ -35,6 +35,8 @@ pub struct AudioFileMetadata {
     pub file_path: String,
     pub rating: u8,
     pub comments: Vec<AudioComment>,
+    #[serde(default)]
+    pub user_comments: String,
     pub modified_date: String,
     pub waveform_cache_key: String,
     #[serde(default)]
@@ -423,6 +425,18 @@ mod tests {
         let encoded = serde_json::to_string(&metadata).unwrap();
         let decoded: AudioFileMetadata = serde_json::from_str(&encoded).unwrap();
         assert_eq!(decoded.comments, metadata.comments);
+    }
+
+    #[test]
+    fn round_trips_user_comments() {
+        let metadata = AudioFileMetadata {
+            user_comments: "Remember the alternate mix".to_string(),
+            ..Default::default()
+        };
+
+        let encoded = serde_json::to_string(&metadata).unwrap();
+        let decoded: AudioFileMetadata = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(decoded.user_comments, metadata.user_comments);
     }
 
     #[test]
