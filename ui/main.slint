@@ -1522,7 +1522,7 @@ export component MainWindow inherits Window {
                                         current-index: root.workflow-key-index;
                                         changed has-focus => { root.text-input-focused = self.has-focus; }
                                         changed current-index => {
-                                            if !root.workflow-loading && self.current-index >= 0 {
+                                            if self.has-focus && !root.workflow-loading && self.current-index >= 0 {
                                                 root.workflow-metadata-changed("key", self.model[self.current-index]);
                                             }
                                         }
