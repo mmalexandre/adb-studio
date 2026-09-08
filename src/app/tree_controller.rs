@@ -295,6 +295,7 @@ pub fn register_tree_callbacks(
                     {
                         window.set_audio_error(format!("Workflow file operation: {error}").into());
                     }
+                    crate::metadata::rename_audio_metadata(folder, &source, &destination);
                 }
             }
             {
@@ -390,6 +391,7 @@ pub fn register_tree_callbacks(
                     {
                         window.set_audio_error(format!("Workflow file operation: {error}").into());
                     }
+                    crate::metadata::rename_audio_metadata(folder, source, destination);
                 }
             }
             {

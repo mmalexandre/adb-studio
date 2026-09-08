@@ -102,6 +102,7 @@ pub(super) fn sync_loop(
             }
             if !destination.join(filename).exists()
                 && !download_index.contains_completed(&config, file)
+                && !metadata::has_downloaded_audio(&workspace, &file.name)
             {
                 if let Err(error) = client.download_file(&config, file, &destination) {
                     let _ = event_sender.send(SyncEvent::Error {
@@ -121,6 +122,11 @@ pub(super) fn sync_loop(
                     }
                 };
                 download_index.record_completed(&config, file, size);
+                metadata::record_downloaded_audio(
+                    &workspace,
+                    &file.name,
+                    &destination.join(filename),
+                );
                 if let Err(error) = save_download_index(&workspace, &download_index) {
                     let _ = event_sender.send(SyncEvent::Error {
                         generation,

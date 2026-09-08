@@ -215,6 +215,7 @@ pub fn tick(
             {
                 errors.push(error.to_string());
             }
+            crate::metadata::rename_audio_metadata(folder, &job.source, &job.destination);
         }
     }
     if let Some(root) = conversion_temp_root.borrow_mut().take() {

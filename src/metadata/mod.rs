@@ -28,6 +28,10 @@ impl AudioComment {
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct AudioFileMetadata {
+    #[serde(default)]
+    pub original_file_name: String,
+    #[serde(default)]
+    pub current_file_name: String,
     pub file_path: String,
     pub rating: u8,
     pub comments: Vec<AudioComment>,
@@ -165,13 +169,102 @@ pub fn save_index(folder: &Path, index: &MetadataIndex) {
     let _ = fs::write(path, contents);
 }
 
+pub fn record_downloaded_audio(folder: &Path, original_file_name: &str, current_path: &Path) {
+    let mut index = load_index(folder);
+    let current_path_string = current_path.to_string_lossy().into_owned();
+    let current_file_name = current_path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    if let Some(metadata) = index.audio_files.iter_mut().find(|metadata| {
+        metadata.file_path == current_path_string
+            || (metadata.current_file_name == current_file_name
+                && metadata.original_file_name == original_file_name)
+    }) {
+        metadata.original_file_name = original_file_name.to_string();
+        metadata.current_file_name = current_file_name;
+        metadata.file_path = current_path_string;
+    } else {
+        index.audio_files.push(AudioFileMetadata {
+            original_file_name: original_file_name.to_string(),
+            current_file_name,
+            file_path: current_path_string,
+            ..Default::default()
+        });
+    }
+    save_index(folder, &index);
+}
+
+pub fn has_downloaded_audio(folder: &Path, original_file_name: &str) -> bool {
+    load_index(folder).audio_files.iter().any(|metadata| {
+        metadata.original_file_name == original_file_name
+            && !metadata.file_path.is_empty()
+            && Path::new(&metadata.file_path).exists()
+    })
+}
+
+pub fn rename_audio_metadata(folder: &Path, source: &Path, destination: &Path) {
+    let mut index = load_index(folder);
+    let mut changed = false;
+    for metadata in &mut index.audio_files {
+        let path = Path::new(&metadata.file_path);
+        if path == source || path.starts_with(source) {
+            let Some(relative_path) = path.strip_prefix(source).ok() else {
+                continue;
+            };
+            let current_path = destination.join(relative_path);
+            metadata.file_path = current_path.to_string_lossy().into_owned();
+            metadata.current_file_name = current_path
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            changed = true;
+        }
+    }
+    changed |= rename_comment_metadata(folder, source, destination);
+    if changed {
+        save_index(folder, &index);
+    }
+}
+
+fn rename_comment_metadata(folder: &Path, source: &Path, destination: &Path) -> bool {
+    let Some(source_comment) = comment_path(folder, source) else {
+        return false;
+    };
+    let Some(destination_comment) = comment_path(folder, destination) else {
+        return false;
+    };
+    if !source_comment.exists() {
+        return false;
+    }
+    if let Some(parent) = destination_comment.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    if fs::rename(&source_comment, &destination_comment).is_err() {
+        return false;
+    }
+    if let Ok(contents) = fs::read_to_string(&destination_comment) {
+        if let Ok(mut metadata) = serde_json::from_str::<AudioFileMetadata>(&contents) {
+            metadata.current_file_name = destination
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            metadata.file_path = destination.to_string_lossy().into_owned();
+            if let Ok(contents) = serde_json::to_string_pretty(&metadata) {
+                let _ = fs::write(destination_comment, contents);
+            }
+        }
+    }
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
 
     use super::{
-        comment_path, load_audio_metadata, rename_associated_workflow, save_audio_metadata,
-        AudioComment, AudioFileMetadata,
+        comment_path, load_audio_metadata, rename_associated_workflow, rename_audio_metadata,
+        save_audio_metadata, save_index, AudioComment, AudioFileMetadata, MetadataIndex,
     };
 
     fn test_folder(name: &str) -> std::path::PathBuf {
@@ -274,6 +367,42 @@ mod tests {
             folder.join(".adbstudio/comment/folder1/folder2/file-name.json")
         );
         assert_eq!(load_audio_metadata(&folder, &audio_path).comments, metadata.comments);
+        let _ = fs::remove_dir_all(folder);
+    }
+
+    #[test]
+    fn preserves_original_name_and_updates_current_path_after_rename() {
+        let folder = test_folder("audio-metadata-rename");
+        let source = folder.join("downloads/original.wav");
+        let destination = folder.join("edited/final.mp3");
+        fs::create_dir_all(source.parent().unwrap()).unwrap();
+        fs::create_dir_all(destination.parent().unwrap()).unwrap();
+        fs::write(&source, b"audio").unwrap();
+        let metadata = AudioFileMetadata {
+            original_file_name: "original.wav".into(),
+            current_file_name: "original.wav".into(),
+            file_path: source.to_string_lossy().into_owned(),
+            comments: vec![AudioComment {
+                start_seconds: 1.0,
+                end_seconds: 2.0,
+                text: "note".into(),
+            }],
+            ..Default::default()
+        };
+        save_audio_metadata(&folder, &source, &metadata);
+        let mut index = MetadataIndex::default();
+        index.audio_files.push(metadata);
+        save_index(&folder, &index);
+
+        rename_audio_metadata(&folder, &source, &destination);
+
+        let current = load_audio_metadata(&folder, &destination);
+        assert_eq!(current.original_file_name, "original.wav");
+        assert_eq!(current.current_file_name, "final.mp3");
+        assert_eq!(current.file_path, destination.to_string_lossy());
+        assert_eq!(current.comments.len(), 1);
+        assert!(!comment_path(&folder, &source).unwrap().exists());
+        assert!(comment_path(&folder, &destination).unwrap().exists());
         let _ = fs::remove_dir_all(folder);
     }
 }
