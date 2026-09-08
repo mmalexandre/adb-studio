@@ -1,6 +1,5 @@
 use std::{
     cell::RefCell,
-    fs,
     path::{Path, PathBuf},
     rc::Rc,
     sync::{Arc, Mutex},
@@ -207,16 +206,7 @@ pub fn register_metadata_pane_callbacks(
                 return;
             };
             let source = PathBuf::from(path.as_str());
-            let Some(name) = source.file_name() else {
-                return;
-            };
-            let trash_folder = folder.join(".adbstudio").join("trash");
-            let destination = trash_folder.join(name);
-            if destination.exists() {
-                window.set_audio_error("File operation: trash destination already exists".into());
-                return;
-            }
-            if let Err(error) = fs::create_dir_all(&trash_folder).and_then(|_| fs::rename(&source, &destination)) {
+            if let Err(error) = trash::delete(&source) {
                 window.set_audio_error(format!("File operation: {error}").into());
                 return;
             }
