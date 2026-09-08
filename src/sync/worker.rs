@@ -68,7 +68,10 @@ pub(super) fn sync_loop(
                     generation,
                     message: error.to_string(),
                 });
-                return;
+                match command_receiver.recv_timeout(interval) {
+                    Ok(SyncCommand::Stop) | Err(mpsc::RecvTimeoutError::Disconnected) => return,
+                    Err(mpsc::RecvTimeoutError::Timeout) => continue,
+                }
             }
         };
         let mut current = match progress_with_index(&files, &destination, &config, &download_index)
@@ -79,7 +82,10 @@ pub(super) fn sync_loop(
                     generation,
                     message: error.to_string(),
                 });
-                return;
+                match command_receiver.recv_timeout(interval) {
+                    Ok(SyncCommand::Stop) | Err(mpsc::RecvTimeoutError::Disconnected) => return,
+                    Err(mpsc::RecvTimeoutError::Timeout) => continue,
+                }
             }
         };
         let _ = event_sender.send(SyncEvent::Progress {
@@ -108,7 +114,7 @@ pub(super) fn sync_loop(
                         generation,
                         message: error.to_string(),
                     });
-                    return;
+                    continue;
                 }
                 let size = match fs::metadata(destination.join(filename)) {
                     Ok(metadata) => metadata.len(),
@@ -117,7 +123,7 @@ pub(super) fn sync_loop(
                             generation,
                             message: SyncError::Io(error).to_string(),
                         });
-                        return;
+                        continue;
                     }
                 };
                 download_index.record_completed(&config, file, size);
@@ -131,7 +137,7 @@ pub(super) fn sync_loop(
                         generation,
                         message: error.to_string(),
                     });
-                    return;
+                    continue;
                 }
                 current.present += 1;
                 let _ = event_sender.send(SyncEvent::Progress {
@@ -140,26 +146,30 @@ pub(super) fn sync_loop(
                 });
                 last_downloaded_path = Some(destination.join(filename));
             }
-            match sync_workflow(
-                &client,
-                &config,
-                file,
-                &workspace,
-                &destination.join(filename),
-            ) {
-                Ok(true) => {
-                    let _ = event_sender.send(SyncEvent::WorkflowUpdated {
-                        generation,
-                        audio_path: destination.join(filename).to_string_lossy().into_owned(),
-                    });
-                }
-                Ok(false) => {}
-                Err(error) => {
+            let audio_path = destination.join(filename);
+            if !download_index.contains_workflow_attempt(&config, file) {
+                download_index.record_workflow_attempt(&config, file);
+                if let Err(error) = save_download_index(&workspace, &download_index) {
                     let _ = event_sender.send(SyncEvent::Error {
                         generation,
                         message: error.to_string(),
                     });
-                    return;
+                }
+                match sync_workflow(&client, &config, file, &workspace, &audio_path) {
+                    Ok(true) => {
+                        let _ = event_sender.send(SyncEvent::WorkflowUpdated {
+                            generation,
+                            audio_path: audio_path.to_string_lossy().into_owned(),
+                        });
+                    }
+                    Ok(false) => {}
+                    Err(error) => {
+                        let _ = event_sender.send(SyncEvent::Error {
+                            generation,
+                            message: error.to_string(),
+                        });
+                        continue;
+                    }
                 }
             }
         }
@@ -345,6 +355,33 @@ mod tests {
                 .present,
             1
         );
+        fs::remove_dir_all(workspace).unwrap();
+    }
+
+    #[test]
+    fn workflow_attempt_marker_persists_and_is_scoped_to_server() {
+        let workspace = tempfile_directory();
+        let config = SyncConfig {
+            url: "https://example.test".to_string(),
+            ..SyncConfig::default()
+        };
+        let other_config = SyncConfig {
+            url: "https://other.example.test".to_string(),
+            ..config.clone()
+        };
+        let file = RemoteFile {
+            name: "song.mp3".to_string(),
+            path: "/output/audio/song.mp3".to_string(),
+            modified: 0,
+        };
+        let mut index = DownloadIndex::default();
+        assert!(!index.contains_workflow_attempt(&config, &file));
+        index.record_workflow_attempt(&config, &file);
+        save_download_index(&workspace, &index).unwrap();
+
+        let loaded = load_download_index(&workspace).unwrap();
+        assert!(loaded.contains_workflow_attempt(&config, &file));
+        assert!(!loaded.contains_workflow_attempt(&other_config, &file));
         fs::remove_dir_all(workspace).unwrap();
     }
 

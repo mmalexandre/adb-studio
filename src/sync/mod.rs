@@ -114,6 +114,32 @@ impl DownloadIndex {
         })
     }
 
+    fn contains_workflow_attempt(&self, config: &SyncConfig, file: &RemoteFile) -> bool {
+        self.downloads.iter().any(|record| {
+            record.status == "workflow-attempted"
+                && record.url == config.url
+                && record.remote_path == workflow_remote_path(file)
+        })
+    }
+
+    fn record_workflow_attempt(&mut self, config: &SyncConfig, file: &RemoteFile) {
+        let remote_path = workflow_remote_path(file);
+        self.downloads.retain(|record| {
+            record.url != config.url || record.remote_path != remote_path
+        });
+        self.downloads.push(DownloadRecord {
+            url: config.url.clone(),
+            remote_path,
+            filename: format!("{}.workflow.json", file.name),
+            downloaded_at: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|duration| duration.as_secs())
+                .unwrap_or_default(),
+            status: "workflow-attempted".to_string(),
+            size: 0,
+        });
+    }
+
     fn record_completed(&mut self, config: &SyncConfig, file: &RemoteFile, size: u64) {
         self.downloads
             .retain(|record| record.url != config.url || record.remote_path != file.path);
@@ -133,6 +159,10 @@ impl DownloadIndex {
             size,
         });
     }
+}
+
+fn workflow_remote_path(file: &RemoteFile) -> String {
+    format!("{}.workflow.json", file.path)
 }
 
 #[derive(Clone, Debug, PartialEq)]

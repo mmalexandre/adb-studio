@@ -1,4 +1,4 @@
-use reqwest::blocking::Client;
+use reqwest::blocking::{Client, RequestBuilder, Response};
 use std::{
     fs,
     io::Write,
@@ -7,7 +7,7 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
     sync::mpsc::Sender,
     thread,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use crate::metadata;
@@ -32,14 +32,41 @@ impl ComfyUiClient {
             .map_err(SyncError::Request)
     }
 
+    fn send_request(
+        &self,
+        method: &str,
+        url: &str,
+        request: RequestBuilder,
+    ) -> Result<Response, reqwest::Error> {
+        let started = Instant::now();
+        println!("[sync] request start {method} {url}");
+        let result = request.send();
+        match &result {
+            Ok(response) => println!(
+                "[sync] request complete {method} {url} status={} elapsed_ms={}",
+                response.status(),
+                started.elapsed().as_millis()
+            ),
+            Err(error) => println!(
+                "[sync] request complete {method} {url} error={error} elapsed_ms={}",
+                started.elapsed().as_millis()
+            ),
+        }
+        result
+    }
+
     pub fn list_files(&self, config: &SyncConfig) -> Result<Vec<RemoteFile>, SyncError> {
         validate_request_config(config)?;
+        let url = format!("{}/adb-music-player/audio-files", config.url);
         let response = self
-            .client
-            .get(format!("{}/adb-music-player/audio-files", config.url))
+            .send_request(
+                "GET",
+                &url,
+                self.client
+                    .get(&url)
             .query(&[("directory", config.remote_directory.as_str())])
             .header(reqwest::header::ACCEPT, "application/json")
-            .send()
+            )
             .map_err(SyncError::Request)?
             .error_for_status()
             .map_err(SyncError::Request)?;
@@ -62,11 +89,9 @@ impl ComfyUiClient {
         workflow: &serde_json::Value,
     ) -> Result<(), SyncError> {
         validate_request_config(config)?;
+        let url = format!("{}/adb-music-player/workflow", config.url);
         let response = self
-            .client
-            .post(format!("{}/adb-music-player/workflow", config.url))
-            .json(workflow)
-            .send()
+            .send_request("POST", &url, self.client.post(&url).json(workflow))
             .map_err(SyncError::Request)?;
         if !response.status().is_success() {
             let status = response.status();
@@ -98,11 +123,15 @@ impl ComfyUiClient {
             std::process::id(),
             TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed)
         );
+        let prompt_url = format!("{}/prompt", config.url);
         let prompt_response = self
-            .client
-            .post(format!("{}/prompt", config.url))
-            .json(&serde_json::json!({ "prompt": workflow, "client_id": client_id }))
-            .send()
+            .send_request(
+                "POST",
+                &prompt_url,
+                self.client
+                    .post(&prompt_url)
+                    .json(&serde_json::json!({ "prompt": workflow, "client_id": client_id })),
+            )
             .map_err(SyncError::Request)?;
         if !prompt_response.status().is_success() {
             return Err(response_error(prompt_response, "ComfyUI rejected prompt"));
@@ -129,10 +158,9 @@ impl ComfyUiClient {
                     step: "Waiting for ComfyUI".into(),
                 });
             }
+            let history_url = format!("{}/history/{prompt_id}", config.url);
             let response = self
-                .client
-                .get(format!("{}/history/{}", config.url, prompt_id))
-                .send()
+                .send_request("GET", &history_url, self.client.get(&history_url))
                 .map_err(SyncError::Request)?;
             if response.status().is_success() {
                 let value: serde_json::Value = response.json().map_err(SyncError::Request)?;
@@ -169,10 +197,9 @@ impl ComfyUiClient {
     }
 
     fn interrupt(&self, config: &SyncConfig) -> Result<(), SyncError> {
+        let url = format!("{}/interrupt", config.url);
         let response = self
-            .client
-            .post(format!("{}/interrupt", config.url))
-            .send()
+            .send_request("POST", &url, self.client.post(&url))
             .map_err(SyncError::Request)?;
         if response.status().is_success() {
             Ok(())
@@ -185,10 +212,9 @@ impl ComfyUiClient {
     }
 
     fn progress(&self, config: &SyncConfig) -> Result<Option<(f32, String)>, SyncError> {
+        let url = format!("{}/progress", config.url);
         let response = self
-            .client
-            .get(format!("{}/progress", config.url))
-            .send()
+            .send_request("GET", &url, self.client.get(&url))
             .map_err(SyncError::Request)?;
         if !response.status().is_success() {
             return Ok(None);
@@ -231,15 +257,17 @@ impl ComfyUiClient {
             temporary_download_path(temporary_directory, &format!("source.{source_extension}"));
         let output_temporary = temporary_download_path(temporary_directory, filename);
         let result = (|| {
+            let url = format!("{}/view", config.url);
             let mut response = self
-                .client
-                .get(format!("{}/view", config.url))
-                .query(&[
-                    ("filename", output.filename.as_str()),
-                    ("subfolder", output.subfolder.as_str()),
-                    ("type", output.output_type.as_str()),
-                ])
-                .send()
+                .send_request(
+                    "GET",
+                    &url,
+                    self.client.get(&url).query(&[
+                        ("filename", output.filename.as_str()),
+                        ("subfolder", output.subfolder.as_str()),
+                        ("type", output.output_type.as_str()),
+                    ]),
+                )
                 .map_err(SyncError::Request)?
                 .error_for_status()
                 .map_err(SyncError::Request)?;
@@ -296,11 +324,15 @@ impl ComfyUiClient {
         let final_path = destination.join(filename);
         let temporary_path = temporary_download_path(destination, filename);
         let result = (|| {
+            let url = format!("{}/adb-music-player/audio-download", config.url);
             let mut response = self
-                .client
-                .get(format!("{}/adb-music-player/audio-download", config.url))
-                .query(&[("path", file.path.as_str())])
-                .send()
+                .send_request(
+                    "GET",
+                    &url,
+                    self.client
+                        .get(&url)
+                        .query(&[("path", file.path.as_str())]),
+                )
                 .map_err(SyncError::Request)?
                 .error_for_status()
                 .map_err(SyncError::Request)?;
@@ -342,11 +374,15 @@ impl ComfyUiClient {
             filename,
         );
         let result = (|| {
+            let url = format!("{}/adb-music-player/audio-download", config.url);
             let response = self
-                .client
-                .get(format!("{}/adb-music-player/audio-download", config.url))
-                .query(&[("path", file.path.as_str())])
-                .send()
+                .send_request(
+                    "GET",
+                    &url,
+                    self.client
+                        .get(&url)
+                        .query(&[("path", file.path.as_str())]),
+                )
                 .map_err(SyncError::Request)?;
             if response.status() == reqwest::StatusCode::NOT_FOUND {
                 return Ok(false);
