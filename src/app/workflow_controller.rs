@@ -25,6 +25,7 @@ use crate::{
 pub fn register_workflow_callbacks(
     window: &MainWindow,
     settings: &Rc<RefCell<AppSettings>>,
+    tree_state: &Rc<RefCell<Option<crate::workspace::file_system::TreeState>>>,
     audio_folder: &Rc<RefCell<Option<PathBuf>>>,
     workflow_loading: &Rc<RefCell<bool>>,
     loaded_workflow_path: &Rc<RefCell<Option<PathBuf>>>,
@@ -70,6 +71,7 @@ pub fn register_workflow_callbacks(
     {
         let weak_window = window.as_weak();
         let audio_folder = Rc::clone(audio_folder);
+        let tree_state = Rc::clone(tree_state);
         let workflow_loading = Rc::clone(workflow_loading);
         let loaded_workflow_path = Rc::clone(loaded_workflow_path);
         let edited_workflow = Rc::clone(edited_workflow);
@@ -82,15 +84,11 @@ pub fn register_workflow_callbacks(
                 window.set_audio_error("Open a workspace before assigning a workflow".into());
                 return;
             };
-            let audio_path = PathBuf::from(window.get_selected_audio_path().as_str());
-            if audio_path.as_os_str().is_empty() {
+            let selected_paths = selected_audio_paths(&tree_state, &window);
+            if selected_paths.is_empty() {
                 window.set_audio_error("Select an audio file before assigning a workflow".into());
                 return;
             }
-            let Some(workflow_path) = metadata::workflow_path(&folder, &audio_path) else {
-                window.set_audio_error("Audio file is outside the workspace".into());
-                return;
-            };
             let Some(source_path) = rfd::FileDialog::new()
                 .set_title("Assign Workflow JSON")
                 .add_filter("Workflow JSON", &["json"])
@@ -106,7 +104,14 @@ pub fn register_workflow_callbacks(
                 window.set_audio_error(format!("Workflow JSON: {error}").into());
                 return;
             }
-            if source_path != workflow_path {
+            for audio_path in &selected_paths {
+                let Some(workflow_path) = metadata::workflow_path(&folder, audio_path) else {
+                    window.set_audio_error("Audio file is outside the workspace".into());
+                    return;
+                };
+                if source_path == workflow_path {
+                    continue;
+                }
                 if let Some(parent) = workflow_path.parent() {
                     if let Err(error) = fs::create_dir_all(parent) {
                         window.set_audio_error(format!("Create workflow directory: {error}").into());
@@ -118,6 +123,7 @@ pub fn register_workflow_callbacks(
                     return;
                 }
             }
+            let audio_path = PathBuf::from(window.get_selected_audio_path().as_str());
             *edited_workflow.borrow_mut() = None;
             *edited_workflow_path.borrow_mut() = None;
             load_workflow_for_audio(
@@ -135,6 +141,7 @@ pub fn register_workflow_callbacks(
     {
         let weak_window = window.as_weak();
         let audio_folder = Rc::clone(audio_folder);
+        let tree_state = Rc::clone(tree_state);
         let settings = Rc::clone(settings);
         let edited_workflow = Rc::clone(edited_workflow);
         let edited_workflow_path = Rc::clone(edited_workflow_path);
@@ -146,9 +153,14 @@ pub fn register_workflow_callbacks(
                 window.set_audio_error("Open a workspace before saving a workflow".into());
                 return;
             };
+            let selected_paths = selected_audio_paths(&tree_state, &window);
+            if selected_paths.is_empty() {
+                window.set_audio_error("Select an audio file before saving a workflow".into());
+                return;
+            }
             let workspace_key = folder.to_string_lossy().to_string();
             if settings.borrow().workflow_save_confirmation_disabled_workspaces.contains(&workspace_key) {
-                save_workflow(&window, &folder, &edited_workflow, &edited_workflow_path);
+                save_workflow(&window, &folder, &selected_paths, &edited_workflow, &edited_workflow_path);
                 return;
             }
             window.set_workflow_save_confirm_dont_ask(false);
@@ -159,6 +171,7 @@ pub fn register_workflow_callbacks(
     {
         let weak_window = window.as_weak();
         let audio_folder = Rc::clone(audio_folder);
+        let tree_state = Rc::clone(tree_state);
         let settings = Rc::clone(settings);
         let edited_workflow = Rc::clone(edited_workflow);
         let edited_workflow_path = Rc::clone(edited_workflow_path);
@@ -171,12 +184,18 @@ pub fn register_workflow_callbacks(
                 window.set_audio_error("Open a workspace before saving a workflow".into());
                 return;
             };
+            let selected_paths = selected_audio_paths(&tree_state, &window);
+            if selected_paths.is_empty() {
+                window.set_workflow_save_confirm_visible(false);
+                window.set_audio_error("Select an audio file before saving a workflow".into());
+                return;
+            }
             if dont_ask {
                 settings.borrow_mut().workflow_save_confirmation_disabled_workspaces.insert(folder.to_string_lossy().to_string());
                 settings::save(&settings.borrow());
             }
             window.set_workflow_save_confirm_visible(false);
-            save_workflow(&window, &folder, &edited_workflow, &edited_workflow_path);
+            save_workflow(&window, &folder, &selected_paths, &edited_workflow, &edited_workflow_path);
         });
     }
 
@@ -537,14 +556,10 @@ fn recreate_workflow(
 fn save_workflow(
     window: &MainWindow,
     folder: &Path,
+    selected_paths: &[PathBuf],
     edited_workflow: &Rc<RefCell<Option<serde_json::Value>>>,
     edited_workflow_path: &Rc<RefCell<Option<PathBuf>>>,
 ) {
-    let audio_path = window.get_selected_audio_path().to_string();
-    let Some(workflow_path) = metadata::workflow_path(folder, Path::new(&audio_path)) else {
-        window.set_audio_error("Audio file is outside the workspace".into());
-        return;
-    };
     if !ensure_edit_copy(window, folder, edited_workflow, edited_workflow_path) {
         window.set_audio_error("Select a workflow before saving it".into());
         return;
@@ -566,14 +581,49 @@ fn save_workflow(
             return;
         }
     };
-    match fs::write(&workflow_path, contents) {
-        Ok(()) => {
-            *edited_workflow.borrow_mut() = None;
-            *edited_workflow_path.borrow_mut() = None;
-            window.set_workflow_modified(false);
-            window.set_audio_error("Workflow saved".into());
+    let workflow_paths = selected_paths
+        .iter()
+        .map(|audio_path| metadata::workflow_path(folder, audio_path))
+        .collect::<Option<Vec<_>>>();
+    let Some(workflow_paths) = workflow_paths else {
+        window.set_audio_error("Audio file is outside the workspace".into());
+        return;
+    };
+    for workflow_path in workflow_paths {
+        if let Some(parent) = workflow_path.parent() {
+            if let Err(error) = fs::create_dir_all(parent) {
+                window.set_audio_error(format!("Create workflow directory: {error}").into());
+                return;
+            }
         }
-        Err(error) => window.set_audio_error(format!("Save workflow: {error}").into()),
+        if let Err(error) = fs::write(workflow_path, &contents) {
+            window.set_audio_error(format!("Save workflow: {error}").into());
+            return;
+        }
+    }
+    *edited_workflow.borrow_mut() = None;
+    *edited_workflow_path.borrow_mut() = None;
+    window.set_workflow_modified(false);
+    window.set_audio_error("Workflow saved".into());
+}
+
+fn selected_audio_paths(
+    tree_state: &Rc<RefCell<Option<crate::workspace::file_system::TreeState>>>,
+    window: &MainWindow,
+) -> Vec<PathBuf> {
+    let selected_paths = tree_state
+        .borrow()
+        .as_ref()
+        .map(crate::workspace::file_system::TreeState::selected_paths)
+        .unwrap_or_default();
+    if !selected_paths.is_empty() {
+        return selected_paths;
+    }
+    let selected_path = PathBuf::from(window.get_selected_audio_path().as_str());
+    if selected_path.as_os_str().is_empty() {
+        Vec::new()
+    } else {
+        vec![selected_path]
     }
 }
 

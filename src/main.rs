@@ -121,6 +121,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     app::workflow_controller::register_workflow_callbacks(
         &window,
         &settings,
+        &tree_state,
         &audio_folder,
         &workflow_loading,
         &loaded_workflow_path,

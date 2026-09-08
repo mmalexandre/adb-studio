@@ -870,23 +870,30 @@ export component MainWindow inherits Window {
                                     alignment: end;
                                     spacing: 5px;
                                     AppButton {
-                                        text: "Assign workflow...";
+                                        text: root.tree-selection-count > 1
+                                            ? "Assign workflow (" + root.tree-selection-count + ")"
+                                            : "Assign workflow...";
                                         clicked => { root.assign-workflow-requested(); }
                                     }
                                     AppButton {
-                                        text: "Save workflow";
+                                        text: root.tree-selection-count > 1
+                                            ? "Save workflow (" + root.tree-selection-count + ")"
+                                            : "Save workflow";
                                         clicked => { root.save-workflow-requested(); }
                                     }
                                     AppButton {
                                         text: "Recreate in ComfyUI";
+                                        enabled: root.tree-selection-count <= 1;
                                         clicked => { root.recreate-workflow-requested(); }
                                     }
                                     AppButton {
                                         text: "Open Workflow File";
+                                        enabled: root.tree-selection-count <= 1;
                                         clicked => { root.open-workflow-requested(); }
                                     }
                                     AppButton {
                                         text: "Run in ComfyUI";
+                                        enabled: root.tree-selection-count <= 1;
                                         clicked => { root.run-workflow-requested(); }
                                     }
                                 }
