@@ -50,3 +50,55 @@ pub fn set_pinned_track(workspace: &Path, folder: &Path, track: Option<&Path>) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{pinned_track, set_pinned_track};
+    use std::{fs, path::PathBuf, time::{SystemTime, UNIX_EPOCH}};
+
+    struct TempDirectory(PathBuf);
+
+    impl TempDirectory {
+        fn new() -> Self {
+            let suffix = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let path = std::env::temp_dir().join(format!("adb-studio-preferences-{suffix}"));
+            fs::create_dir_all(&path).unwrap();
+            Self(path)
+        }
+    }
+
+    impl Drop for TempDirectory {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn pinned_track_round_trips_and_can_be_removed() {
+        let temp = TempDirectory::new();
+        let folder = temp.0.join("album");
+        let track = folder.join("song.wav");
+        fs::create_dir(&folder).unwrap();
+        fs::write(&track, []).unwrap();
+
+        assert_eq!(pinned_track(&temp.0, &folder), None);
+        set_pinned_track(&temp.0, &folder, Some(&track));
+        assert_eq!(pinned_track(&temp.0, &folder), Some(track.clone()));
+
+        set_pinned_track(&temp.0, &folder, None);
+        assert_eq!(pinned_track(&temp.0, &folder), None);
+    }
+
+    #[test]
+    fn setting_a_folder_outside_workspace_does_not_write_preferences() {
+        let temp = TempDirectory::new();
+        let outside = std::env::temp_dir().join("adb-studio-outside-folder");
+
+        set_pinned_track(&temp.0, &outside, None);
+
+        assert!(!temp.0.join(".adbstudio/preferences.json").exists());
+    }
+}

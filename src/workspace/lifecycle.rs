@@ -34,6 +34,9 @@ pub fn set_workspace(
     sync_controller: &Rc<RefCell<SyncController>>,
     workspace_watcher: &Rc<RefCell<Option<RecommendedWatcher>>>,
     workspace_change_sender: &mpsc::Sender<Vec<PathBuf>>,
+    edited_workflow: &Rc<RefCell<Option<serde_json::Value>>>,
+    edited_workflow_path: &Rc<RefCell<Option<PathBuf>>>,
+    loaded_workflow_path: &Rc<RefCell<Option<PathBuf>>>,
 ) {
     *workspace_watcher.borrow_mut() = None;
     match notify::recommended_watcher({
@@ -62,6 +65,9 @@ pub fn set_workspace(
         Err(_) => window.set_audio_error("Unable to watch workspace files".into()),
     }
     *audio_folder.borrow_mut() = Some(folder.clone());
+    *edited_workflow.borrow_mut() = None;
+    *edited_workflow_path.borrow_mut() = None;
+    *loaded_workflow_path.borrow_mut() = None;
     let folder_name = folder
         .file_name()
         .and_then(|name| name.to_str())
@@ -161,6 +167,9 @@ pub fn close_workspace(
     sync_controller: &Rc<RefCell<SyncController>>,
     playback: &Rc<RefCell<Option<PlaybackEngine>>>,
     workspace_watcher: &Rc<RefCell<Option<RecommendedWatcher>>>,
+    edited_workflow: &Rc<RefCell<Option<serde_json::Value>>>,
+    edited_workflow_path: &Rc<RefCell<Option<PathBuf>>>,
+    loaded_workflow_path: &Rc<RefCell<Option<PathBuf>>>,
 ) {
     *workspace_watcher.borrow_mut() = None;
     sync_controller.borrow_mut().stop();
@@ -181,6 +190,9 @@ pub fn close_workspace(
     *tree_state.borrow_mut() = None;
     *audio_folder.borrow_mut() = None;
     *audio_model.borrow_mut() = None;
+    *edited_workflow.borrow_mut() = None;
+    *edited_workflow_path.borrow_mut() = None;
+    *loaded_workflow_path.borrow_mut() = None;
     workflow_files.borrow_mut().clear();
 
     let mut settings = settings.borrow_mut();

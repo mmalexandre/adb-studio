@@ -24,7 +24,9 @@ pub fn register_tree_callbacks(
     audio_model: &Rc<RefCell<Option<Rc<VecModel<AudioRow>>>>>,
     audio_load_state: &Arc<Mutex<AudioLoadState>>,
     edited_workflow: &Rc<RefCell<Option<serde_json::Value>>>,
+    edited_workflow_path: &Rc<RefCell<Option<PathBuf>>>,
     workflow_loading: &Rc<RefCell<bool>>,
+    loaded_workflow_path: &Rc<RefCell<Option<PathBuf>>>,
 ) {
     {
         let weak_window = window.as_weak();
@@ -33,7 +35,9 @@ pub fn register_tree_callbacks(
         let audio_model = Rc::clone(audio_model);
         let audio_folder = Rc::clone(audio_folder);
         let edited_workflow = Rc::clone(edited_workflow);
+        let edited_workflow_path = Rc::clone(edited_workflow_path);
         let workflow_loading = Rc::clone(workflow_loading);
+        let loaded_workflow_path = Rc::clone(loaded_workflow_path);
         window.on_audio_row_selected(move |path| {
             let Some(window) = weak_window.upgrade() else {
                 return;
@@ -41,11 +45,12 @@ pub fn register_tree_callbacks(
             window.set_selected_audio_path(path.clone());
             let path = std::path::Path::new(path.as_str());
             *edited_workflow.borrow_mut() = None;
+            *edited_workflow_path.borrow_mut() = None;
             window.set_workflow_modified(false);
             crate::audio::view::select_audio_path(&audio_model, path);
             select_tree_path(&window, &tree_state, &settings, path);
             if let Some(folder) = audio_folder.borrow().clone() {
-                load_workflow_for_audio(&window, &folder, path, &workflow_loading);
+                load_workflow_for_audio(&window, &folder, path, &workflow_loading, &loaded_workflow_path, true);
             }
         });
     }

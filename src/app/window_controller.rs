@@ -37,6 +37,9 @@ pub fn register_window_callbacks(
     workspace_change_sender: &mpsc::Sender<Vec<PathBuf>>,
     playback: &Rc<RefCell<Option<PlaybackEngine>>>,
     workflow_loading: &Rc<RefCell<bool>>,
+    edited_workflow: &Rc<RefCell<Option<serde_json::Value>>>,
+    edited_workflow_path: &Rc<RefCell<Option<PathBuf>>>,
+    loaded_workflow_path: &Rc<RefCell<Option<PathBuf>>>,
 ) {
     {
         let weak_window = window.as_weak();
@@ -49,6 +52,9 @@ pub fn register_window_callbacks(
         let workflow_files = Rc::clone(workflow_files);
         let workspace_watcher = Rc::clone(workspace_watcher);
         let workspace_change_sender = workspace_change_sender.clone();
+        let edited_workflow = Rc::clone(edited_workflow);
+        let edited_workflow_path = Rc::clone(edited_workflow_path);
+        let loaded_workflow_path = Rc::clone(loaded_workflow_path);
         window.on_open_folder(move || {
             let Some(window) = weak_window.upgrade() else {
                 return;
@@ -69,6 +75,9 @@ pub fn register_window_callbacks(
                     &sync_controller,
                     &workspace_watcher,
                     &workspace_change_sender,
+                    &edited_workflow,
+                    &edited_workflow_path,
+                    &loaded_workflow_path,
                 );
             }
         });
@@ -85,6 +94,9 @@ pub fn register_window_callbacks(
         let sync_controller = Rc::clone(sync_controller);
         let playback = Rc::clone(playback);
         let workspace_watcher = Rc::clone(workspace_watcher);
+        let edited_workflow = Rc::clone(edited_workflow);
+        let edited_workflow_path = Rc::clone(edited_workflow_path);
+        let loaded_workflow_path = Rc::clone(loaded_workflow_path);
         window.on_close_folder(move || {
             let Some(window) = weak_window.upgrade() else {
                 return;
@@ -100,6 +112,9 @@ pub fn register_window_callbacks(
                 &sync_controller,
                 &playback,
                 &workspace_watcher,
+                &edited_workflow,
+                &edited_workflow_path,
+                &loaded_workflow_path,
             );
         });
     }
@@ -307,6 +322,7 @@ pub fn register_window_callbacks(
         let audio_load_state = Arc::clone(audio_load_state);
         let playback = Rc::clone(playback);
         let workflow_loading = Rc::clone(workflow_loading);
+        let loaded_workflow_path = Rc::clone(loaded_workflow_path);
         window.on_row_clicked(move |path, shift| {
             let Some(window) = weak_window.upgrade() else {
                 return;
@@ -392,6 +408,8 @@ pub fn register_window_callbacks(
                         &folder,
                         &path,
                         &workflow_loading,
+                        &loaded_workflow_path,
+                        false,
                     );
                     crate::audio::session::save_playback_position(&folder, engine);
                 }

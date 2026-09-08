@@ -101,18 +101,34 @@ pub fn apply_workflow(
     )));
 }
 
+pub fn should_reload_workflow(current: Option<&Path>, next: &Path, force: bool) -> bool {
+    if force {
+        return true;
+    }
+    match current {
+        Some(current) => current != next,
+        None => true,
+    }
+}
+
 pub fn load_workflow_for_audio(
     window: &MainWindow,
     folder: &Path,
     path: &Path,
     workflow_loading: &std::rc::Rc<std::cell::RefCell<bool>>,
+    loaded_workflow_path: &std::rc::Rc<std::cell::RefCell<Option<std::path::PathBuf>>>,
+    force: bool,
 ) {
     if window.get_workflow_loading() {
+        return;
+    }
+    if !force && !should_reload_workflow(loaded_workflow_path.borrow().as_deref(), path, false) {
         return;
     }
     *workflow_loading.borrow_mut() = true;
     window.set_workflow_loading(true);
     window.set_workflow_modified(false);
+    *loaded_workflow_path.borrow_mut() = Some(path.to_path_buf());
     let Some(workflow_path) = metadata::workflow_path(folder, path) else {
         window.set_selected_workflow("".into());
         clear_workflow(window);
@@ -136,4 +152,24 @@ pub fn load_workflow_for_audio(
     window.set_workflow_modified(false);
     window.set_workflow_loading(false);
     *workflow_loading.borrow_mut() = false;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn same_path_is_not_reloaded_without_force() {
+        let current = std::path::Path::new("/workspace/audio.wav");
+        let next = std::path::Path::new("/workspace/audio.wav");
+        assert!(!should_reload_workflow(Some(current), next, false));
+    }
+
+    #[test]
+    fn different_path_reloads_or_force_overrides() {
+        let current = std::path::Path::new("/workspace/audio.wav");
+        let next = std::path::Path::new("/workspace/other.wav");
+        assert!(should_reload_workflow(Some(current), next, false));
+        assert!(should_reload_workflow(Some(current), next, true));
+    }
 }

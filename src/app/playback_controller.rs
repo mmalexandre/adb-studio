@@ -29,6 +29,7 @@ pub fn register_playback_callbacks(
     settings: &Rc<RefCell<crate::settings::AppSettings>>,
     tree_state: &Rc<RefCell<Option<TreeState>>>,
     workflow_loading: &Rc<RefCell<bool>>,
+    loaded_workflow_path: &Rc<RefCell<Option<PathBuf>>>,
     comment_editor_original: &Rc<RefCell<Option<AudioComment>>>,
     comment_editor_duration: &Rc<RefCell<f32>>,
     last_button_click: &Rc<RefCell<Option<(PathBuf, Instant)>>>,
@@ -148,6 +149,7 @@ pub fn register_playback_callbacks(
         let tree_state = Rc::clone(tree_state);
         let settings = Rc::clone(settings);
         let workflow_loading = Rc::clone(workflow_loading);
+        let loaded_workflow_path = Rc::clone(loaded_workflow_path);
         window.on_audio_play(move |path| {
             let Some(window) = weak_window.upgrade() else {
                 return;
@@ -226,6 +228,8 @@ pub fn register_playback_callbacks(
                     &folder,
                     &path,
                     &workflow_loading,
+                    &loaded_workflow_path,
+                    false,
                 );
                 save_playback_position(&folder, engine);
             }
@@ -240,6 +244,7 @@ pub fn register_playback_callbacks(
         let tree_state = Rc::clone(tree_state);
         let settings = Rc::clone(settings);
         let workflow_loading = Rc::clone(workflow_loading);
+        let loaded_workflow_path = Rc::clone(loaded_workflow_path);
         window.on_audio_seek(move |path, progress| {
             let Some(window) = weak_window.upgrade() else {
                 return;
@@ -284,6 +289,8 @@ pub fn register_playback_callbacks(
                     &folder,
                     &path,
                     &workflow_loading,
+                    &loaded_workflow_path,
+                    false,
                 );
                 save_playback_position(&folder, engine);
             }

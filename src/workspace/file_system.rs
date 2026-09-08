@@ -4,7 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FileKind {
     Directory,
     Audio,
@@ -298,5 +298,110 @@ fn push_children(
         if is_expanded {
             push_children(&entry.path, depth + 1, state, sort_order, rows);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{build_visible_rows, read_dir_sorted, FileKind, SortOrder, TreeState};
+    use std::{
+        fs,
+        path::{Path, PathBuf},
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    struct TempDirectory(PathBuf);
+
+    impl TempDirectory {
+        fn new() -> Self {
+            let suffix = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let path = std::env::temp_dir().join(format!("adb-studio-file-system-{suffix}"));
+            fs::create_dir_all(&path).unwrap();
+            Self(path)
+        }
+
+        fn path(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for TempDirectory {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn file_kind_is_case_insensitive_and_directories_win() {
+        let temp = TempDirectory::new();
+        let directory = temp.path().join("song.WAV");
+        fs::create_dir(&directory).unwrap();
+
+        assert_eq!(FileKind::from_path(&directory), FileKind::Directory);
+        assert_eq!(FileKind::from_path(Path::new("song.WAV")), FileKind::Audio);
+        assert_eq!(FileKind::from_path(Path::new("model.SAFETENSORS")), FileKind::Safetensors);
+        assert_eq!(FileKind::from_path(Path::new("notes.JSON")), FileKind::Json);
+        assert_eq!(FileKind::from_path(Path::new("notes.txt")), FileKind::Other);
+    }
+
+    #[test]
+    fn read_dir_sorted_hides_dotfiles_and_keeps_directories_first() {
+        let temp = TempDirectory::new();
+        fs::create_dir(temp.path().join("Bravo")).unwrap();
+        fs::write(temp.path().join("alpha.wav"), []).unwrap();
+        fs::write(temp.path().join("charlie.wav"), []).unwrap();
+        fs::write(temp.path().join(".hidden.wav"), []).unwrap();
+
+        let ascending = read_dir_sorted(temp.path(), SortOrder::AlphabeticalAscending);
+        assert_eq!(
+            ascending.iter().map(|entry| entry.name.as_str()).collect::<Vec<_>>(),
+            vec!["Bravo", "alpha.wav", "charlie.wav"]
+        );
+
+        let descending = read_dir_sorted(temp.path(), SortOrder::AlphabeticalDescending);
+        assert_eq!(
+            descending.iter().map(|entry| entry.name.as_str()).collect::<Vec<_>>(),
+            vec!["Bravo", "charlie.wav", "alpha.wav"]
+        );
+    }
+
+    #[test]
+    fn shift_selection_selects_the_range_in_directory_order() {
+        let temp = TempDirectory::new();
+        for name in ["one.wav", "two.wav", "three.wav"] {
+            fs::write(temp.path().join(name), []).unwrap();
+        }
+        let first = temp.path().join("one.wav");
+        let last = temp.path().join("three.wav");
+        let mut state = TreeState::new(temp.path().to_path_buf());
+
+        state.select(&first);
+        state.select_with_shift(&last, true, SortOrder::AlphabeticalAscending);
+
+        let mut selected = state.selected_paths();
+        selected.sort();
+        assert_eq!(
+            selected,
+            vec![
+                temp.path().join("one.wav"),
+                temp.path().join("three.wav"),
+                temp.path().join("two.wav"),
+            ]
+        );
+        assert_eq!(state.selected, Some(last));
+    }
+
+    #[test]
+    fn visible_rows_follow_expanded_state() {
+        let temp = TempDirectory::new();
+        let child = temp.path().join("child");
+        fs::create_dir(&child).unwrap();
+        fs::write(child.join("song.wav"), []).unwrap();
+        let state = TreeState::new(temp.path().to_path_buf());
+
+        assert_eq!(build_visible_rows(&state, SortOrder::AlphabeticalAscending).len(), 2);
     }
 }

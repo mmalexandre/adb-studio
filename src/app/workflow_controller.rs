@@ -27,7 +27,9 @@ pub fn register_workflow_callbacks(
     settings: &Rc<RefCell<AppSettings>>,
     audio_folder: &Rc<RefCell<Option<PathBuf>>>,
     workflow_loading: &Rc<RefCell<bool>>,
+    loaded_workflow_path: &Rc<RefCell<Option<PathBuf>>>,
     edited_workflow: &Rc<RefCell<Option<serde_json::Value>>>,
+    edited_workflow_path: &Rc<RefCell<Option<PathBuf>>>,
     workflow_run_cancelled: &Rc<RefCell<Option<Arc<AtomicBool>>>>,
     workflow_run_sender: &mpsc::Sender<WorkflowRunUpdate>,
     recreate_workflow_pending: &Rc<RefCell<bool>>,
@@ -69,6 +71,7 @@ pub fn register_workflow_callbacks(
         let weak_window = window.as_weak();
         let audio_folder = Rc::clone(audio_folder);
         let edited_workflow = Rc::clone(edited_workflow);
+        let edited_workflow_path = Rc::clone(edited_workflow_path);
         window.on_open_workflow_requested(move || {
             let Some(window) = weak_window.upgrade() else {
                 return;
@@ -84,7 +87,7 @@ pub fn register_workflow_callbacks(
                 return;
             };
             let path_to_open = if window.get_workflow_modified() {
-                if edited_workflow.borrow().is_none() && !ensure_edit_copy(&window, &folder, &edited_workflow) {
+                if edited_workflow.borrow().is_none() && !ensure_edit_copy(&window, &folder, &edited_workflow, &edited_workflow_path) {
                     window.set_audio_error("Select a workflow before opening it".into());
                     return;
                 }
@@ -126,6 +129,7 @@ pub fn register_workflow_callbacks(
         let weak_window = window.as_weak();
         let audio_folder = Rc::clone(audio_folder);
         let edited_workflow = Rc::clone(edited_workflow);
+        let edited_workflow_path = Rc::clone(edited_workflow_path);
         let cancelled_state = Rc::clone(workflow_run_cancelled);
         let updates = workflow_run_sender.clone();
         window.on_run_workflow_requested(move || {
@@ -235,6 +239,7 @@ pub fn register_workflow_callbacks(
     {
         let weak_window = window.as_weak();
         let edited_workflow_for_edit = Rc::clone(edited_workflow);
+        let edited_workflow_path_for_edit = Rc::clone(edited_workflow_path);
         let workflow_loading_for_edit = Rc::clone(workflow_loading);
         let audio_folder_for_edit = Rc::clone(audio_folder);
         window.on_workflow_metadata_changed(move |field, value| {
@@ -250,7 +255,7 @@ pub fn register_workflow_callbacks(
             let Some(folder) = audio_folder_for_edit.borrow().clone() else {
                 return;
             };
-            if !ensure_edit_copy(&window, &folder, &edited_workflow_for_edit) {
+            if !ensure_edit_copy(&window, &folder, &edited_workflow_for_edit, &edited_workflow_path_for_edit) {
                 return;
             }
             window.set_workflow_modified(true);
@@ -263,6 +268,7 @@ pub fn register_workflow_callbacks(
     {
         let weak_window = window.as_weak();
         let edited_workflow_for_number = Rc::clone(edited_workflow);
+        let edited_workflow_path_for_number = Rc::clone(edited_workflow_path);
         let workflow_loading_for_number = Rc::clone(workflow_loading);
         let audio_folder_for_number = Rc::clone(audio_folder);
         window.on_workflow_number_changed(move |field, value| {
@@ -275,10 +281,13 @@ pub fn register_workflow_callbacks(
             if window.get_workflow_loading() {
                 return;
             }
+            if field == "seed" {
+                window.set_workflow_seed(value.to_string().into());
+            }
             let Some(folder) = audio_folder_for_number.borrow().clone() else {
                 return;
             };
-            if !ensure_edit_copy(&window, &folder, &edited_workflow_for_number) {
+            if !ensure_edit_copy(&window, &folder, &edited_workflow_for_number, &edited_workflow_path_for_number) {
                 return;
             }
             window.set_workflow_modified(true);
@@ -304,6 +313,7 @@ pub fn register_workflow_callbacks(
         let weak_window = window.as_weak();
         let audio_folder = Rc::clone(audio_folder);
         let workflow_loading = Rc::clone(workflow_loading);
+        let loaded_workflow_path = Rc::clone(loaded_workflow_path);
         window.on_lora_save(move |filename, tag| {
             let Some(window) = weak_window.upgrade() else {
                 return;
@@ -324,7 +334,7 @@ pub fn register_workflow_callbacks(
             window.set_lora_editor_visible(false);
             let audio_path = window.get_selected_audio_path().to_string();
             if !audio_path.is_empty() {
-                load_workflow_for_audio(&window, &folder, Path::new(&audio_path), &workflow_loading);
+                load_workflow_for_audio(&window, &folder, Path::new(&audio_path), &workflow_loading, &loaded_workflow_path, false);
             }
         });
     }
@@ -401,21 +411,25 @@ fn ensure_edit_copy(
     window: &MainWindow,
     folder: &Path,
     edited_workflow: &Rc<RefCell<Option<serde_json::Value>>>,
+    edited_workflow_path: &Rc<RefCell<Option<PathBuf>>>,
 ) -> bool {
-    if edited_workflow.borrow().is_some() {
-        return true;
-    }
-    let audio_path = window.get_selected_audio_path().to_string();
-    let Some(workflow_path) = metadata::workflow_path(folder, Path::new(&audio_path)) else {
+    let selected_audio_path = window.get_selected_audio_path();
+    let Some(workflow_path) = metadata::workflow_path(folder, Path::new(&selected_audio_path)) else {
         return false;
     };
-    let Ok(contents) = fs::read_to_string(workflow_path) else {
+    if let Some(current_path) = edited_workflow_path.borrow().as_ref() {
+        if current_path == &workflow_path {
+            return edited_workflow.borrow().is_some();
+        }
+    }
+    let Ok(contents) = fs::read_to_string(&workflow_path) else {
         return false;
     };
     let Ok(workflow) = serde_json::from_str(&contents) else {
         return false;
     };
     *edited_workflow.borrow_mut() = Some(workflow);
+    *edited_workflow_path.borrow_mut() = Some(workflow_path);
     true
 }
 

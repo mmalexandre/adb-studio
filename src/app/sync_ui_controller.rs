@@ -363,6 +363,7 @@ pub fn tick(
     sync_controller: &Rc<RefCell<crate::sync::SyncController>>,
     playback: &Rc<RefCell<Option<PlaybackEngine>>>,
     workflow_loading: &Rc<RefCell<bool>>,
+    loaded_workflow_path: &Rc<RefCell<Option<PathBuf>>>,
     sync_spinner_frame: &mut usize,
 ) {
     let current_generation = sync_controller.borrow().generation();
@@ -424,7 +425,7 @@ pub fn tick(
                     engine.duration(),
                 );
                 scroll_audio_to_path(window, audio_model, &path);
-                load_workflow_for_audio(window, &folder, &path, workflow_loading);
+                load_workflow_for_audio(window, &folder, &path, workflow_loading, loaded_workflow_path, false);
                 save_playback_position(&folder, engine);
             }
             SyncEvent::WorkflowUpdated {
@@ -434,7 +435,7 @@ pub fn tick(
                 && window.get_active_audio_path() == audio_path.as_str() =>
             {
                 if let Some(folder) = audio_folder.borrow().clone() {
-                    load_workflow_for_audio(window, &folder, Path::new(audio_path.as_str()), workflow_loading);
+                    load_workflow_for_audio(window, &folder, Path::new(audio_path.as_str()), workflow_loading, loaded_workflow_path, false);
                 }
             }
             SyncEvent::Error {

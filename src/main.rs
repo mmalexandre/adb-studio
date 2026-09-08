@@ -42,7 +42,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let audio_folder = state.audio_folder.clone();
     let workflow_files = state.workflow_files.clone();
     let edited_workflow = state.edited_workflow.clone();
+    let edited_workflow_path = state.edited_workflow_path.clone();
     let workflow_loading = state.workflow_loading.clone();
+    let loaded_workflow_path = state.loaded_workflow_path.clone();
     let recreate_workflow_pending = state.recreate_workflow_pending.clone();
     let workspace_watcher = state.workspace_watcher.clone();
     let (workspace_change_sender, workspace_change_receiver) = mpsc::channel::<Vec<PathBuf>>();
@@ -110,6 +112,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &settings,
         &tree_state,
         &workflow_loading,
+        &loaded_workflow_path,
         &comment_editor_original,
         &comment_editor_duration,
         &last_button_click,
@@ -120,7 +123,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &settings,
         &audio_folder,
         &workflow_loading,
+        &loaded_workflow_path,
         &edited_workflow,
+        &edited_workflow_path,
         &workflow_run_cancelled,
         &workflow_run_sender,
         &recreate_workflow_pending,
@@ -146,7 +151,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &audio_model,
         &audio_load_state,
         &edited_workflow,
+        &edited_workflow_path,
         &workflow_loading,
+        &loaded_workflow_path,
     );
 
     app::conversion_controller::register_conversion_callbacks(
@@ -177,6 +184,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &sync_controller,
                 &workspace_watcher,
                 &workspace_change_sender,
+                &edited_workflow,
+                &edited_workflow_path,
+                &loaded_workflow_path,
             );
         }
     }
@@ -192,6 +202,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let last_persisted_position_for_timer = Rc::clone(&last_persisted_position);
         let sync_controller = Rc::clone(&sync_controller);
         let workflow_loading = Rc::clone(&workflow_loading);
+        let loaded_workflow_path_for_timer = Rc::clone(&loaded_workflow_path);
         let workspace_change_receiver = Rc::new(RefCell::new(workspace_change_receiver));
         let tree_state = Rc::clone(&tree_state);
         let workflow_files = Rc::clone(&workflow_files);
@@ -335,6 +346,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         &sync_controller,
                         &playback,
                         &workflow_loading,
+                        &loaded_workflow_path_for_timer,
                         &mut sync_spinner_frame,
                     );
                 }
@@ -396,6 +408,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &workspace_change_sender,
         &playback,
         &workflow_loading,
+        &edited_workflow,
+        &edited_workflow_path,
+        &loaded_workflow_path,
     );
 
     app::sync_ui_controller::register_sync_ui_callbacks(
