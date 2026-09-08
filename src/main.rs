@@ -92,7 +92,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     window.set_audio_volume(1.0);
     window.set_left_pane_width(settings.borrow().left_pane_width.into());
     window.set_metadata_pane_height(settings.borrow().metadata_pane_height.into());
-    window.set_metadata_visible(settings.borrow().metadata_visible);
+    window.set_metadata_visible(true);
     window.set_comment_background_hex(settings.borrow().comment_background_color.clone().into());
     window.set_comment_text_hex(settings.borrow().comment_text_color.clone().into());
     window.set_comment_background_color(settings::parse_color(

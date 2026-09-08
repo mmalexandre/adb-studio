@@ -76,7 +76,7 @@ fn default_left_pane_width() -> f32 {
 }
 
 fn default_metadata_pane_height() -> f32 {
-    190.0
+    320.0
 }
 
 fn default_seek_seconds() -> f32 {
@@ -158,7 +158,7 @@ impl Default for AppSettings {
             workflow_save_confirmation_disabled_workspaces: HashSet::new(),
             left_pane_width: default_left_pane_width(),
             metadata_pane_height: default_metadata_pane_height(),
-            metadata_visible: false,
+            metadata_visible: true,
             hide_tips_of_the_day: false,
             comment_background_color: default_comment_background_color(),
             comment_text_color: default_comment_text_color(),
@@ -199,7 +199,7 @@ mod tests {
         assert_eq!(settings.seek_seconds, 5.0);
         assert_eq!(settings.sort_order, 3);
         assert_eq!(settings.left_pane_width, 280.0);
-        assert_eq!(settings.metadata_pane_height, 190.0);
+        assert_eq!(settings.metadata_pane_height, 320.0);
         assert_eq!(settings.comment_background_color, "#000000");
         assert_eq!(settings.comment_text_color, "#ffffff");
     }
