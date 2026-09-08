@@ -259,9 +259,11 @@ pub fn register_workflow_callbacks(
                 return;
             }
             window.set_workflow_modified(true);
-            let _ = edited_workflow_for_edit.borrow_mut().as_mut().is_some_and(|workflow| {
-                metadata::comfyui::update_metadata(workflow, field.as_str(), value.as_str())
-            });
+            let mut edited_workflow = edited_workflow_for_edit.borrow_mut();
+            if let Some(workflow) = edited_workflow.as_mut() {
+                let changed = metadata::comfyui::update_metadata(workflow, field.as_str(), value.as_str());
+                print_edited_workflow(field.as_str(), value.as_str(), changed, workflow);
+            }
         });
     }
 
@@ -272,6 +274,7 @@ pub fn register_workflow_callbacks(
         let workflow_loading_for_number = Rc::clone(workflow_loading);
         let audio_folder_for_number = Rc::clone(audio_folder);
         window.on_workflow_number_changed(move |field, value| {
+            println!("Workflow number edit received: {field} = {value}");
             if *workflow_loading_for_number.borrow() {
                 return;
             }
@@ -291,9 +294,12 @@ pub fn register_workflow_callbacks(
                 return;
             }
             window.set_workflow_modified(true);
-            let _ = edited_workflow_for_number.borrow_mut().as_mut().is_some_and(|workflow| {
-                metadata::comfyui::update_metadata(workflow, field.as_str(), &value.to_string())
-            });
+            let value = value.to_string();
+            let mut edited_workflow = edited_workflow_for_number.borrow_mut();
+            if let Some(workflow) = edited_workflow.as_mut() {
+                let changed = metadata::comfyui::update_metadata(workflow, field.as_str(), &value);
+                print_edited_workflow(field.as_str(), &value, changed, workflow);
+            }
         });
     }
 
@@ -431,6 +437,14 @@ fn ensure_edit_copy(
     *edited_workflow.borrow_mut() = Some(workflow);
     *edited_workflow_path.borrow_mut() = Some(workflow_path);
     true
+}
+
+fn print_edited_workflow(field: &str, value: &str, changed: bool, workflow: &serde_json::Value) {
+    println!(
+        "Edited workflow: {field} = {value} (changed={changed})\n{}",
+        serde_json::to_string_pretty(workflow)
+            .unwrap_or_else(|error| format!("<failed to serialize workflow: {error}>"))
+    );
 }
 
 fn write_modified_workflow(workflow_path: &Path, workflow: &serde_json::Value) -> Result<PathBuf, String> {

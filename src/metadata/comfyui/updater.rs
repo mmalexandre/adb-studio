@@ -84,6 +84,33 @@ pub fn update_metadata(value: &mut Value, field: &str, new_value: &str) -> bool 
             let is_visual_ace_step = node_type.contains("textencodeacestep")
                 || node_type.contains("acestep") && node_type.contains("textencode");
             if is_visual_ace_step {
+                let uses_positional_metadata = object
+                    .get("widgets_values")
+                    .and_then(Value::as_array)
+                    .map(|values| {
+                        values.len() >= 9
+                            && !keys.iter().any(|key| key == "bpm" || key == "keyscale")
+                    })
+                    .unwrap_or(false);
+                if uses_positional_metadata {
+                    let widget_index = match field {
+                        "prompt" => Some(0),
+                        "lyrics" => Some(1),
+                        "seed" => Some(2),
+                        "bpm" => Some(4),
+                        "key" => Some(8),
+                        _ => None,
+                    };
+                    if let Some(target) = widget_index.and_then(|index| {
+                        object
+                            .get_mut("widgets_values")
+                            .and_then(Value::as_array_mut)
+                            .and_then(|values| values.get_mut(index))
+                    }) {
+                        return replace(target, new_value);
+                    }
+                }
+
                 let mut widget_index = None;
                 let mut value_index = 0;
                 for (index, key) in keys.iter().enumerate() {
@@ -178,5 +205,26 @@ mod tests {
         assert_eq!(value["nodes"][0]["widgets_values"][4], json!(150));
         assert_eq!(value["nodes"][0]["widgets_values"][5], json!("D minor"));
         assert_eq!(value["nodes"][0]["widgets_values"][1], json!("new lyrics"));
+    }
+
+    #[test]
+    fn updates_visual_metadata_with_positional_prompt_and_lyrics() {
+        let mut value = json!({"nodes": [{
+            "type": "TextEncodeAceStepAudio1.5",
+            "inputs": [
+                {"name": "clip"},
+                {"name": "seed", "widget": {"name": "seed"}},
+                {"name": "duration", "widget": {"name": "duration"}}
+            ],
+            "widgets_values": [
+                "prompt", "lyrics", 34, "fixed", 128, 30,
+                "4", "en", "E minor", true, 2, 0.85, 0.9, 0, 0
+            ]
+        }]});
+
+        assert!(super::update_metadata(&mut value, "seed", "777"));
+        assert!(super::update_metadata(&mut value, "lyrics", "new lyrics"));
+        assert_eq!(value["nodes"][0]["widgets_values"][1], json!("new lyrics"));
+        assert_eq!(value["nodes"][0]["widgets_values"][2], json!(777));
     }
 }
