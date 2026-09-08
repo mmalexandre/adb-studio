@@ -10,7 +10,11 @@ use std::{
 use slint::{ComponentHandle, Model, ModelRc, VecModel};
 
 use crate::{
-    audio::{conversion::{self, ConversionJob, ConversionUpdate}, loader::State as AudioLoadState, playback::PlaybackEngine},
+    audio::{
+        conversion::{self, ConversionJob, ConversionUpdate},
+        loader::State as AudioLoadState,
+        playback::PlaybackEngine,
+    },
     workspace::{file_system::TreeState, library::refresh_audio, tree_nav::refresh_tree},
     ConversionRow, MainWindow,
 };
@@ -188,8 +192,8 @@ pub fn tick(
                 }
             }
         }
-        conversion_finished =
-            *conversion_updates >= conversion_jobs.borrow().len() && !conversion_jobs.borrow().is_empty();
+        conversion_finished = *conversion_updates >= conversion_jobs.borrow().len()
+            && !conversion_jobs.borrow().is_empty();
     }
     if !conversion_finished {
         return;

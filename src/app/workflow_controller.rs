@@ -12,13 +12,13 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use slint::ComponentHandle;
+use slint::{ComponentHandle, Model};
 
 use crate::{
     metadata::{self},
     settings::{self, AppSettings},
     sync::{ComfyUiClient, SyncConfig, WorkflowRunUpdate},
-    workspace::workflow::load_workflow_for_audio,
+    workspace::workflow::{load_workflow_for_audio, refresh_workflow_loras},
     MainWindow,
 };
 
@@ -48,7 +48,8 @@ pub fn register_workflow_callbacks(
                 window.set_audio_error("Open a workspace before recreating a workflow".into());
                 return;
             };
-            let Some(config) = crate::sync::load_config(&folder).filter(|config| !config.url.is_empty())
+            let Some(config) =
+                crate::sync::load_config(&folder).filter(|config| !config.url.is_empty())
             else {
                 *recreate_workflow_pending.borrow_mut() = true;
                 let config = crate::sync::load_config(&folder).unwrap_or_default();
@@ -114,7 +115,8 @@ pub fn register_workflow_callbacks(
                 }
                 if let Some(parent) = workflow_path.parent() {
                     if let Err(error) = fs::create_dir_all(parent) {
-                        window.set_audio_error(format!("Create workflow directory: {error}").into());
+                        window
+                            .set_audio_error(format!("Create workflow directory: {error}").into());
                         return;
                     }
                 }
@@ -159,8 +161,18 @@ pub fn register_workflow_callbacks(
                 return;
             }
             let workspace_key = folder.to_string_lossy().to_string();
-            if settings.borrow().workflow_save_confirmation_disabled_workspaces.contains(&workspace_key) {
-                save_workflow(&window, &folder, &selected_paths, &edited_workflow, &edited_workflow_path);
+            if settings
+                .borrow()
+                .workflow_save_confirmation_disabled_workspaces
+                .contains(&workspace_key)
+            {
+                save_workflow(
+                    &window,
+                    &folder,
+                    &selected_paths,
+                    &edited_workflow,
+                    &edited_workflow_path,
+                );
                 return;
             }
             window.set_workflow_save_confirm_dont_ask(false);
@@ -191,11 +203,20 @@ pub fn register_workflow_callbacks(
                 return;
             }
             if dont_ask {
-                settings.borrow_mut().workflow_save_confirmation_disabled_workspaces.insert(folder.to_string_lossy().to_string());
+                settings
+                    .borrow_mut()
+                    .workflow_save_confirmation_disabled_workspaces
+                    .insert(folder.to_string_lossy().to_string());
                 settings::save(&settings.borrow());
             }
             window.set_workflow_save_confirm_visible(false);
-            save_workflow(&window, &folder, &selected_paths, &edited_workflow, &edited_workflow_path);
+            save_workflow(
+                &window,
+                &folder,
+                &selected_paths,
+                &edited_workflow,
+                &edited_workflow_path,
+            );
         });
     }
 
@@ -228,7 +249,9 @@ pub fn register_workflow_callbacks(
                 return;
             };
             let path_to_open = if window.get_workflow_modified() {
-                if edited_workflow.borrow().is_none() && !ensure_edit_copy(&window, &folder, &edited_workflow, &edited_workflow_path) {
+                if edited_workflow.borrow().is_none()
+                    && !ensure_edit_copy(&window, &folder, &edited_workflow, &edited_workflow_path)
+                {
                     window.set_audio_error("Select a workflow before opening it".into());
                     return;
                 }
@@ -285,7 +308,11 @@ pub fn register_workflow_callbacks(
                 window.set_audio_error("Select an audio file before running a workflow".into());
                 return;
             };
-            let Some(output_stem) = audio_path.file_stem().and_then(|name| name.to_str()).map(str::to_owned) else {
+            let Some(output_stem) = audio_path
+                .file_stem()
+                .and_then(|name| name.to_str())
+                .map(str::to_owned)
+            else {
                 window.set_audio_error("Selected audio file has no usable name".into());
                 return;
             };
@@ -306,7 +333,9 @@ pub fn register_workflow_callbacks(
                 };
                 workflow
             };
-            let Some(config) = crate::sync::load_config(&workspace).filter(|config| !config.url.is_empty()) else {
+            let Some(config) =
+                crate::sync::load_config(&workspace).filter(|config| !config.url.is_empty())
+            else {
                 window.set_audio_error("Configure ComfyUI sync before running a workflow".into());
                 return;
             };
@@ -395,13 +424,19 @@ pub fn register_workflow_callbacks(
             let Some(folder) = audio_folder_for_edit.borrow().clone() else {
                 return;
             };
-            if !ensure_edit_copy(&window, &folder, &edited_workflow_for_edit, &edited_workflow_path_for_edit) {
+            if !ensure_edit_copy(
+                &window,
+                &folder,
+                &edited_workflow_for_edit,
+                &edited_workflow_path_for_edit,
+            ) {
                 return;
             }
             window.set_workflow_modified(true);
             let mut edited_workflow = edited_workflow_for_edit.borrow_mut();
             if let Some(workflow) = edited_workflow.as_mut() {
-                let changed = metadata::comfyui::update_metadata(workflow, field.as_str(), value.as_str());
+                let changed =
+                    metadata::comfyui::update_metadata(workflow, field.as_str(), value.as_str());
                 print_edited_workflow(field.as_str(), value.as_str(), changed, workflow);
             }
         });
@@ -430,7 +465,12 @@ pub fn register_workflow_callbacks(
             let Some(folder) = audio_folder_for_number.borrow().clone() else {
                 return;
             };
-            if !ensure_edit_copy(&window, &folder, &edited_workflow_for_number, &edited_workflow_path_for_number) {
+            if !ensure_edit_copy(
+                &window,
+                &folder,
+                &edited_workflow_for_number,
+                &edited_workflow_path_for_number,
+            ) {
                 return;
             }
             window.set_workflow_modified(true);
@@ -458,6 +498,129 @@ pub fn register_workflow_callbacks(
     {
         let weak_window = window.as_weak();
         let audio_folder = Rc::clone(audio_folder);
+        let edited_workflow = Rc::clone(edited_workflow);
+        let edited_workflow_path = Rc::clone(edited_workflow_path);
+        window.on_lora_strength_changed(move |node_id, strength| {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            let Some(folder) = audio_folder.borrow().clone() else {
+                return;
+            };
+            if !ensure_edit_copy(&window, &folder, &edited_workflow, &edited_workflow_path) {
+                return;
+            }
+            let mut workflow = edited_workflow.borrow_mut();
+            if let Some(workflow) = workflow.as_mut() {
+                if metadata::comfyui::set_lora_strength(
+                    workflow,
+                    node_id.as_str(),
+                    strength.as_str(),
+                ) {
+                    window.set_workflow_modified(true);
+                    refresh_workflow_loras(&window, &folder, workflow);
+                }
+            }
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        let audio_folder = Rc::clone(audio_folder);
+        let edited_workflow = Rc::clone(edited_workflow);
+        let edited_workflow_path = Rc::clone(edited_workflow_path);
+        window.on_lora_remove_requested(move |node_id| {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            let Some(folder) = audio_folder.borrow().clone() else {
+                return;
+            };
+            if !ensure_edit_copy(&window, &folder, &edited_workflow, &edited_workflow_path) {
+                return;
+            }
+            let mut workflow = edited_workflow.borrow_mut();
+            if let Some(workflow) = workflow.as_mut() {
+                if metadata::comfyui::remove_lora(workflow, node_id.as_str()) {
+                    window.set_workflow_modified(true);
+                    refresh_workflow_loras(&window, &folder, workflow);
+                }
+            }
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        let audio_folder = Rc::clone(audio_folder);
+        let edited_workflow = Rc::clone(edited_workflow);
+        let edited_workflow_path = Rc::clone(edited_workflow_path);
+        window.on_lora_reordered(move |from, to| {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            let Some(folder) = audio_folder.borrow().clone() else {
+                return;
+            };
+            let model = window.get_workflow_loras();
+            let mut ids = (0..model.row_count())
+                .filter_map(|index| model.row_data(index).map(|row| row.node_id.to_string()))
+                .collect::<Vec<_>>();
+            if from < 0 || to < 0 || from as usize >= ids.len() || to as usize >= ids.len() {
+                return;
+            }
+            let id = ids.remove(from as usize);
+            ids.insert(to as usize, id);
+            if !ensure_edit_copy(&window, &folder, &edited_workflow, &edited_workflow_path) {
+                return;
+            }
+            let mut workflow = edited_workflow.borrow_mut();
+            if let Some(workflow) = workflow.as_mut() {
+                if metadata::comfyui::reorder_loras(workflow, &ids) {
+                    window.set_workflow_modified(true);
+                    refresh_workflow_loras(&window, &folder, workflow);
+                }
+            }
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        let audio_folder = Rc::clone(audio_folder);
+        let edited_workflow = Rc::clone(edited_workflow);
+        let edited_workflow_path = Rc::clone(edited_workflow_path);
+        window.on_lora_add_requested(move || {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            let Some(folder) = audio_folder.borrow().clone() else {
+                return;
+            };
+            let Some(path) = rfd::FileDialog::new()
+                .set_title("Add LoRA")
+                .add_filter("LoRA", &["safetensors", "ckpt", "pt"])
+                .pick_file()
+            else {
+                return;
+            };
+            let Some(filename) = path.file_name().and_then(|name| name.to_str()) else {
+                return;
+            };
+            if !ensure_edit_copy(&window, &folder, &edited_workflow, &edited_workflow_path) {
+                return;
+            }
+            let mut workflow = edited_workflow.borrow_mut();
+            if let Some(workflow) = workflow.as_mut() {
+                if metadata::comfyui::add_lora(workflow, filename).is_some() {
+                    window.set_workflow_modified(true);
+                    refresh_workflow_loras(&window, &folder, workflow);
+                }
+            }
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        let audio_folder = Rc::clone(audio_folder);
         let workflow_loading = Rc::clone(workflow_loading);
         let loaded_workflow_path = Rc::clone(loaded_workflow_path);
         window.on_lora_save(move |filename, tag| {
@@ -468,7 +631,11 @@ pub fn register_workflow_callbacks(
                 return;
             };
             let mut index = metadata::load_index(&folder);
-            if let Some(lora) = index.loras.iter_mut().find(|lora| lora.filename == filename.as_str()) {
+            if let Some(lora) = index
+                .loras
+                .iter_mut()
+                .find(|lora| lora.filename == filename.as_str())
+            {
                 lora.custom_tag = tag.to_string();
             } else {
                 index.loras.push(metadata::LoraMetadata {
@@ -480,7 +647,14 @@ pub fn register_workflow_callbacks(
             window.set_lora_editor_visible(false);
             let audio_path = window.get_selected_audio_path().to_string();
             if !audio_path.is_empty() {
-                load_workflow_for_audio(&window, &folder, Path::new(&audio_path), &workflow_loading, &loaded_workflow_path, false);
+                load_workflow_for_audio(
+                    &window,
+                    &folder,
+                    Path::new(&audio_path),
+                    &workflow_loading,
+                    &loaded_workflow_path,
+                    false,
+                );
             }
         });
     }
@@ -493,7 +667,6 @@ pub fn register_workflow_callbacks(
             }
         });
     }
-
 }
 
 fn recreate_workflow(
@@ -521,9 +694,9 @@ fn recreate_workflow(
         match fs::read_to_string(&workflow_path)
             .map_err(|error| error.to_string())
             .and_then(|contents| {
-                serde_json::from_str::<serde_json::Value>(&contents).map_err(|error| error.to_string())
-            })
-        {
+                serde_json::from_str::<serde_json::Value>(&contents)
+                    .map_err(|error| error.to_string())
+            }) {
             Ok(workflow) => workflow,
             Err(error) => {
                 window.set_audio_error(format!("Workflow JSON: {error}").into());
@@ -546,7 +719,9 @@ fn recreate_workflow(
             window.set_workflow_modified(false);
             match open_comfyui_workflow(config) {
                 Ok(()) => window.set_audio_error("Workflow opened in ComfyUI".into()),
-                Err(error) => window.set_audio_error(format!("ComfyUI opened upload failed: {error}").into()),
+                Err(error) => {
+                    window.set_audio_error(format!("ComfyUI opened upload failed: {error}").into())
+                }
             }
         }
         Err(error) => window.set_audio_error(format!("ComfyUI: {error}").into()),
@@ -644,7 +819,8 @@ fn ensure_edit_copy(
     edited_workflow_path: &Rc<RefCell<Option<PathBuf>>>,
 ) -> bool {
     let selected_audio_path = window.get_selected_audio_path();
-    let Some(workflow_path) = metadata::workflow_path(folder, Path::new(&selected_audio_path)) else {
+    let Some(workflow_path) = metadata::workflow_path(folder, Path::new(&selected_audio_path))
+    else {
         return false;
     };
     if let Some(current_path) = edited_workflow_path.borrow().as_ref() {
@@ -671,10 +847,22 @@ fn print_edited_workflow(field: &str, value: &str, changed: bool, workflow: &ser
     );
 }
 
-fn write_modified_workflow(workflow_path: &Path, workflow: &serde_json::Value) -> Result<PathBuf, String> {
-    let filename = workflow_path.file_stem().and_then(|name| name.to_str()).unwrap_or("workflow");
-    let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|error| error.to_string())?.as_nanos();
-    let modified_path = env::temp_dir().join(format!("{filename}-{}-{timestamp}.workflow.json", std::process::id()));
+fn write_modified_workflow(
+    workflow_path: &Path,
+    workflow: &serde_json::Value,
+) -> Result<PathBuf, String> {
+    let filename = workflow_path
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .unwrap_or("workflow");
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| error.to_string())?
+        .as_nanos();
+    let modified_path = env::temp_dir().join(format!(
+        "{filename}-{}-{timestamp}.workflow.json",
+        std::process::id()
+    ));
     let contents = serde_json::to_string_pretty(workflow).map_err(|error| error.to_string())?;
     fs::write(&modified_path, contents).map_err(|error| error.to_string())?;
     Ok(modified_path)
@@ -692,5 +880,9 @@ fn open_comfyui_workflow(config: &SyncConfig) -> Result<(), String> {
         command.args(["/C", "start", ""]);
         command
     };
-    command.arg(url).spawn().map(|_| ()).map_err(|error| error.to_string())
+    command
+        .arg(url)
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| error.to_string())
 }

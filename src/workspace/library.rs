@@ -16,10 +16,7 @@ use crate::{
     AudioLoadState, AudioRow, MainWindow, TrackDifference,
 };
 
-use super::{
-    pinned_track_sort,
-    tree_nav::set_audio_breadcrumbs,
-};
+use super::{pinned_track_sort, tree_nav::set_audio_breadcrumbs};
 
 pub fn refresh_audio(
     window: &MainWindow,

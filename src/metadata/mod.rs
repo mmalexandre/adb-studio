@@ -82,7 +82,12 @@ pub fn workflow_path(folder: &Path, audio_path: &Path) -> Option<PathBuf> {
     }
     let mut workflow_relative_path = relative_path.to_path_buf();
     workflow_relative_path.set_file_name(format!("{file_name}.workflow.json"));
-    Some(folder.join(".adbstudio").join("workflows").join(workflow_relative_path))
+    Some(
+        folder
+            .join(".adbstudio")
+            .join("workflows")
+            .join(workflow_relative_path),
+    )
 }
 
 pub fn recreated_metadata_path(folder: &Path, audio_path: &Path) -> Option<PathBuf> {
@@ -94,10 +99,7 @@ pub fn recreated_metadata_path(folder: &Path, audio_path: &Path) -> Option<PathB
         return Some(adjacent);
     }
     let workflow = workflow_path(folder, audio_path)?;
-    Some(workflow.with_file_name(format!(
-        "{}.metadata.json",
-        workflow.file_name()?.to_str()?
-    )))
+    Some(workflow.with_file_name(format!("{}.metadata.json", workflow.file_name()?.to_str()?)))
 }
 
 pub fn clear_workflow_recreated(folder: &Path, audio_path: &Path) {
@@ -110,20 +112,27 @@ pub fn comment_path(folder: &Path, audio_path: &Path) -> Option<PathBuf> {
     let relative_path = audio_path.strip_prefix(folder).ok()?;
     let mut comment_relative_path = relative_path.to_path_buf();
     comment_relative_path.set_extension("json");
-    Some(folder.join(".adbstudio").join("comment").join(comment_relative_path))
+    Some(
+        folder
+            .join(".adbstudio")
+            .join("comment")
+            .join(comment_relative_path),
+    )
 }
 
 pub fn load_audio_metadata(folder: &Path, audio_path: &Path) -> AudioFileMetadata {
     let metadata = comment_path(folder, audio_path)
         .and_then(|path| fs::read_to_string(path).ok())
         .and_then(|contents| serde_json::from_str(&contents).ok());
-    metadata.or_else(|| {
-        let path_string = audio_path.to_string_lossy();
-        load_index(folder)
-            .audio_files
-            .into_iter()
-            .find(|item| item.file_path == path_string)
-    }).unwrap_or_default()
+    metadata
+        .or_else(|| {
+            let path_string = audio_path.to_string_lossy();
+            load_index(folder)
+                .audio_files
+                .into_iter()
+                .find(|item| item.file_path == path_string)
+        })
+        .unwrap_or_default()
 }
 
 pub fn save_audio_metadata(folder: &Path, audio_path: &Path, metadata: &AudioFileMetadata) {
@@ -173,7 +182,8 @@ pub fn rename_associated_workflow(
                 extension.to_ascii_lowercase().as_str(),
                 "flac" | "mp3" | "ogg" | "opus" | "wav"
             )
-        }) {
+        })
+    {
         workflow_path(folder, source).unwrap_or_default()
     } else {
         return Ok(());
@@ -275,9 +285,7 @@ fn rename_comment_metadata(folder: &Path, source: &Path, destination: &Path) -> 
         };
         (
             folder.join(".adbstudio/comment").join(source_relative),
-            folder
-                .join(".adbstudio/comment")
-                .join(destination_relative),
+            folder.join(".adbstudio/comment").join(destination_relative),
         )
     } else {
         let Some(source_comment) = comment_path(folder, source) else {
@@ -343,9 +351,9 @@ mod tests {
     use std::fs;
 
     use super::{
-        comment_path, has_downloaded_audio, load_audio_metadata, load_index, record_downloaded_audio,
-        rename_associated_workflow, rename_audio_metadata, save_audio_metadata, save_index,
-        AudioComment, AudioFileMetadata, MetadataIndex,
+        comment_path, has_downloaded_audio, load_audio_metadata, load_index,
+        record_downloaded_audio, rename_associated_workflow, rename_audio_metadata,
+        save_audio_metadata, save_index, AudioComment, AudioFileMetadata, MetadataIndex,
     };
 
     fn test_folder(name: &str) -> std::path::PathBuf {
@@ -367,7 +375,9 @@ mod tests {
         rename_associated_workflow(&folder, &source, &destination).unwrap();
 
         assert!(!workflow.exists());
-        assert!(super::workflow_path(&folder, &destination).unwrap().exists());
+        assert!(super::workflow_path(&folder, &destination)
+            .unwrap()
+            .exists());
         let _ = fs::remove_dir_all(folder);
     }
 
@@ -410,8 +420,7 @@ mod tests {
         rename_audio_metadata(&folder, &source, &destination);
 
         let metadata: AudioFileMetadata = serde_json::from_str(
-            &fs::read_to_string(folder.join(".adbstudio/comment/new/nested/track.json"))
-                .unwrap(),
+            &fs::read_to_string(folder.join(".adbstudio/comment/new/nested/track.json")).unwrap(),
         )
         .unwrap();
         assert_eq!(
@@ -450,7 +459,10 @@ mod tests {
 
         save_audio_metadata(&folder, &audio_path, &metadata);
 
-        assert_eq!(load_audio_metadata(&folder, &audio_path).user_comments, metadata.user_comments);
+        assert_eq!(
+            load_audio_metadata(&folder, &audio_path).user_comments,
+            metadata.user_comments
+        );
         let _ = fs::remove_dir_all(folder);
     }
 
@@ -523,7 +535,10 @@ mod tests {
             comment_path(&folder, &audio_path).unwrap(),
             folder.join(".adbstudio/comment/folder1/folder2/file-name.json")
         );
-        assert_eq!(load_audio_metadata(&folder, &audio_path).comments, metadata.comments);
+        assert_eq!(
+            load_audio_metadata(&folder, &audio_path).comments,
+            metadata.comments
+        );
         let _ = fs::remove_dir_all(folder);
     }
 

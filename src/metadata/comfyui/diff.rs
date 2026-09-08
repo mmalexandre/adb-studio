@@ -224,6 +224,7 @@ mod tests {
             prompt: "old prompt".into(),
             lyrics: "old lyrics".into(),
             loras: vec![LoRAInfo {
+                node_id: "1".into(),
                 filename: "voice.safetensors".into(),
                 strength: "0.50".into(),
             }],
@@ -237,10 +238,12 @@ mod tests {
             lyrics: "new lyrics".into(),
             loras: vec![
                 LoRAInfo {
+                    node_id: "1".into(),
                     filename: "voice.safetensors".into(),
                     strength: "0.75".into(),
                 },
                 LoRAInfo {
+                    node_id: "2".into(),
                     filename: "drums.safetensors".into(),
                     strength: "0.25".into(),
                 },
@@ -252,20 +255,24 @@ mod tests {
         assert!(differences.iter().any(|difference| {
             difference.label == "BPM: " && difference.value == "121.50 (+1.50)"
         }));
-        assert!(differences.iter().any(|difference| {
-            difference.label == "Seed: " && difference.value == "11 (+1)"
-        }));
-        assert!(differences.iter().any(|difference| {
-            difference.label == "Key: " && difference.value == "D major"
-        }));
-        assert!(differences.iter().any(|difference| {
-            difference.label == "Model: " && difference.value == "new.ckpt"
-        }));
-        assert!(differences.iter().any(|difference| difference.label == "Prompt: "));
-        assert!(differences.iter().any(|difference| difference.label == "Lyrics: "));
-        assert!(differences.iter().any(|difference| {
-            difference.label == "Loras: " && difference.value == "2 (+1)"
-        }));
+        assert!(differences
+            .iter()
+            .any(|difference| { difference.label == "Seed: " && difference.value == "11 (+1)" }));
+        assert!(differences
+            .iter()
+            .any(|difference| { difference.label == "Key: " && difference.value == "D major" }));
+        assert!(differences
+            .iter()
+            .any(|difference| { difference.label == "Model: " && difference.value == "new.ckpt" }));
+        assert!(differences
+            .iter()
+            .any(|difference| difference.label == "Prompt: "));
+        assert!(differences
+            .iter()
+            .any(|difference| difference.label == "Lyrics: "));
+        assert!(differences
+            .iter()
+            .any(|difference| { difference.label == "Loras: " && difference.value == "2 (+1)" }));
         assert!(differences.iter().any(|difference| {
             difference.label == "Lora voice.safetensors strength: "
                 && difference.value == "0.75 (+0.25)"

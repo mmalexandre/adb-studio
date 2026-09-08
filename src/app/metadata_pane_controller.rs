@@ -96,7 +96,11 @@ pub fn register_metadata_pane_callbacks(
             let path_string = path.to_string();
             let rating = rating.clamp(0, 5) as u8;
             let mut index = metadata::load_index(&folder);
-            if let Some(file) = index.audio_files.iter_mut().find(|item| item.file_path == path_string) {
+            if let Some(file) = index
+                .audio_files
+                .iter_mut()
+                .find(|item| item.file_path == path_string)
+            {
                 file.rating = rating;
             } else {
                 index.audio_files.push(metadata::AudioFileMetadata {
@@ -210,7 +214,12 @@ pub fn register_metadata_pane_callbacks(
                 window.set_audio_error(format!("File operation: {error}").into());
                 return;
             }
-            if playback_for_move.borrow().as_ref().and_then(|engine| engine.path()) == Some(source.as_path()) {
+            if playback_for_move
+                .borrow()
+                .as_ref()
+                .and_then(|engine| engine.path())
+                == Some(source.as_path())
+            {
                 if let Some(engine) = playback_for_move.borrow_mut().as_mut() {
                     engine.stop();
                 }
@@ -220,7 +229,13 @@ pub fn register_metadata_pane_callbacks(
             }
             let parent = source.parent().unwrap_or(&folder).to_path_buf();
             select_tree_path(&window, &tree_state_for_move, &settings_for_move, &parent);
-            refresh_audio(&window, &audio_folder_for_move, &audio_model_for_move, &audio_load_state_for_move, parent);
+            refresh_audio(
+                &window,
+                &audio_folder_for_move,
+                &audio_model_for_move,
+                &audio_load_state_for_move,
+                parent,
+            );
             window.set_audio_error("".into());
         });
         let move_to_trash_for_request = Rc::clone(&move_to_trash);
@@ -232,7 +247,11 @@ pub fn register_metadata_pane_callbacks(
             let Some(folder) = audio_folder.borrow().clone() else {
                 return;
             };
-            if !settings_for_request.borrow().trash_confirmation_disabled_workspaces.contains(&folder.to_string_lossy().to_string()) {
+            if !settings_for_request
+                .borrow()
+                .trash_confirmation_disabled_workspaces
+                .contains(&folder.to_string_lossy().to_string())
+            {
                 window.set_trash_confirm_path(path);
                 window.set_trash_confirm_dont_ask(false);
                 window.set_trash_confirm_visible(true);
@@ -251,7 +270,10 @@ pub fn register_metadata_pane_callbacks(
             let path = window.get_trash_confirm_path();
             if dont_ask {
                 if let Some(folder) = settings.borrow().last_folder.clone() {
-                    settings.borrow_mut().trash_confirmation_disabled_workspaces.insert(folder);
+                    settings
+                        .borrow_mut()
+                        .trash_confirmation_disabled_workspaces
+                        .insert(folder);
                     settings::save(&settings.borrow());
                 }
             }
@@ -376,7 +398,8 @@ pub fn register_metadata_pane_callbacks(
             }
             if let Some(original) = comment_editor_original.borrow_mut().take() {
                 file.comments.retain(|item| item != &original);
-                if let Err(error) = metadata::save_audio_metadata_checked(&workspace, &path, &file) {
+                if let Err(error) = metadata::save_audio_metadata_checked(&workspace, &path, &file)
+                {
                     window.set_audio_error(format!("Delete comment: {error}").into());
                     return;
                 }

@@ -232,7 +232,12 @@ mod tests {
         let state_ref = state.lock().unwrap();
         assert_eq!(state_ref.requested_range, Some((1, 2)));
         assert_eq!(state_ref.generation, 1);
-        assert_eq!(state_ref.cancellation_generation.load(std::sync::atomic::Ordering::Acquire), 1);
+        assert_eq!(
+            state_ref
+                .cancellation_generation
+                .load(std::sync::atomic::Ordering::Acquire),
+            1
+        );
         assert!(!state_ref.loading.contains(&first));
         assert!(state_ref.loading.contains(&second));
     }

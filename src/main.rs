@@ -17,8 +17,8 @@ mod metadata;
 mod settings;
 mod sync;
 mod workspace;
-use audio::waveform;
 use audio::session::request_audio_generation;
+use audio::waveform;
 
 slint::include_modules!();
 
@@ -359,7 +359,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if let Some(receiver) = audio_result_receiver.borrow_mut().as_mut() {
                     for result in receiver.try_iter().take(3) {
                         let current_generation = audio_load_state.lock().unwrap().generation;
-                        if result.generation != current_generation || result.index >= model.row_count()
+                        if result.generation != current_generation
+                            || result.index >= model.row_count()
                         {
                             continue;
                         }
@@ -459,4 +460,3 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     settings::save(&settings.borrow());
     Ok(())
 }
-

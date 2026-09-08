@@ -186,8 +186,7 @@ mod tests {
         path::PathBuf,
         sync::{
             atomic::{AtomicBool, Ordering},
-            mpsc,
-            Arc,
+            mpsc, Arc,
         },
         time::{SystemTime, UNIX_EPOCH},
     };
@@ -272,7 +271,13 @@ mod tests {
         let (sender, receiver) = mpsc::channel();
         let cancelled = Arc::new(AtomicBool::new(true));
 
-        start(jobs, "wav".into(), "Medium".into(), sender, Arc::clone(&cancelled));
+        start(
+            jobs,
+            "wav".into(),
+            "Medium".into(),
+            sender,
+            Arc::clone(&cancelled),
+        );
         let update = receiver.recv().unwrap();
 
         assert_eq!(update.index, 0);

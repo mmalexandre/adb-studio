@@ -158,12 +158,13 @@ pub fn register_playback_callbacks(
             };
             let path = PathBuf::from(path.as_str());
             let now = Instant::now();
-            let restart = last_button_click
-                .borrow()
-                .as_ref()
-                .is_some_and(|(last_path, last_time)| {
-                    last_path == &path && last_time.elapsed() <= Duration::from_millis(350)
-                });
+            let restart =
+                last_button_click
+                    .borrow()
+                    .as_ref()
+                    .is_some_and(|(last_path, last_time)| {
+                        last_path == &path && last_time.elapsed() <= Duration::from_millis(350)
+                    });
             *last_button_click.borrow_mut() = Some((path.clone(), now));
             let mut playback_ref = playback.borrow_mut();
             let Some(engine) = playback_ref.as_mut() else {
@@ -368,7 +369,13 @@ pub fn register_playback_callbacks(
             window.set_selected_audio_path(row.path.clone());
             select_audio_path(&audio_model, &path);
             window.invoke_audio_play(row.path);
-            let _ = (&last_button_click, &tree_state, &settings, &workflow_loading, &audio_folder);
+            let _ = (
+                &last_button_click,
+                &tree_state,
+                &settings,
+                &workflow_loading,
+                &audio_folder,
+            );
         });
     }
 }
@@ -389,7 +396,8 @@ pub fn tick(
         let should_loop = comment_loop
             .map(|(_, end)| engine.position() >= end)
             .unwrap_or_else(|| {
-                engine.has_finished() || (!engine.is_playing() && engine.position() >= engine.duration())
+                engine.has_finished()
+                    || (!engine.is_playing() && engine.position() >= engine.duration())
             });
         let loop_mode = settings.borrow().loop_mode;
         if (loop_mode == 1 || (loop_mode == 2 && comment_loop.is_some()))
@@ -397,7 +405,9 @@ pub fn tick(
             && should_loop
         {
             if let Some(path) = engine.path().map(Path::to_path_buf) {
-                let loop_start = comment_loop.map(|(start, _)| start).unwrap_or(Duration::ZERO);
+                let loop_start = comment_loop
+                    .map(|(start, _)| start)
+                    .unwrap_or(Duration::ZERO);
                 let _ = engine.play(&path, loop_start);
             }
         } else if loop_mode == 2 && !engine.duration().is_zero() && should_loop {

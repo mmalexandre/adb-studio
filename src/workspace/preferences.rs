@@ -1,4 +1,8 @@
-use std::{collections::HashMap, fs, path::{Path, PathBuf}};
+use std::{
+    collections::HashMap,
+    fs,
+    path::{Path, PathBuf},
+};
 
 use serde::{Deserialize, Serialize};
 
@@ -54,7 +58,11 @@ pub fn set_pinned_track(workspace: &Path, folder: &Path, track: Option<&Path>) {
 #[cfg(test)]
 mod tests {
     use super::{pinned_track, set_pinned_track};
-    use std::{fs, path::PathBuf, time::{SystemTime, UNIX_EPOCH}};
+    use std::{
+        fs,
+        path::PathBuf,
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
     struct TempDirectory(PathBuf);
 

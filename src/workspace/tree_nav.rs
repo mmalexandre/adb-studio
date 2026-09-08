@@ -1,8 +1,4 @@
-use std::{
-    cell::RefCell,
-    path::Path,
-    rc::Rc,
-};
+use std::{cell::RefCell, path::Path, rc::Rc};
 
 use slint::{ModelRc, VecModel};
 
@@ -109,7 +105,10 @@ pub fn refresh_tree(window: &MainWindow, tree_state: &Rc<RefCell<Option<TreeStat
     if window.get_tree_edit_mode() == 2 {
         let pending_path = std::path::PathBuf::from(window.get_tree_edit_path().as_str());
         if let Some(parent) = pending_path.parent() {
-            if let Some(parent_index) = rows.iter().position(|row| row.path.as_str() == parent.to_string_lossy()) {
+            if let Some(parent_index) = rows
+                .iter()
+                .position(|row| row.path.as_str() == parent.to_string_lossy())
+            {
                 let parent_depth = rows[parent_index].depth;
                 rows.insert(
                     parent_index + 1,
@@ -129,4 +128,3 @@ pub fn refresh_tree(window: &MainWindow, tree_state: &Rc<RefCell<Option<TreeStat
 
     window.set_tree_rows(ModelRc::new(VecModel::from(rows)));
 }
-

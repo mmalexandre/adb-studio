@@ -8,10 +8,9 @@ use super::file_system;
 
 fn key_index(key: &str) -> i32 {
     [
-        "C major", "C minor", "C# major", "C# minor", "D major", "D minor",
-        "Eb major", "Eb minor", "E major", "E minor", "F major", "F minor",
-        "F# major", "F# minor", "G major", "G minor", "Ab major", "Ab minor",
-        "A major", "A minor", "Bb major", "Bb minor", "B major", "B minor",
+        "C major", "C minor", "C# major", "C# minor", "D major", "D minor", "Eb major", "Eb minor",
+        "E major", "E minor", "F major", "F minor", "F# major", "F# minor", "G major", "G minor",
+        "Ab major", "Ab minor", "A major", "A minor", "Bb major", "Bb minor", "B major", "B minor",
     ]
     .iter()
     .position(|candidate| candidate.eq_ignore_ascii_case(key))
@@ -88,6 +87,29 @@ pub fn apply_workflow(
             .loras
             .into_iter()
             .map(|lora| WorkflowLoraRow {
+                node_id: lora.node_id.into(),
+                custom_tag: index
+                    .loras
+                    .iter()
+                    .find(|stored| stored.filename == lora.filename)
+                    .map(|stored| stored.custom_tag.clone())
+                    .unwrap_or_default()
+                    .into(),
+                filename: lora.filename.into(),
+                strength: lora.strength.into(),
+            })
+            .collect::<Vec<_>>(),
+    )));
+}
+
+pub fn refresh_workflow_loras(window: &MainWindow, folder: &Path, value: &serde_json::Value) {
+    let index = metadata::load_index(folder);
+    window.set_workflow_loras(ModelRc::new(VecModel::from(
+        metadata::comfyui::parse_value(value)
+            .loras
+            .into_iter()
+            .map(|lora| WorkflowLoraRow {
+                node_id: lora.node_id.into(),
                 custom_tag: index
                     .loras
                     .iter()
@@ -130,7 +152,11 @@ pub fn load_workflow_for_audio(
     window.set_workflow_loading(true);
     window.set_workflow_modified(false);
     *loaded_workflow_path.borrow_mut() = Some(path.to_path_buf());
-    window.set_user_comments(metadata::load_audio_metadata(folder, path).user_comments.into());
+    window.set_user_comments(
+        metadata::load_audio_metadata(folder, path)
+            .user_comments
+            .into(),
+    );
     let Some(workflow_path) = metadata::workflow_path(folder, path) else {
         window.set_selected_workflow("".into());
         clear_workflow(window);
@@ -164,7 +190,11 @@ pub fn load_workflow_for_audio(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{fs, path::PathBuf, time::{SystemTime, UNIX_EPOCH}};
+    use std::{
+        fs,
+        path::PathBuf,
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
     struct TempDirectory(PathBuf);
 

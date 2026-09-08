@@ -21,11 +21,16 @@ pub fn parse_file(path: &Path) -> Result<ComfyUIWorkflow, String> {
 
 pub fn parse_value(value: &Value) -> ComfyUIWorkflow {
     let mut workflow = ComfyUIWorkflow::default();
-    visit(value, &mut workflow, false);
+    visit(value, &mut workflow, false, None);
     workflow
 }
 
-fn visit(value: &Value, workflow: &mut ComfyUIWorkflow, lyrics_context: bool) {
+fn visit(
+    value: &Value,
+    workflow: &mut ComfyUIWorkflow,
+    lyrics_context: bool,
+    node_id: Option<&str>,
+) {
     match value {
         Value::Object(object) => {
             if let Some(nodes) = object.get("nodes").and_then(Value::as_array) {
@@ -54,7 +59,11 @@ fn visit(value: &Value, workflow: &mut ComfyUIWorkflow, lyrics_context: bool) {
                 {
                     let strength = find_scalar(inputs, &["strength_model", "strength", "weight"])
                         .unwrap_or_else(|| "".to_string());
-                    workflow.loras.push(LoRAInfo { filename, strength });
+                    workflow.loras.push(LoRAInfo {
+                        node_id: node_id.unwrap_or_default().to_string(),
+                        filename: basename(&filename),
+                        strength,
+                    });
                 }
             }
 
@@ -122,12 +131,12 @@ fn visit(value: &Value, workflow: &mut ComfyUIWorkflow, lyrics_context: bool) {
                 if workflow.lyrics.is_empty() && child_lyrics && child.is_string() {
                     workflow.lyrics = scalar_text(child);
                 }
-                visit(child, workflow, child_lyrics);
+                visit(child, workflow, child_lyrics, node_id.or(Some(key)));
             }
         }
         Value::Array(array) => {
             for child in array {
-                visit(child, workflow, lyrics_context);
+                visit(child, workflow, lyrics_context, node_id);
             }
         }
         _ => {}
@@ -259,22 +268,36 @@ fn parse_visual_node(node: &Value, workflow: &mut ComfyUIWorkflow) {
     }
 
     if node_lower.contains("loraloader") || node_lower.contains("loadlora") {
-        if let Some(filename) = values
+        let filename = values
             .get("lora_name")
             .or_else(|| values.get("filename"))
             .or_else(|| values.get("file_name"))
             .or_else(|| values.get("name"))
             .map(scalar_text)
-        {
+            .or_else(|| widget_values.first().map(scalar_text));
+        if let Some(filename) = filename {
             let strength = values
                 .get("strength_model")
                 .or_else(|| values.get("strength"))
                 .or_else(|| values.get("weight"))
                 .map(scalar_text)
+                .or_else(|| widget_values.get(1).map(scalar_text))
                 .unwrap_or_default();
-            workflow.loras.push(LoRAInfo { filename, strength });
+            workflow.loras.push(LoRAInfo {
+                node_id: object.get("id").map(scalar_text).unwrap_or_default(),
+                filename: basename(&filename),
+                strength,
+            });
         }
     }
+}
+
+fn basename(value: &str) -> String {
+    value
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or(value)
+        .to_string()
 }
 
 fn find_string(object: &serde_json::Map<String, Value>, keys: &[&str]) -> Option<String> {
@@ -328,6 +351,7 @@ mod tests {
         assert_eq!(
             workflow.loras,
             vec![LoRAInfo {
+                node_id: "3".into(),
                 filename: "style.safetensors".into(),
                 strength: "0.8".into()
             }]
@@ -385,6 +409,25 @@ mod tests {
         assert_eq!(workflow.model, "model.safetensors");
         assert_eq!(workflow.loras[0].filename, "style.safetensors");
         assert_eq!(workflow.loras[0].strength, "0.8");
+    }
+
+    #[test]
+    fn extracts_lora_from_descriptorless_model_only_node() {
+        let workflow = parse_value(&json!({
+            "nodes": [{
+                "id": 106,
+                "type": "LoraLoaderModelOnly",
+                "inputs": [{"name": "model", "link": 291}],
+                "widgets_values": ["/remote/models/lora9_rondoveneziano_500.safetensors", 1.2]
+            }]
+        }));
+
+        assert_eq!(workflow.loras[0].node_id, "106");
+        assert_eq!(
+            workflow.loras[0].filename,
+            "lora9_rondoveneziano_500.safetensors"
+        );
+        assert_eq!(workflow.loras[0].strength, "1.2");
     }
 
     #[test]
@@ -448,5 +491,4 @@ mod tests {
         assert_eq!(workflow.prompt, "prompt text");
         assert_eq!(workflow.lyrics, "[Verse] lyrics");
     }
-
 }

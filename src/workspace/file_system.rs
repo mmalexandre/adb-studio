@@ -201,7 +201,10 @@ impl TreeState {
             return;
         }
 
-        let Some(anchor_index) = ordered_paths.iter().position(|candidate| candidate == anchor) else {
+        let Some(anchor_index) = ordered_paths
+            .iter()
+            .position(|candidate| candidate == anchor)
+        else {
             self.select(path);
             return;
         };
@@ -300,7 +303,10 @@ pub fn matches_audio_filter(name: &str, filter: &str) -> bool {
 }
 
 pub fn is_visible_in_tree(kind: FileKind) -> bool {
-    matches!(kind, FileKind::Directory | FileKind::Audio | FileKind::Safetensors)
+    matches!(
+        kind,
+        FileKind::Directory | FileKind::Audio | FileKind::Safetensors
+    )
 }
 
 fn push_children(
@@ -372,7 +378,10 @@ mod tests {
 
         assert_eq!(FileKind::from_path(&directory), FileKind::Directory);
         assert_eq!(FileKind::from_path(Path::new("song.WAV")), FileKind::Audio);
-        assert_eq!(FileKind::from_path(Path::new("model.SAFETENSORS")), FileKind::Safetensors);
+        assert_eq!(
+            FileKind::from_path(Path::new("model.SAFETENSORS")),
+            FileKind::Safetensors
+        );
         assert_eq!(FileKind::from_path(Path::new("notes.JSON")), FileKind::Json);
         assert_eq!(FileKind::from_path(Path::new("notes.txt")), FileKind::Other);
     }
@@ -387,13 +396,19 @@ mod tests {
 
         let ascending = read_dir_sorted(temp.path(), SortOrder::AlphabeticalAscending);
         assert_eq!(
-            ascending.iter().map(|entry| entry.name.as_str()).collect::<Vec<_>>(),
+            ascending
+                .iter()
+                .map(|entry| entry.name.as_str())
+                .collect::<Vec<_>>(),
             vec!["Bravo", "alpha.wav", "charlie.wav"]
         );
 
         let descending = read_dir_sorted(temp.path(), SortOrder::AlphabeticalDescending);
         assert_eq!(
-            descending.iter().map(|entry| entry.name.as_str()).collect::<Vec<_>>(),
+            descending
+                .iter()
+                .map(|entry| entry.name.as_str())
+                .collect::<Vec<_>>(),
             vec!["Bravo", "charlie.wav", "alpha.wav"]
         );
     }
@@ -415,10 +430,7 @@ mod tests {
         selected.sort();
         assert_eq!(
             selected,
-            vec![
-                temp.path().join("one.wav"),
-                temp.path().join("three.wav"),
-            ]
+            vec![temp.path().join("one.wav"), temp.path().join("three.wav"),]
         );
         assert_eq!(state.selected, Some(last));
     }
@@ -431,11 +443,7 @@ mod tests {
         }
         let first = temp.path().join("one.wav");
         let last = temp.path().join("two.wav");
-        let visible_order = vec![
-            first.clone(),
-            temp.path().join("three.wav"),
-            last.clone(),
-        ];
+        let visible_order = vec![first.clone(), temp.path().join("three.wav"), last.clone()];
         let mut state = TreeState::new(temp.path().to_path_buf());
 
         state.select(&first);
@@ -456,7 +464,10 @@ mod tests {
         fs::write(child.join("song.wav"), []).unwrap();
         let state = TreeState::new(temp.path().to_path_buf());
 
-        assert_eq!(build_visible_rows(&state, SortOrder::AlphabeticalAscending).len(), 2);
+        assert_eq!(
+            build_visible_rows(&state, SortOrder::AlphabeticalAscending).len(),
+            2
+        );
     }
 
     #[test]

@@ -245,10 +245,15 @@ pub fn register_sync_ui_callbacks(
                     if let Some(config) = sync::load_config(&folder) {
                         let audio_path = window.get_selected_audio_path().to_string();
                         if !audio_path.is_empty() {
-                            let mut workflow = if let Some(workflow) = edited_workflow.borrow().clone() {
+                            let mut workflow = if let Some(workflow) =
+                                edited_workflow.borrow().clone()
+                            {
                                 workflow
                             } else {
-                                let Some(workflow_path) = crate::metadata::workflow_path(&folder, std::path::Path::new(&audio_path)) else {
+                                let Some(workflow_path) = crate::metadata::workflow_path(
+                                    &folder,
+                                    std::path::Path::new(&audio_path),
+                                ) else {
                                     return;
                                 };
                                 let Ok(contents) = std::fs::read_to_string(workflow_path) else {
@@ -266,9 +271,14 @@ pub fn register_sync_ui_callbacks(
                                 ("prompt", window.get_workflow_prompt().to_string()),
                                 ("lyrics", window.get_workflow_lyrics().to_string()),
                             ] {
-                                crate::metadata::comfyui::update_metadata(&mut workflow, field, &value);
+                                crate::metadata::comfyui::update_metadata(
+                                    &mut workflow,
+                                    field,
+                                    &value,
+                                );
                             }
-                            let _ = ComfyUiClient::new().and_then(|client| client.upload_workflow(&config, &workflow));
+                            let _ = ComfyUiClient::new()
+                                .and_then(|client| client.upload_workflow(&config, &workflow));
                         }
                     }
                 }
@@ -425,7 +435,14 @@ pub fn tick(
                     engine.duration(),
                 );
                 scroll_audio_to_path(window, audio_model, &path);
-                load_workflow_for_audio(window, &folder, &path, workflow_loading, loaded_workflow_path, false);
+                load_workflow_for_audio(
+                    window,
+                    &folder,
+                    &path,
+                    workflow_loading,
+                    loaded_workflow_path,
+                    false,
+                );
                 save_playback_position(&folder, engine);
             }
             SyncEvent::WorkflowUpdated {
@@ -435,7 +452,14 @@ pub fn tick(
                 && window.get_active_audio_path() == audio_path.as_str() =>
             {
                 if let Some(folder) = audio_folder.borrow().clone() {
-                    load_workflow_for_audio(window, &folder, Path::new(audio_path.as_str()), workflow_loading, loaded_workflow_path, false);
+                    load_workflow_for_audio(
+                        window,
+                        &folder,
+                        Path::new(audio_path.as_str()),
+                        workflow_loading,
+                        loaded_workflow_path,
+                        false,
+                    );
                 }
             }
             SyncEvent::Error {

@@ -1,7 +1,6 @@
 use std::{
     collections::HashSet,
-    fs,
-    io,
+    fs, io,
     path::{Path, PathBuf},
     sync::mpsc::{self, Receiver, Sender},
     time::Duration,
@@ -141,7 +140,13 @@ pub(super) fn sync_loop(
                 });
                 last_downloaded_path = Some(destination.join(filename));
             }
-            match sync_workflow(&client, &config, file, &workspace, &destination.join(filename)) {
+            match sync_workflow(
+                &client,
+                &config,
+                file,
+                &workspace,
+                &destination.join(filename),
+            ) {
                 Ok(true) => {
                     let _ = event_sender.send(SyncEvent::WorkflowUpdated {
                         generation,
@@ -250,10 +255,17 @@ fn progress_with_index(
 
 #[cfg(test)]
 mod tests {
-    use super::{load_download_index, progress_with_index, save_download_index, workflow_local_path};
+    use super::{
+        load_download_index, progress_with_index, save_download_index, workflow_local_path,
+    };
     use crate::metadata;
     use crate::sync::{DownloadIndex, RemoteFile, SyncConfig};
-    use std::{fs, path::Path, sync::atomic::{AtomicU64, Ordering}, time::{SystemTime, UNIX_EPOCH}};
+    use std::{
+        fs,
+        path::Path,
+        sync::atomic::{AtomicU64, Ordering},
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
     #[test]
     fn workflow_path_mirrors_audio_path_inside_private_directory() {

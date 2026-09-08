@@ -260,6 +260,7 @@ mod tests {
         let pinned = workflow();
         let mut lora = workflow();
         lora.loras = vec![LoRAInfo {
+            node_id: "1".into(),
             filename: "a".into(),
             strength: "0.1".into(),
         }];
@@ -280,10 +281,8 @@ mod tests {
 
     #[test]
     fn known_workflows_precede_missing_workflows_without_pinned_metadata() {
-        let folder = std::env::temp_dir().join(format!(
-            "adb-studio-pinned-sort-{}",
-            std::process::id()
-        ));
+        let folder =
+            std::env::temp_dir().join(format!("adb-studio-pinned-sort-{}", std::process::id()));
         let _ = fs::remove_dir_all(&folder);
         fs::create_dir_all(folder.join(".adbstudio/workflows")).unwrap();
         let pinned = folder.join("pinned.wav");
@@ -294,11 +293,7 @@ mod tests {
             "{}",
         )
         .unwrap();
-        let mut entries = vec![
-            entry(&missing),
-            entry(&known),
-            entry(&pinned),
-        ];
+        let mut entries = vec![entry(&missing), entry(&known), entry(&pinned)];
 
         sort_tracks(
             &folder,

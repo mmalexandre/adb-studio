@@ -206,14 +206,10 @@ mod tests {
 
     #[test]
     fn loop_mode_accepts_legacy_booleans_and_clamps_numbers() {
-        let enabled: AppSettings = serde_json::from_str(
-            "{\"light_theme\":false,\"loop_enabled\":true}",
-        )
-        .unwrap();
-        let clamped: AppSettings = serde_json::from_str(
-            "{\"light_theme\":false,\"loop_mode\":99}",
-        )
-        .unwrap();
+        let enabled: AppSettings =
+            serde_json::from_str("{\"light_theme\":false,\"loop_enabled\":true}").unwrap();
+        let clamped: AppSettings =
+            serde_json::from_str("{\"light_theme\":false,\"loop_mode\":99}").unwrap();
 
         assert_eq!(enabled.loop_mode, 1);
         assert_eq!(clamped.loop_mode, 2);

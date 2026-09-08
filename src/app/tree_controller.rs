@@ -50,7 +50,14 @@ pub fn register_tree_callbacks(
             crate::audio::view::select_audio_path(&audio_model, path);
             select_tree_path(&window, &tree_state, &settings, path);
             if let Some(folder) = audio_folder.borrow().clone() {
-                load_workflow_for_audio(&window, &folder, path, &workflow_loading, &loaded_workflow_path, true);
+                load_workflow_for_audio(
+                    &window,
+                    &folder,
+                    path,
+                    &workflow_loading,
+                    &loaded_workflow_path,
+                    true,
+                );
             }
         });
     }

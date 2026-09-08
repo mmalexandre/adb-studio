@@ -1,5 +1,359 @@
 use serde_json::Value;
 
+fn is_lora_node(node: &Value) -> bool {
+    node.get("class_type")
+        .or_else(|| node.get("type"))
+        .and_then(Value::as_str)
+        .map(|class_type| {
+            let class_type = class_type.to_ascii_lowercase();
+            class_type.contains("loraloader") || class_type.contains("loadlora")
+        })
+        .unwrap_or(false)
+}
+
+fn node_inputs(node: &Value) -> Option<&serde_json::Map<String, Value>> {
+    node.get("inputs").and_then(Value::as_object)
+}
+
+fn node_inputs_mut(node: &mut Value) -> Option<&mut serde_json::Map<String, Value>> {
+    node.get_mut("inputs").and_then(Value::as_object_mut)
+}
+
+fn find_node_mut<'a>(value: &'a mut Value, node_id: &str) -> Option<&'a mut Value> {
+    let is_target = value.get("id").and_then(|id| {
+        id.as_i64()
+            .map(|id| id.to_string())
+            .or_else(|| id.as_str().map(str::to_string))
+    }) == Some(node_id.to_string());
+    if is_target {
+        return Some(value);
+    }
+    match value {
+        Value::Object(object) => {
+            if object.get("class_type").is_some() {
+                return None;
+            }
+            if object.get(node_id).is_some_and(Value::is_object) {
+                return object.get_mut(node_id);
+            }
+            object
+                .values_mut()
+                .find_map(|child| find_node_mut(child, node_id))
+        }
+        Value::Array(array) => array
+            .iter_mut()
+            .find_map(|child| find_node_mut(child, node_id)),
+        _ => None,
+    }
+}
+
+fn node_ids(value: &Value) -> Vec<String> {
+    let Value::Object(object) = value else {
+        return Vec::new();
+    };
+    if let Some(nodes) = object.get("nodes").and_then(Value::as_array) {
+        return nodes
+            .iter()
+            .filter(|node| is_lora_node(node))
+            .filter_map(|node| {
+                node.get("id").and_then(|id| {
+                    id.as_i64()
+                        .map(|id| id.to_string())
+                        .or_else(|| id.as_str().map(str::to_string))
+                })
+            })
+            .collect();
+    }
+    object
+        .iter()
+        .filter_map(|(id, node)| is_lora_node(node).then(|| id.clone()))
+        .collect()
+}
+
+fn reference_id(value: &Value) -> Option<String> {
+    value
+        .as_array()
+        .and_then(|reference| reference.first())
+        .and_then(|id| {
+            id.as_str()
+                .map(str::to_string)
+                .or_else(|| id.as_i64().map(|id| id.to_string()))
+        })
+}
+
+fn model_reference(node: &Value) -> Option<String> {
+    node_inputs(node)?.iter().find_map(|(key, value)| {
+        (key.eq_ignore_ascii_case("model") || key.to_ascii_lowercase().starts_with("model"))
+            .then(|| reference_id(value))
+            .flatten()
+    })
+}
+
+fn set_model_reference(node: &mut Value, node_id: &str) -> bool {
+    let Some(inputs) = node_inputs_mut(node) else {
+        return false;
+    };
+    let Some((_, reference)) = inputs.iter_mut().find(|(key, value)| {
+        (key.eq_ignore_ascii_case("model") || key.to_ascii_lowercase().starts_with("model"))
+            && value.is_array()
+    }) else {
+        return false;
+    };
+    *reference = serde_json::json!([node_id, 0]);
+    true
+}
+
+fn set_lora_input(node: &mut Value, key_name: &str, value: Value) -> bool {
+    let Some(inputs) = node_inputs_mut(node) else {
+        return false;
+    };
+    let Some((_, target)) = inputs
+        .iter_mut()
+        .find(|(key, _)| key.eq_ignore_ascii_case(key_name))
+    else {
+        return false;
+    };
+    *target = value;
+    true
+}
+
+pub fn add_lora(value: &mut Value, filename: &str) -> Option<String> {
+    let ids = node_ids(value);
+    let template_id = ids.last()?;
+    let template = find_node_mut(value, template_id)?.clone();
+    if value.get("nodes").is_some() {
+        return add_visual_lora(value, &ids, &template, filename);
+    }
+    let object = value.as_object_mut()?;
+    let mut new_id = 1;
+    while object.contains_key(&new_id.to_string()) {
+        new_id += 1;
+    }
+    let new_id = new_id.to_string();
+    let mut node = template;
+    let filename = filename.rsplit(['/', '\\']).next().unwrap_or(filename);
+    if !set_lora_input(&mut node, "lora_name", Value::String(filename.to_string())) {
+        return None;
+    }
+    if !set_lora_input(&mut node, "strength_model", serde_json::json!(1.0)) {
+        set_lora_input(&mut node, "strength", serde_json::json!(1.0));
+    }
+    object.insert(new_id.clone(), node);
+    let mut ordered_ids = ids;
+    ordered_ids.push(new_id.clone());
+    reorder_loras(value, &ordered_ids).then_some(new_id)
+}
+
+fn add_visual_lora(
+    value: &mut Value,
+    ids: &[String],
+    template: &Value,
+    filename: &str,
+) -> Option<String> {
+    let object = value.as_object_mut()?;
+    let new_id = object
+        .get("nodes")?
+        .as_array()?
+        .iter()
+        .filter_map(|node| node.get("id").and_then(Value::as_i64))
+        .max()
+        .unwrap_or(0)
+        + 1;
+    let filename = filename.rsplit(['/', '\\']).next().unwrap_or(filename);
+    let mut node = template.clone();
+    node["id"] = serde_json::json!(new_id);
+    if let Some(values) = node.get_mut("widgets_values").and_then(Value::as_array_mut) {
+        if let Some(target) = values.get_mut(0) {
+            *target = Value::String(filename.to_string());
+        }
+        if let Some(target) = values.get_mut(1) {
+            *target = serde_json::json!(1.0);
+        }
+    } else {
+        return None;
+    }
+    let last_id = ids.last()?.parse::<i64>().ok()?;
+    let old_link = object
+        .get("nodes")?
+        .as_array()?
+        .iter()
+        .find(|candidate| candidate.get("id") == Some(&serde_json::json!(last_id)))
+        .and_then(|candidate| candidate.get("outputs"))
+        .and_then(Value::as_array)
+        .and_then(|outputs| outputs.first())
+        .and_then(|output| output.get("links"))
+        .and_then(Value::as_array)
+        .and_then(|links| links.first())
+        .and_then(Value::as_i64)?;
+    let new_link = object
+        .get("last_link_id")
+        .and_then(Value::as_i64)
+        .unwrap_or(old_link)
+        + 1;
+    object.insert("last_node_id".into(), serde_json::json!(new_id));
+    object.insert("last_link_id".into(), serde_json::json!(new_link));
+    let link_type = object
+        .get_mut("links")
+        .and_then(Value::as_array_mut)
+        .and_then(|links| {
+            let link = links
+                .iter_mut()
+                .find(|link| link.get(0) == Some(&serde_json::json!(old_link)))?;
+            let link_type = link.get(5)?.clone();
+            link[1] = serde_json::json!(new_id);
+            Some(link_type)
+        })?;
+    if let Some(inputs) = node.get_mut("inputs").and_then(Value::as_array_mut) {
+        if let Some(model) = inputs.iter_mut().find(|input| {
+            input
+                .get("name")
+                .and_then(Value::as_str)
+                .is_some_and(|name| name.eq_ignore_ascii_case("model"))
+        }) {
+            model["link"] = serde_json::json!(new_link);
+        }
+    }
+    if let Some(outputs) = node.get_mut("outputs").and_then(Value::as_array_mut) {
+        if let Some(links) = outputs
+            .first_mut()
+            .and_then(|output| output.get_mut("links"))
+            .and_then(Value::as_array_mut)
+        {
+            links[0] = serde_json::json!(old_link);
+        }
+    }
+    if let Some(outputs) = object
+        .get_mut("nodes")
+        .and_then(Value::as_array_mut)
+        .and_then(|nodes| {
+            nodes
+                .iter_mut()
+                .find(|candidate| candidate.get("id") == Some(&serde_json::json!(last_id)))
+        })
+        .and_then(|candidate| candidate.get_mut("outputs"))
+        .and_then(Value::as_array_mut)
+    {
+        if let Some(links) = outputs
+            .first_mut()
+            .and_then(|output| output.get_mut("links"))
+            .and_then(Value::as_array_mut)
+        {
+            links[0] = serde_json::json!(new_link);
+        }
+    }
+    object
+        .get_mut("links")
+        .and_then(Value::as_array_mut)?
+        .push(serde_json::json!([
+            new_link, last_id, 0, new_id, 0, link_type
+        ]));
+    object.get_mut("nodes")?.as_array_mut()?.push(node);
+    Some(new_id.to_string())
+}
+
+pub fn set_lora_strength(value: &mut Value, node_id: &str, strength: &str) -> bool {
+    let Some(node) = find_node_mut(value, node_id) else {
+        return false;
+    };
+    let Ok(number) = strength.parse::<f64>() else {
+        return false;
+    };
+    let Some(number) = serde_json::Number::from_f64(number) else {
+        return false;
+    };
+    let replacement = Value::Number(number);
+    if let Some(values) = node.get_mut("widgets_values").and_then(Value::as_array_mut) {
+        let Some(target) = values.get_mut(1) else {
+            return false;
+        };
+        if *target == replacement {
+            return false;
+        }
+        *target = replacement;
+        return true;
+    }
+    let Some(inputs) = node_inputs_mut(node) else {
+        return false;
+    };
+    let Some((_, target)) = inputs.iter_mut().find(|(key, _)| {
+        key.eq_ignore_ascii_case("strength_model")
+            || key.eq_ignore_ascii_case("strength")
+            || key.eq_ignore_ascii_case("weight")
+    }) else {
+        return false;
+    };
+    if *target == replacement {
+        return false;
+    }
+    *target = replacement;
+    true
+}
+
+pub fn reorder_loras(value: &mut Value, ordered_ids: &[String]) -> bool {
+    let current_ids = node_ids(value);
+    if ordered_ids.len() != current_ids.len()
+        || ordered_ids.iter().any(|id| !current_ids.contains(id))
+    {
+        return false;
+    }
+    let original_predecessor = current_ids
+        .iter()
+        .filter_map(|id| find_node_mut(value, id).and_then(|node| model_reference(node)))
+        .find(|id| !current_ids.contains(id));
+    let Some(original_predecessor) = original_predecessor else {
+        return false;
+    };
+    for id in &current_ids {
+        let Some(node) = find_node_mut(value, id) else {
+            return false;
+        };
+        if !is_lora_node(node) {
+            return false;
+        }
+    }
+    for (index, id) in ordered_ids.iter().enumerate() {
+        let predecessor = if index == 0 {
+            original_predecessor.as_str()
+        } else {
+            ordered_ids[index - 1].as_str()
+        };
+        let Some(node) = find_node_mut(value, id) else {
+            return false;
+        };
+        set_model_reference(node, predecessor);
+    }
+    true
+}
+
+pub fn remove_lora(value: &mut Value, node_id: &str) -> bool {
+    let mut ids = node_ids(value);
+    if !ids.iter().any(|id| id == node_id) {
+        return false;
+    }
+    let predecessor = find_node_mut(value, node_id).and_then(|node| model_reference(node));
+    let successor = ids.iter().find_map(|id| {
+        (id != node_id)
+            .then(|| find_node_mut(value, id).and_then(|node| model_reference(node)))
+            .flatten()
+            .filter(|id| id == node_id)
+            .map(|_| id.clone())
+    });
+    let Some(object) = value.as_object_mut() else {
+        return false;
+    };
+    object.remove(node_id);
+    ids.retain(|id| id != node_id);
+    if ids.is_empty() {
+        return true;
+    }
+    if let (Some(predecessor), Some(successor)) = (predecessor, successor) {
+        if let Some(node) = find_node_mut(value, &successor) {
+            set_model_reference(node, &predecessor);
+        }
+    }
+    reorder_loras(value, &ids)
+}
+
 pub fn update_metadata(value: &mut Value, field: &str, new_value: &str) -> bool {
     fn replace(target: &mut Value, new_value: &str) -> bool {
         let replacement = match target {
@@ -160,6 +514,41 @@ pub fn update_metadata(value: &mut Value, field: &str, new_value: &str) -> bool 
 #[cfg(test)]
 mod tests {
     use serde_json::json;
+
+    #[test]
+    fn adds_lora_to_visual_model_chain() {
+        let mut value = json!({
+            "last_node_id": 106,
+            "last_link_id": 292,
+            "nodes": [
+                {
+                    "id": 106,
+                    "type": "LoraLoaderModelOnly",
+                    "inputs": [{"name": "model", "link": 291}],
+                    "outputs": [{"name": "MODEL", "links": [292]}],
+                    "widgets_values": ["existing.safetensors", 1.2]
+                },
+                {
+                    "id": 78,
+                    "type": "ModelSamplingAuraFlow",
+                    "inputs": [{"name": "model", "link": 292}]
+                }
+            ],
+            "links": [[292, 106, 0, 78, 0, "MODEL"]]
+        });
+
+        let node_id = super::add_lora(&mut value, "/models/new.safetensors").unwrap();
+        assert_eq!(node_id, "107");
+        assert_eq!(value["nodes"][0]["outputs"][0]["links"], json!([293]));
+        assert_eq!(value["nodes"][1]["inputs"][0]["link"], json!(292));
+        assert_eq!(
+            value["nodes"][2]["widgets_values"],
+            json!(["new.safetensors", 1.0])
+        );
+        assert_eq!(value["nodes"][2]["inputs"][0]["link"], json!(293));
+        assert_eq!(value["links"][0], json!([292, 107, 0, 78, 0, "MODEL"]));
+        assert_eq!(value["links"][1], json!([293, 106, 0, 107, 0, "MODEL"]));
+    }
 
     #[test]
     fn updates_api_metadata_without_touching_model_or_lora() {

@@ -15,8 +15,7 @@ use crate::{
     workspace::{
         file_system,
         file_system::TreeState,
-        library,
-        tree_nav,
+        library, tree_nav,
         workflow::{clear_workflow, scan_json_files},
     },
     AudioRow, MainWindow, WorkflowFileRow,
@@ -115,7 +114,11 @@ pub fn set_workspace(
     }
 
     let mut new_tree_state = TreeState::new(folder.clone());
-    if let Some(selected_path) = settings_snapshot.last_selected_path.as_deref().map(PathBuf::from) {
+    if let Some(selected_path) = settings_snapshot
+        .last_selected_path
+        .as_deref()
+        .map(PathBuf::from)
+    {
         if selected_path != folder
             && selected_path.exists()
             && selected_path.strip_prefix(&folder).is_ok()
@@ -153,7 +156,13 @@ pub fn set_workspace(
             }
         })
         .unwrap_or(folder);
-    library::refresh_audio(window, audio_folder, audio_model, audio_load_state, audio_view_folder);
+    library::refresh_audio(
+        window,
+        audio_folder,
+        audio_model,
+        audio_load_state,
+        audio_view_folder,
+    );
 }
 
 pub fn close_workspace(
@@ -183,7 +192,9 @@ pub fn close_workspace(
     state.generated.clear();
     state.loading.clear();
     state.generation += 1;
-    state.cancellation_generation.store(state.generation, Ordering::Release);
+    state
+        .cancellation_generation
+        .store(state.generation, Ordering::Release);
     state.completed = 0;
     state.total = 0;
     drop(state);
@@ -323,8 +334,12 @@ mod tests {
 
     #[test]
     fn internal_paths_are_detected_at_any_depth() {
-        assert!(is_internal_path(Path::new("/workspace/.adbstudio/index.json")));
-        assert!(is_internal_path(Path::new("/workspace/album/.adbstudio/cache")));
+        assert!(is_internal_path(Path::new(
+            "/workspace/.adbstudio/index.json"
+        )));
+        assert!(is_internal_path(Path::new(
+            "/workspace/album/.adbstudio/cache"
+        )));
         assert!(!is_internal_path(Path::new("/workspace/album/song.wav")));
     }
 

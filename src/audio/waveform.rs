@@ -171,7 +171,11 @@ fn decode_peaks(
 #[cfg(test)]
 mod tests {
     use super::{aggregate_peaks, load_or_generate_cancelable, DISPLAY_PEAK_COUNT};
-    use std::{fs, path::PathBuf, time::{SystemTime, UNIX_EPOCH}};
+    use std::{
+        fs,
+        path::PathBuf,
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
     struct TempDirectory(PathBuf);
 
@@ -227,8 +231,7 @@ mod tests {
     fn failed_decode_is_cached_as_empty_peaks() {
         let temp = TempDirectory::new();
         let source = temp.0.join("missing.wav");
-        let (cache_key, peaks) =
-            load_or_generate_cancelable(&source, &temp.0, || false).unwrap();
+        let (cache_key, peaks) = load_or_generate_cancelable(&source, &temp.0, || false).unwrap();
         let cache_path = temp
             .0
             .join(".adbstudio")
