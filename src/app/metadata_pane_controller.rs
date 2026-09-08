@@ -338,10 +338,11 @@ pub fn register_metadata_pane_callbacks(
                 return;
             }
             let original = comment_editor_original.borrow().clone();
-            let (start_seconds, end_seconds) = original
-                .as_ref()
-                .map(|comment| (comment.start_seconds, comment.end_seconds))
-                .unwrap_or((0.0, duration));
+            let Some(original) = original else {
+                window.set_audio_error("Unable to determine comment range".into());
+                return;
+            };
+            let (start_seconds, end_seconds) = (original.start_seconds, original.end_seconds);
             let comment = AudioComment {
                 start_seconds,
                 end_seconds,

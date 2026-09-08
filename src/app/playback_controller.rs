@@ -130,7 +130,11 @@ pub fn register_playback_callbacks(
                 return;
             }
             select_comment(&audio_model, &path, start, end);
-            *comment_editor_original.borrow_mut() = None;
+            *comment_editor_original.borrow_mut() = Some(AudioComment {
+                start_seconds: (start * duration).clamp(0.0, duration),
+                end_seconds: (end * duration).clamp(0.0, duration),
+                text: String::new(),
+            });
             *comment_editor_duration.borrow_mut() = duration;
             window.set_comment_editor_path(path.to_string_lossy().into_owned().into());
             window.set_comment_editor_text("".into());
