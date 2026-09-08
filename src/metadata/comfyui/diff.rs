@@ -201,7 +201,8 @@ fn edit_distance(left: &str, right: &str) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::{edit_distance, format_number};
+    use super::{compare_workflows, edit_distance, format_number};
+    use crate::metadata::comfyui::{ComfyUIWorkflow, LoRAInfo};
 
     #[test]
     fn counts_prompt_edits_and_formats_deltas() {
@@ -211,5 +212,82 @@ mod tests {
         assert_eq!(format_number(34.0, Some(2.0)), "34 (+2)");
         assert_eq!(format_number(2.0, Some(2.0)), "2 (+2)");
         assert_eq!(format_number(2.0, Some(0.5)), "2 (+0.50)");
+    }
+
+    #[test]
+    fn reports_workflow_field_and_lora_differences() {
+        let pinned = ComfyUIWorkflow {
+            bpm: "120".into(),
+            seed: "10".into(),
+            key: "C major".into(),
+            model: "old.ckpt".into(),
+            prompt: "old prompt".into(),
+            lyrics: "old lyrics".into(),
+            loras: vec![LoRAInfo {
+                filename: "voice.safetensors".into(),
+                strength: "0.50".into(),
+            }],
+        };
+        let track = ComfyUIWorkflow {
+            bpm: "121.5".into(),
+            seed: "11".into(),
+            key: "D major".into(),
+            model: "new.ckpt".into(),
+            prompt: "new prompt".into(),
+            lyrics: "new lyrics".into(),
+            loras: vec![
+                LoRAInfo {
+                    filename: "voice.safetensors".into(),
+                    strength: "0.75".into(),
+                },
+                LoRAInfo {
+                    filename: "drums.safetensors".into(),
+                    strength: "0.25".into(),
+                },
+            ],
+        };
+
+        let differences = compare_workflows(&pinned, &track);
+
+        assert!(differences.iter().any(|difference| {
+            difference.label == "BPM: " && difference.value == "121.50 (+1.50)"
+        }));
+        assert!(differences.iter().any(|difference| {
+            difference.label == "Seed: " && difference.value == "11 (+1)"
+        }));
+        assert!(differences.iter().any(|difference| {
+            difference.label == "Key: " && difference.value == "D major"
+        }));
+        assert!(differences.iter().any(|difference| {
+            difference.label == "Model: " && difference.value == "new.ckpt"
+        }));
+        assert!(differences.iter().any(|difference| difference.label == "Prompt: "));
+        assert!(differences.iter().any(|difference| difference.label == "Lyrics: "));
+        assert!(differences.iter().any(|difference| {
+            difference.label == "Loras: " && difference.value == "2 (+1)"
+        }));
+        assert!(differences.iter().any(|difference| {
+            difference.label == "Lora voice.safetensors strength: "
+                && difference.value == "0.75 (+0.25)"
+        }));
+    }
+
+    #[test]
+    fn omits_equal_fields_and_handles_non_numeric_values() {
+        let workflow = ComfyUIWorkflow {
+            bpm: "unknown".into(),
+            seed: "seed".into(),
+            key: "C major".into(),
+            ..Default::default()
+        };
+        let mut changed = workflow.clone();
+        changed.bpm = "fast".into();
+        changed.seed = "new seed".into();
+
+        let differences = compare_workflows(&workflow, &changed);
+
+        assert_eq!(differences.len(), 2);
+        assert_eq!(differences[0].value, "fast");
+        assert_eq!(differences[1].value, "new seed");
     }
 }

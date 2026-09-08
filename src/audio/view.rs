@@ -253,3 +253,68 @@ pub fn format_duration(duration: Duration) -> String {
     let total_seconds = duration.as_secs();
     format!("{:02}:{:02}", total_seconds / 60, total_seconds % 60)
 }
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use slint::Model;
+
+    use super::{comment_rows, format_duration, format_seconds};
+    use crate::metadata::{AudioComment, AudioFileMetadata};
+
+    #[test]
+    fn comment_rows_sort_and_normalize_comment_ranges() {
+        let metadata = AudioFileMetadata {
+            duration_seconds: 10.0,
+            comments: vec![
+                AudioComment {
+                    start_seconds: 8.0,
+                    end_seconds: 12.0,
+                    text: "late".into(),
+                },
+                AudioComment {
+                    start_seconds: -2.0,
+                    end_seconds: 1.0,
+                    text: "early".into(),
+                },
+            ],
+            ..Default::default()
+        };
+
+        let rows = comment_rows(&metadata);
+
+        assert_eq!(rows.row_count(), 2);
+        assert_eq!(rows.row_data(0).unwrap().text, "early");
+        assert_eq!(rows.row_data(0).unwrap().start, 0.0);
+        assert_eq!(rows.row_data(0).unwrap().end, 0.1);
+        assert_eq!(rows.row_data(0).unwrap().bubble_end, 0.8);
+        assert_eq!(rows.row_data(1).unwrap().text, "late");
+        assert_eq!(rows.row_data(1).unwrap().start, 0.8);
+        assert_eq!(rows.row_data(1).unwrap().end, 1.0);
+        assert_eq!(rows.row_data(1).unwrap().bubble_end, 1.0);
+    }
+
+    #[test]
+    fn comment_rows_use_a_nonzero_duration_for_empty_metadata() {
+        let metadata = AudioFileMetadata {
+            comments: vec![AudioComment {
+                start_seconds: 1.0,
+                end_seconds: 2.0,
+                text: "comment".into(),
+            }],
+            ..Default::default()
+        };
+
+        let row = comment_rows(&metadata).row_data(0).unwrap();
+
+        assert_eq!(row.start, 1.0);
+        assert_eq!(row.end, 1.0);
+    }
+
+    #[test]
+    fn time_formatters_use_fixed_audio_display_formats() {
+        assert_eq!(format_seconds(1.2), "1.200");
+        assert_eq!(format_duration(Duration::from_secs(125)), "02:05");
+    }
+}

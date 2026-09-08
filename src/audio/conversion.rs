@@ -178,3 +178,107 @@ fn compression_level(quality: &str) -> &'static str {
         _ => "5",
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        fs,
+        path::PathBuf,
+        sync::{
+            atomic::{AtomicBool, Ordering},
+            mpsc,
+            Arc,
+        },
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    use super::{
+        bitrate, codec_args, collect_files, compression_level, is_audio, start, ConversionJob,
+    };
+
+    fn test_directory(name: &str) -> PathBuf {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!("adb-studio-conversion-{name}-{suffix}"));
+        fs::create_dir_all(&directory).unwrap();
+        directory
+    }
+
+    #[test]
+    fn audio_extensions_are_case_insensitive_and_reject_unknown_files() {
+        assert!(is_audio(std::path::Path::new("track.WAV")));
+        assert!(is_audio(std::path::Path::new("track.opus")));
+        assert!(!is_audio(std::path::Path::new("track.txt")));
+        assert!(!is_audio(std::path::Path::new("track")));
+    }
+
+    #[test]
+    fn collect_files_recurses_and_returns_sorted_audio_files_only() {
+        let directory = test_directory("collect");
+        fs::create_dir(directory.join("nested")).unwrap();
+        fs::write(directory.join("z.mp3"), b"").unwrap();
+        fs::write(directory.join("nested").join("a.FLAC"), b"").unwrap();
+        fs::write(directory.join("nested").join("ignored.txt"), b"").unwrap();
+
+        let files = collect_files(&directory);
+
+        assert_eq!(
+            files,
+            vec![
+                directory.join("nested").join("a.FLAC"),
+                directory.join("z.mp3"),
+            ]
+        );
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn codec_arguments_map_quality_for_each_format() {
+        assert_eq!(bitrate("Low", &["1", "2", "3", "4"]), "1");
+        assert_eq!(bitrate("unknown", &["1", "2", "3", "4"]), "2");
+        assert_eq!(compression_level("Maximum"), "12");
+        assert_eq!(compression_level("unknown"), "5");
+
+        assert_eq!(
+            codec_args("mp3", "Maximum"),
+            vec!["-c:a", "libmp3lame", "-b:a", "320k"]
+        );
+        assert_eq!(
+            codec_args("ogg", "Low"),
+            vec!["-c:a", "libvorbis", "-b:a", "96k"]
+        );
+        assert_eq!(
+            codec_args("opus", "High"),
+            vec!["-c:a", "libopus", "-b:a", "128k"]
+        );
+        assert_eq!(
+            codec_args("flac", "High"),
+            vec!["-c:a", "flac", "-compression_level", "8"]
+        );
+        assert_eq!(codec_args("wav", "Medium"), vec!["-c:a", "pcm_s24le"]);
+        assert_eq!(codec_args("wav", "unknown"), vec!["-c:a", "pcm_f32le"]);
+    }
+
+    #[test]
+    fn cancelled_conversion_jobs_report_cancelled_without_running_ffmpeg() {
+        let directory = test_directory("cancel");
+        let jobs = vec![ConversionJob {
+            source: directory.join("missing.wav"),
+            temporary: directory.join("temporary.wav"),
+            destination: directory.join("destination.wav"),
+        }];
+        let (sender, receiver) = mpsc::channel();
+        let cancelled = Arc::new(AtomicBool::new(true));
+
+        start(jobs, "wav".into(), "Medium".into(), sender, Arc::clone(&cancelled));
+        let update = receiver.recv().unwrap();
+
+        assert_eq!(update.index, 0);
+        assert_eq!(update.progress, 0.0);
+        assert_eq!(update.status, "Cancelled");
+        assert!(cancelled.load(Ordering::Acquire));
+        fs::remove_dir_all(directory).unwrap();
+    }
+}
