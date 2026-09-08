@@ -740,7 +740,7 @@ export component MainWindow inherits Window {
                                     root.metadata-drag-start-y = self.mouse-y;
                                     root.metadata-drag-start-height = root.metadata-pane-height;
                                 } else if event.kind == PointerEventKind.move && self.pressed {
-                                    root.metadata-pane-height = (root.metadata-drag-start-height - (self.mouse-y - root.metadata-drag-start-y)).max(120px).min(420px);
+                                    root.metadata-pane-height = (root.metadata-drag-start-height - (self.mouse-y - root.metadata-drag-start-y)).max(120px).min(root.height * 0.9);
                                 }
                             }
                         }
@@ -837,9 +837,11 @@ export component MainWindow inherits Window {
                                         AppButton { text: "Add lora"; clicked => { root.lora-add-requested(); } }
                                     }
                                     lora-list := ListView {
+                                        width: 100%;
                                         height: (root.workflow-loras.length * 26px).min(130px);
                                         vertical-scrollbar-policy: always-on;
                                         for lora[index] in root.workflow-loras : HorizontalLayout {
+                                            width: 100%;
                                             height: 26px;
                                             spacing: 4px;
                                             Rectangle {
@@ -859,26 +861,58 @@ export component MainWindow inherits Window {
                                                     }
                                                 }
                                             }
-                                            Text {
-                                                text: lora.filename;
-                                                color: root.workflow-modified ? #ffffff : (root.light-theme ? #5c6878 : #aeb8c6);
+                                            lora-name-cell := Rectangle {
                                                 horizontal-stretch: 1;
+                                                min-width: 40px;
+                                                clip: false;
+                                                Text {
+                                                    text: lora.filename;
+                                                    color: root.light-theme ? #202833 : #e3e8ef;
+                                                    width: parent.width;
+                                                    overflow: elide;
+                                                    vertical-alignment: center;
+                                                }
+                                                TouchArea {
+                                                    changed has-hover => {
+                                                        lora-tooltip.visible = self.has-hover;
+                                                    }
+                                                }
+                                                Rectangle {
+                                                    x: 0px;
+                                                    y: 24px;
+                                                    width: max(280px, lora-tooltip.preferred-width + 16px);
+                                                    height: 28px;
+                                                    visible: false;
+                                                    z: 20;
+                                                    background: root.light-theme ? #ffffff : #202832;
+                                                    border-color: root.light-theme ? #c7ced8 : #435064;
+                                                    border-width: 1px;
+                                                    lora-tooltip := Text {
+                                                        text: lora.filename;
+                                                        x: 8px;
+                                                        width: parent.width - 16px;
+                                                        color: root.light-theme ? #202833 : #f1f4f8;
+                                                        vertical-alignment: center;
+                                                        overflow: clip;
+                                                    }
+                                                }
+                                            }
+                                            if lora.custom-tag != "" : Text {
+                                                text: lora.custom-tag;
+                                                color: root.light-theme ? #5c6878 : #aeb8c6;
+                                                max-width: 80px;
                                                 overflow: elide;
+                                                vertical-alignment: center;
                                             }
                                             LineEdit {
-                                                width: 96px;
+                                                width: 55px;
                                                 text: lora.strength;
                                                 edited(value) => { root.lora-strength-changed(lora.node-id, value); }
                                                 changed has-focus => { root.text-input-focused = self.has-focus; }
                                             }
-                                            Text {
-                                                text: lora.custom-tag;
-                                                color: root.workflow-modified ? #ffffff : (root.light-theme ? #202833 : #e3e8ef);
-                                                width: 90px;
-                                                overflow: elide;
-                                            }
-                                            AppButton {
-                                                text: "Edit";
+                                            CompactIconButton {
+                                                icon: @image-url("../assets/icons/pencil.svg");
+                                                active: true;
                                                 clicked => { root.lora-edit-requested(lora.filename, lora.custom-tag); }
                                             }
                                             CompactIconButton {

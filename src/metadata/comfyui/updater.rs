@@ -159,9 +159,28 @@ fn add_visual_lora(
         .max()
         .unwrap_or(0)
         + 1;
+    let last_id = ids.last()?.parse::<i64>().ok()?;
     let filename = filename.rsplit(['/', '\\']).next().unwrap_or(filename);
     let mut node = template.clone();
     node["id"] = serde_json::json!(new_id);
+    if let Some(position) = object
+        .get("nodes")
+        .and_then(Value::as_array)
+        .and_then(|nodes| {
+            nodes
+                .iter()
+                .find(|candidate| candidate.get("id") == Some(&serde_json::json!(last_id)))
+        })
+        .and_then(|node| node.get("pos"))
+        .and_then(Value::as_array)
+    {
+        if let (Some(x), Some(y)) = (
+            position.first().and_then(Value::as_f64),
+            position.get(1).and_then(Value::as_f64),
+        ) {
+            node["pos"] = serde_json::json!([x + 10.0, y + 10.0]);
+        }
+    }
     if let Some(values) = node.get_mut("widgets_values").and_then(Value::as_array_mut) {
         if let Some(target) = values.get_mut(0) {
             *target = Value::String(filename.to_string());
@@ -172,7 +191,6 @@ fn add_visual_lora(
     } else {
         return None;
     }
-    let last_id = ids.last()?.parse::<i64>().ok()?;
     let old_link = object
         .get("nodes")?
         .as_array()?
@@ -524,6 +542,7 @@ mod tests {
                 {
                     "id": 106,
                     "type": "LoraLoaderModelOnly",
+                    "pos": [100, 200],
                     "inputs": [{"name": "model", "link": 291}],
                     "outputs": [{"name": "MODEL", "links": [292]}],
                     "widgets_values": ["existing.safetensors", 1.2]
@@ -539,6 +558,7 @@ mod tests {
 
         let node_id = super::add_lora(&mut value, "/models/new.safetensors").unwrap();
         assert_eq!(node_id, "107");
+        assert_eq!(value["nodes"][2]["pos"], json!([110.0, 210.0]));
         assert_eq!(value["nodes"][0]["outputs"][0]["links"], json!([293]));
         assert_eq!(value["nodes"][1]["inputs"][0]["link"], json!(292));
         assert_eq!(
