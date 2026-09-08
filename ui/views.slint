@@ -415,7 +415,7 @@ component ExplorerRow inherits Rectangle {
                     root.dragged = true;
                 }
             } else if event.kind == PointerEventKind.up && root.dragging {
-                root.drag-finished(root.dragged, self.mouse-y / 1px);
+                root.drag-finished(root.dragged, (self.absolute-position.y + self.mouse-y) / 1px);
                 root.dragging = false;
             }
         }
@@ -460,7 +460,7 @@ export component ExplorerList inherits ListView {
     callback chevron-clicked(string);
     callback tree-context-menu(string, length, length);
     callback tree-trash-requested(string);
-    callback tree-drop-requested(string, int, float);
+    callback tree-drop-requested(string, int);
     callback edit-accepted(string, string);
     callback edit-cancelled();
 
@@ -486,7 +486,10 @@ export component ExplorerList inherits ListView {
         edit-text <=> root.edit-text;
         drag-finished(was-dragged, pointer-y) => {
             if was-dragged {
-                root.tree-drop-requested(row.path, index, pointer-y);
+                let target-index = ((pointer-y - root.absolute-position.y / 1px - root.viewport-y / 1px) / 26.0).floor();
+                if target-index >= 0 && target-index < root.rows.length {
+                    root.tree-drop-requested(row.path, target-index);
+                }
             }
         }
         clicked(shift) => { root.row-clicked(row.path, shift); }

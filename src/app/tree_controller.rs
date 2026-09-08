@@ -373,7 +373,7 @@ pub fn register_tree_callbacks(
         let tree_state = Rc::clone(tree_state);
         let settings = Rc::clone(settings);
         let audio_folder = Rc::clone(audio_folder);
-        window.on_tree_drop_requested(move |source, source_index, pointer_y| {
+        window.on_tree_drop_requested(move |source, target_index| {
             let Some(window) = weak_window.upgrade() else {
                 return;
             };
@@ -387,9 +387,7 @@ pub fn register_tree_callbacks(
                     state,
                     file_system::SortOrder::from_i32(window.get_sort_order()),
                 );
-                let target_index = (source_index as f32 + ((pointer_y - 13.0) / 26.0).round())
-                    .clamp(0.0, (rows.len() - 1) as f32) as usize;
-                let Some(row) = rows.get(target_index) else {
+                let Some(row) = rows.get(target_index as usize) else {
                     return;
                 };
                 let mut sources = state.selected_paths();
