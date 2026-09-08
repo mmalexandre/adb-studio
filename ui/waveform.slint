@@ -1,0 +1,291 @@
+import { VerticalBox } from "std-widgets.slint";
+import { CommentRow } from "./models.slint";
+
+export component Waveform inherits Rectangle {
+    height: 58px;
+    background: transparent;
+    in property <bool> light-theme;
+    in property <color> comment-background-color: #000000;
+    in property <color> comment-text-color: #ffffff;
+    in property <bool> is-active;
+    in property <[float]> peaks;
+    in property <bool> is-loading;
+    in property <[CommentRow]> comments: [];
+    in property <float> selected-comment-start: -1;
+    in property <float> selected-comment-end: -1;
+    property <int> hovered-comment: -1;
+    property <float> gesture-start: -1;
+    property <float> gesture-end: -1;
+    property <float> comment-drag-start: -1;
+    property <float> comment-drag-original-start: -1;
+    property <float> comment-drag-original-end: -1;
+    property <int> comment-drag-index: -1;
+    property <float> comment-drag-preview-start: -1;
+    property <bool> comment-dragged: false;
+    property <bool> click-shift: false;
+    in property <float> progress: 0;
+    callback seek-requested(float, bool);
+    callback comment-range-requested(float, float);
+    callback comment-selected(float, float, string);
+    callback comment-edit-requested(float, float, string);
+    callback comment-range-moved(float, float, float, float, string);
+
+    function displayed-comment-start(index: int, start: float) -> float {
+        return index == root.comment-drag-index ? root.comment-drag-preview-start : start;
+    }
+
+    VerticalBox {
+        spacing: 0px;
+        Rectangle {
+            height: 29px;
+            HorizontalLayout {
+                spacing: 2px;
+                for peak[index] in root.peaks : Rectangle {
+                    width: (parent.width - (root.peaks.length - 1) * 2px) / root.peaks.length;
+                    height: 29px;
+                    Rectangle {
+                        width: 100%;
+                        height: 2px + peak * 25px;
+                        border-radius: 1px;
+                        y: parent.height - self.height;
+                        background: (index / root.peaks.length) <= root.progress ? (root.light-theme ? #d46b32 : #e58a4d) : (root.light-theme ? #b8c0ca : #566171);
+                    }
+                }
+            }
+        }
+        Rectangle {
+            height: 29px;
+            HorizontalLayout {
+                spacing: 2px;
+                for peak[index] in root.peaks : Rectangle {
+                    width: (parent.width - (root.peaks.length - 1) * 2px) / root.peaks.length;
+                    height: 29px;
+                    Rectangle {
+                        width: 100%;
+                        height: 2px + peak * 25px;
+                        border-radius: 1px;
+                        y: 0px;
+                        opacity: 0.5;
+                        background: (index / root.peaks.length) <= root.progress ? (root.light-theme ? #d46b32 : #e58a4d) : (root.light-theme ? #b8c0ca : #566171);
+                    }
+                }
+            }
+        }
+    }
+    Rectangle {
+        x: root.progress * (parent.width - 1px);
+        y: 0px;
+        width: 1px;
+        height: parent.height;
+        background: #ffffff;
+        visible: root.is-active && root.peaks.length > 0;
+    }
+    if root.is-loading : Rectangle {
+        x: (parent.width - 24px) / 2;
+        y: (parent.height - 24px) / 2;
+        width: 24px;
+        height: 24px;
+        background: root.light-theme ? #ffffffd9 : #1a2029d9;
+        border-radius: 12px;
+        Image {
+            source: @image-url("../assets/icons/refresh-cw.svg");
+            x: 4px;
+            y: 4px;
+            width: 16px;
+            height: 16px;
+            colorize: root.light-theme ? #d46b32 : #e58a4d;
+            transform-rotation: root.is-loading ? 360deg : 0deg;
+            animate transform-rotation {
+                duration: 900ms;
+                iteration-count: 1000000;
+            }
+        }
+    }
+    if root.selected-comment-start >= 0 && root.selected-comment-end >= root.selected-comment-start : Rectangle {
+        x: root.selected-comment-start * parent.width;
+        width: (root.selected-comment-end - root.selected-comment-start) * parent.width;
+        y: 0px;
+        height: parent.height;
+        background: root.light-theme ? #d46b3240 : #e58a4d40;
+        border-color: root.light-theme ? #d46b32 : #e58a4d;
+        border-width: 1px;
+    }
+    if root.selected-comment-start >= 0 : Rectangle {
+        x: root.selected-comment-start * parent.width;
+        y: 0px;
+        width: 1px;
+        height: parent.height;
+        background: #11151b;
+        Text { text: "▼"; x: -5px; y: -2px; color: #11151b; font-size: 10px; }
+    }
+    if root.selected-comment-end > root.selected-comment-start : Rectangle {
+        x: root.selected-comment-end * parent.width;
+        y: 0px;
+        width: 1px;
+        height: parent.height;
+        background: #11151b;
+        Text { text: "▼"; x: -5px; y: -2px; color: #11151b; font-size: 10px; }
+    }
+    if root.hovered-comment >= 0 && root.comments[root.hovered-comment].end >= root.comments[root.hovered-comment].start : Rectangle {
+        x: root.comments[root.hovered-comment].start * parent.width;
+        width: (root.comments[root.hovered-comment].end - root.comments[root.hovered-comment].start) * parent.width;
+        y: 0px;
+        height: parent.height;
+        background: root.light-theme ? #d46b3260 : #e58a4d60;
+        border-color: root.light-theme ? #d46b32 : #e58a4d;
+        border-width: 1px;
+    }
+    if root.hovered-comment >= 0 : Rectangle {
+        x: root.comments[root.hovered-comment].start * parent.width;
+        y: 0px;
+        width: 2px;
+        height: parent.height;
+        background: #11151b;
+        Text { text: "▼"; x: -5px; y: 0px; color: #11151b; font-size: 10px; }
+    }
+    if root.hovered-comment >= 0 && root.comments[root.hovered-comment].end > root.comments[root.hovered-comment].start : Rectangle {
+        x: root.comments[root.hovered-comment].end * parent.width;
+        y: 0px;
+        width: 2px;
+        height: parent.height;
+        background: #11151b;
+        Text { text: "▼"; x: -5px; y: 0px; color: #11151b; font-size: 10px; }
+    }
+    if root.gesture-start >= 0 && root.gesture-end >= root.gesture-start : Rectangle {
+        x: root.gesture-start * parent.width;
+        width: (root.gesture-end - root.gesture-start) * parent.width;
+        y: 0px;
+        height: parent.height;
+        background: root.light-theme ? #d46b3260 : #e58a4d60;
+        border-color: root.light-theme ? #d46b32 : #e58a4d;
+        border-width: 1px;
+    }
+    if root.gesture-start >= 0 : Rectangle {
+        x: root.gesture-start * parent.width;
+        y: 0px;
+        width: 2px;
+        height: parent.height;
+        background: #11151b;
+        Text { text: "▼"; x: -5px; y: 0px; color: #11151b; font-size: 10px; }
+    }
+    if root.gesture-end > root.gesture-start : Rectangle {
+        x: root.gesture-end * parent.width;
+        y: 0px;
+        width: 2px;
+        height: parent.height;
+        background: #11151b;
+        Text { text: "▼"; x: -5px; y: 0px; color: #11151b; font-size: 10px; }
+    }
+    TouchArea {
+        clicked => { root.seek-requested((self.mouse-x / self.width).max(0).min(1), root.click-shift); }
+        pointer-event(event) => {
+            if event.kind == PointerEventKind.down && event.button == PointerEventButton.left {
+                root.click-shift = event.modifiers.shift;
+            } else if event.kind == PointerEventKind.down && event.button == PointerEventButton.right {
+                root.gesture-start = (self.mouse-x / self.width).max(0).min(1);
+                root.gesture-end = root.gesture-start;
+            } else if event.kind == PointerEventKind.move && root.gesture-start >= 0 {
+                root.gesture-end = (self.mouse-x / self.width).max(0).min(1);
+            } else if event.kind == PointerEventKind.up && root.gesture-start >= 0 {
+                root.comment-range-requested(
+                    root.gesture-start.min(root.gesture-end),
+                    root.gesture-start.max(root.gesture-end)
+                );
+                root.gesture-start = -1;
+                root.gesture-end = -1;
+            }
+        }
+    }
+    for comment[index] in root.comments : comment-container := Rectangle {
+        x: root.displayed-comment-start(index, comment.start) * parent.width;
+        height: parent.height;
+        width: ((comment.bubble-end - comment.start) * parent.width).max(comment-text.preferred-width + 8px).min(root.width * (1 - comment.start));
+        background: transparent;
+        Rectangle {
+            x: 1px;
+            y: 39px;
+            width: comment-touch.has-hover ? (comment-text.preferred-width + 8px).min(root.width * (1 - comment.start) - 2px).max(parent.width - 2px).max(8px) : (comment-text.preferred-width + 8px).min(parent.width - 2px).max(8px);
+            height: 17px;
+            visible: !comment-touch.has-hover;
+            background: root.comment-background-color;
+            border-color: root.comment-text-color;
+            border-width: 1px;
+            comment-text := Text {
+                text: comment.text;
+                x: 4px;
+                width: parent.width - 8px;
+                color: root.comment-text-color;
+                font-size: 10px;
+                overflow: elide;
+                vertical-alignment: center;
+            }
+        }
+        comment-hit := Rectangle {
+            x: 1px;
+            y: 39px;
+            width: comment-touch.has-hover ? (comment-text.preferred-width + 8px).min(root.width * (1 - comment.start) - 2px).max(8px) : (comment-text.preferred-width + 8px).min(parent.width - 2px).max(8px);
+            height: 17px;
+            background: transparent;
+            comment-touch := TouchArea {
+                pointer-event(event) => {
+                    if event.kind == PointerEventKind.down && event.button == PointerEventButton.right {
+                        root.comment-edit-requested(comment.start, comment.end, comment.text);
+                    } else if event.kind == PointerEventKind.down && event.button == PointerEventButton.left {
+                        root.comment-drag-start = ((self.mouse-x + comment-hit.x + comment-container.x) / root.width).max(0).min(1);
+                        root.comment-drag-original-start = comment.start;
+                        root.comment-drag-original-end = comment.end;
+                        root.comment-drag-index = index;
+                        root.comment-drag-preview-start = comment.start;
+                        root.comment-dragged = false;
+                    } else if event.kind == PointerEventKind.move && root.comment-drag-start >= 0 {
+                        let pointer = ((self.mouse-x + comment-hit.x + comment-container.x) / root.width).max(0).min(1);
+                        let delta = pointer - root.comment-drag-start;
+                        let length = root.comment-drag-original-end - root.comment-drag-original-start;
+                        root.comment-drag-preview-start = (root.comment-drag-original-start + delta).max(0).min(1 - length);
+                        root.comment-dragged = root.comment-dragged || delta.abs() > 0.005;
+                    } else if event.kind == PointerEventKind.up && root.comment-drag-start >= 0 {
+                        let pointer = ((self.mouse-x + comment-hit.x + comment-container.x) / root.width).max(0).min(1);
+                        let delta = pointer - root.comment-drag-start;
+                        if root.comment-dragged {
+                            let length = root.comment-drag-original-end - root.comment-drag-original-start;
+                            let start = (root.comment-drag-original-start + delta).max(0).min(1 - length);
+                            root.comment-range-moved(root.comment-drag-original-start, root.comment-drag-original-end, start, start + length, comment.text);
+                        } else {
+                            root.comment-selected(comment.start, comment.end, comment.text);
+                        }
+                        root.comment-drag-start = -1;
+                        root.comment-drag-index = -1;
+                        root.comment-drag-preview-start = -1;
+                        root.comment-dragged = false;
+                    }
+                }
+                changed has-hover => {
+                    if self.has-hover {
+                        root.hovered-comment = index;
+                    } else if root.hovered-comment == index {
+                        root.hovered-comment = -1;
+                    }
+                }
+            }
+        }
+    }
+    if root.hovered-comment >= 0 : Rectangle {
+        x: root.displayed-comment-start(root.hovered-comment, root.comments[root.hovered-comment].start) * parent.width;
+        y: 39px;
+        width: (hovered-label.preferred-width + 8px).min(parent.width - self.x - 2px).max(8px);
+        height: 17px;
+        z: 10;
+        background: root.comment-background-color;
+        border-color: root.comment-text-color;
+        border-width: 1px;
+        hovered-label := Text {
+            text: root.comments[root.hovered-comment].text;
+            x: 4px;
+            width: parent.width - 8px;
+            color: root.comment-text-color;
+            font-size: 10px;
+            overflow: elide;
+            vertical-alignment: center;
+        }
+    }
+}

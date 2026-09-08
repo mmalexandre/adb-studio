@@ -12,7 +12,7 @@ use crate::{
         playback::PlaybackEngine,
         session::{comment_duration, save_playback_position},
         view::{
-            format_duration, scroll_to_path as scroll_audio_to_path, select_audio_path,
+            format_duration, scroll_to_path_if_needed as scroll_audio_to_path, select_audio_path,
             select_comment, update_audio_rows,
         },
     },

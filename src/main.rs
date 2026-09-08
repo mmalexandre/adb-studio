@@ -380,6 +380,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 rating: row.rating,
                                 is_pinned: row.is_pinned,
                                 is_selected: row.is_selected,
+                                is_primary: row.is_primary,
                                 is_active: row.is_active,
                                 is_playing: row.is_playing,
                                 progress: row.progress,

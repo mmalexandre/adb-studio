@@ -166,6 +166,28 @@ impl TreeState {
             return;
         }
 
+        let Some(parent) = path.parent() else {
+            self.select(path);
+            return;
+        };
+        let siblings = read_dir_sorted(parent, sort_order)
+            .into_iter()
+            .map(|entry| entry.path)
+            .collect::<Vec<_>>();
+        self.select_with_shift_in_order(path, true, &siblings);
+    }
+
+    pub fn select_with_shift_in_order(
+        &mut self,
+        path: &Path,
+        shift: bool,
+        ordered_paths: &[PathBuf],
+    ) {
+        if !shift {
+            self.select(path);
+            return;
+        }
+
         let Some(anchor) = self.selection_anchor.as_ref() else {
             self.select(path);
             return;
@@ -179,12 +201,11 @@ impl TreeState {
             return;
         }
 
-        let siblings = read_dir_sorted(parent, sort_order);
-        let Some(anchor_index) = siblings.iter().position(|entry| entry.path == *anchor) else {
+        let Some(anchor_index) = ordered_paths.iter().position(|candidate| candidate == anchor) else {
             self.select(path);
             return;
         };
-        let Some(path_index) = siblings.iter().position(|entry| entry.path == path) else {
+        let Some(path_index) = ordered_paths.iter().position(|candidate| candidate == path) else {
             self.select(path);
             return;
         };
@@ -193,10 +214,7 @@ impl TreeState {
         } else {
             (path_index, anchor_index)
         };
-        self.selected_paths = siblings[start..=end]
-            .iter()
-            .map(|entry| entry.path.clone())
-            .collect();
+        self.selected_paths = ordered_paths[start..=end].iter().cloned().collect();
         self.selected = Some(path.to_path_buf());
     }
 
@@ -395,6 +413,31 @@ mod tests {
                 temp.path().join("three.wav"),
             ]
         );
+        assert_eq!(state.selected, Some(last));
+    }
+
+    #[test]
+    fn shift_selection_uses_the_supplied_visible_order() {
+        let temp = TempDirectory::new();
+        for name in ["one.wav", "two.wav", "three.wav"] {
+            fs::write(temp.path().join(name), []).unwrap();
+        }
+        let first = temp.path().join("one.wav");
+        let last = temp.path().join("two.wav");
+        let visible_order = vec![
+            first.clone(),
+            temp.path().join("three.wav"),
+            last.clone(),
+        ];
+        let mut state = TreeState::new(temp.path().to_path_buf());
+
+        state.select(&first);
+        state.select_with_shift_in_order(&last, true, &visible_order);
+
+        assert_eq!(state.selected_paths.len(), 3);
+        assert!(visible_order
+            .iter()
+            .all(|path| state.selected_paths.contains(path)));
         assert_eq!(state.selected, Some(last));
     }
 

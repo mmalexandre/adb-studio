@@ -104,6 +104,7 @@ pub fn register_metadata_pane_callbacks(
                                 rating: rating.clamp(0, 5),
                                 is_pinned: row.is_pinned,
                                 is_selected: row.is_selected,
+                                is_primary: row.is_primary,
                                 is_active: row.is_active,
                                 is_playing: row.is_playing,
                                 progress: row.progress,

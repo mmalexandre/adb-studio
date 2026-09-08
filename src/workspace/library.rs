@@ -141,6 +141,7 @@ fn refresh_audio_with_changes(
             is_pinned: pinned_path.as_deref() == Some(entry.path.as_path()),
             is_active: false,
             is_selected: false,
+            is_primary: false,
             is_playing: false,
             progress,
             loop_enabled: false,
@@ -149,6 +150,12 @@ fn refresh_audio_with_changes(
         });
     }
     let previous_selected_path = PathBuf::from(window.get_selected_audio_path().as_str());
+    let selected_paths = window
+        .get_tree_rows()
+        .iter()
+        .filter(|row| row.is_selected)
+        .map(|row| PathBuf::from(row.path.as_str()))
+        .collect::<HashSet<_>>();
     let selected_path = rows
         .iter()
         .find(|row| Path::new(row.path.as_str()) == previous_selected_path)
@@ -156,7 +163,9 @@ fn refresh_audio_with_changes(
         .or_else(|| rows.first().map(|row| row.path.clone()))
         .unwrap_or_default();
     for row in &mut rows {
-        row.is_selected = row.path == selected_path;
+        let path = Path::new(row.path.as_str());
+        row.is_selected = selected_paths.contains(path) || row.path == selected_path;
+        row.is_primary = row.path == selected_path;
     }
     window.set_selected_audio_path(selected_path);
     let paths: Vec<PathBuf> = rows

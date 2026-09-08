@@ -13,7 +13,9 @@ use crate::{
     audio::{
         loader::State as AudioLoadState,
         playback::PlaybackEngine,
-        view::{format_duration, scroll_to_path as scroll_audio_to_path, update_audio_rows},
+        view::{
+            format_duration, scroll_to_path_if_needed as scroll_audio_to_path, update_audio_rows,
+        },
     },
     settings::{self, AppSettings},
     workspace::{
@@ -200,6 +202,18 @@ pub fn register_window_callbacks(
         let playback = Rc::clone(playback);
         let audio_model = Rc::clone(audio_model);
         let audio_folder = Rc::clone(audio_folder);
+        window.on_rating_key_pressed({
+            let weak_window = window.as_weak();
+            move |rating| {
+                let Some(window) = weak_window.upgrade() else {
+                    return;
+                };
+                let path = window.get_selected_audio_path();
+                if !path.is_empty() {
+                    window.invoke_rating_requested(path, rating);
+                }
+            }
+        });
         window.on_global_key_pressed(move |key, shift| {
             let Some(window) = weak_window.upgrade() else {
                 return;

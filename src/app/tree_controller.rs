@@ -55,6 +55,50 @@ pub fn register_tree_callbacks(
         });
     }
 
+    {
+        let weak_window = window.as_weak();
+        let tree_state = Rc::clone(tree_state);
+        let settings = Rc::clone(settings);
+        let audio_model = Rc::clone(audio_model);
+        window.on_audio_row_clicked(move |path, shift| {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            let path = PathBuf::from(path.as_str());
+            let ordered_paths = audio_model
+                .borrow()
+                .as_ref()
+                .map(|model| {
+                    (0..model.row_count())
+                        .filter_map(|index| model.row_data(index))
+                        .map(|row| PathBuf::from(row.path.as_str()))
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            let mut state_ref = tree_state.borrow_mut();
+            let Some(state) = state_ref.as_mut() else {
+                return;
+            };
+            state.select_with_shift_in_order(&path, shift, &ordered_paths);
+            state.expand_to(&path);
+            let selected_paths = state.selected_paths().into_iter().collect();
+            settings.borrow_mut().last_selected_path = Some(path.to_string_lossy().into_owned());
+            let settings_snapshot = settings.borrow().clone();
+            settings::save(&settings_snapshot);
+            drop(state_ref);
+
+            window.set_selected_audio_path(path.to_string_lossy().into_owned().into());
+            window.set_selected_name(
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or_default()
+                    .into(),
+            );
+            refresh_tree(&window, &tree_state);
+            crate::audio::view::select_audio_paths(&audio_model, &selected_paths, &path);
+        });
+    }
+
     window.on_tree_reveal_requested(move |path| {
         let path = PathBuf::from(path.as_str());
         if path.exists() {

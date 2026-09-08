@@ -102,6 +102,7 @@ pub fn update_audio_rows(
                     rating: row.rating,
                     is_pinned: row.is_pinned,
                     is_selected: row.is_selected,
+                    is_primary: row.is_primary,
                     is_active,
                     is_playing: is_active && is_playing,
                     progress: if is_active { progress } else { row.progress },
@@ -140,6 +141,7 @@ pub fn update_audio_loading_rows(
                     rating: row.rating,
                     is_pinned: row.is_pinned,
                     is_selected: row.is_selected,
+                    is_primary: row.is_primary,
                     is_active: row.is_active,
                     is_playing: row.is_playing,
                     progress: row.progress,
@@ -180,6 +182,7 @@ pub fn select_comment(
                     rating: row.rating,
                     is_pinned: row.is_pinned,
                     is_selected: row.is_selected,
+                    is_primary: row.is_primary,
                     is_active: row.is_active,
                     is_playing: row.is_playing,
                     progress: row.progress,
@@ -192,7 +195,11 @@ pub fn select_comment(
     }
 }
 
-pub fn select_audio_path(audio_model: &Rc<RefCell<Option<Rc<VecModel<AudioRow>>>>>, path: &Path) {
+pub fn select_audio_paths(
+    audio_model: &Rc<RefCell<Option<Rc<VecModel<AudioRow>>>>>,
+    selected_paths: &HashSet<PathBuf>,
+    primary_path: &Path,
+) {
     let Some(model) = audio_model.borrow().clone() else {
         return;
     };
@@ -200,8 +207,10 @@ pub fn select_audio_path(audio_model: &Rc<RefCell<Option<Rc<VecModel<AudioRow>>>
         let Some(row) = model.row_data(index) else {
             continue;
         };
-        let is_selected = Path::new(row.path.as_str()) == path;
-        if row.is_selected != is_selected {
+        let row_path = Path::new(row.path.as_str());
+        let is_selected = selected_paths.contains(row_path);
+        let is_primary = row_path == primary_path;
+        if row.is_selected != is_selected || row.is_primary != is_primary {
             model.set_row_data(
                 index,
                 AudioRow {
@@ -215,6 +224,7 @@ pub fn select_audio_path(audio_model: &Rc<RefCell<Option<Rc<VecModel<AudioRow>>>
                     rating: row.rating,
                     is_pinned: row.is_pinned,
                     is_selected,
+                    is_primary,
                     is_active: row.is_active,
                     is_playing: row.is_playing,
                     progress: row.progress,
@@ -225,6 +235,12 @@ pub fn select_audio_path(audio_model: &Rc<RefCell<Option<Rc<VecModel<AudioRow>>>
             );
         }
     }
+}
+
+pub fn select_audio_path(audio_model: &Rc<RefCell<Option<Rc<VecModel<AudioRow>>>>>, path: &Path) {
+    let mut selected_paths = HashSet::new();
+    selected_paths.insert(path.to_path_buf());
+    select_audio_paths(audio_model, &selected_paths, path);
 }
 
 pub fn scroll_to_path(
@@ -243,6 +259,37 @@ pub fn scroll_to_path(
         return;
     };
     window.set_audio_scroll_to_index(index as i32);
+}
+
+pub fn scroll_to_path_if_needed(
+    window: &crate::MainWindow,
+    audio_model: &Rc<RefCell<Option<Rc<VecModel<AudioRow>>>>>,
+    path: &Path,
+) {
+    let Some(model) = audio_model.borrow().clone() else {
+        return;
+    };
+    let Some(index) = (0..model.row_count()).find(|index| {
+        model
+            .row_data(*index)
+            .is_some_and(|row| Path::new(row.path.as_str()) == path)
+    }) else {
+        return;
+    };
+
+    let viewport_start = window.get_audio_viewport_start().max(0) as usize;
+    let visible_rows = window.get_audio_visible_rows().max(1) as usize;
+    let viewport_end = viewport_start.saturating_add(visible_rows);
+    let target_start = if index < viewport_start {
+        Some(index)
+    } else if index >= viewport_end {
+        Some(index + 1 - visible_rows)
+    } else {
+        None
+    };
+    if let Some(target_start) = target_start {
+        window.set_audio_scroll_to_index(target_start as i32);
+    }
 }
 
 pub fn format_seconds(seconds: f32) -> String {
