@@ -129,7 +129,6 @@ pub fn register_workflow_callbacks(
         let weak_window = window.as_weak();
         let audio_folder = Rc::clone(audio_folder);
         let edited_workflow = Rc::clone(edited_workflow);
-        let edited_workflow_path = Rc::clone(edited_workflow_path);
         let cancelled_state = Rc::clone(workflow_run_cancelled);
         let updates = workflow_run_sender.clone();
         window.on_run_workflow_requested(move || {

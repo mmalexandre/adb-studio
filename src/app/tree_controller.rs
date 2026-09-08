@@ -177,33 +177,31 @@ pub fn register_tree_callbacks(
                     };
                     let is_pinned =
                         !already_pinned && std::path::Path::new(row.path.as_str()) == path;
-                    if row.is_pinned != is_pinned {
-                        model.set_row_data(
-                            index,
-                            AudioRow {
-                                path: row.path.clone(),
-                                name: row.name,
-                                modified_date: row.modified_date,
-                                peaks: row.peaks,
-                                is_loading: row.is_loading,
-                                comments: row.comments,
-                                differences: track_differences(
-                                    &workspace,
-                                    pinned_path,
-                                    std::path::Path::new(row.path.as_str()),
-                                ),
-                                rating: row.rating,
-                                is_pinned,
-                                is_selected: row.is_selected,
-                                is_active: row.is_active,
-                                is_playing: row.is_playing,
-                                progress: row.progress,
-                                loop_enabled: row.loop_enabled,
-                                selected_comment_start: row.selected_comment_start,
-                                selected_comment_end: row.selected_comment_end,
-                            },
-                        );
-                    }
+                    model.set_row_data(
+                        index,
+                        AudioRow {
+                            path: row.path.clone(),
+                            name: row.name,
+                            modified_date: row.modified_date,
+                            peaks: row.peaks,
+                            is_loading: row.is_loading,
+                            comments: row.comments,
+                            differences: track_differences(
+                                &workspace,
+                                pinned_path,
+                                std::path::Path::new(row.path.as_str()),
+                            ),
+                            rating: row.rating,
+                            is_pinned,
+                            is_selected: row.is_selected,
+                            is_active: row.is_active,
+                            is_playing: row.is_playing,
+                            progress: row.progress,
+                            loop_enabled: row.loop_enabled,
+                            selected_comment_start: row.selected_comment_start,
+                            selected_comment_end: row.selected_comment_end,
+                        },
+                    );
                 }
             }
             window.set_audio_error("".into());

@@ -16,7 +16,10 @@ use crate::{
     AudioLoadState, AudioRow, MainWindow, TrackDifference,
 };
 
-use super::tree_nav::set_audio_breadcrumbs;
+use super::{
+    pinned_track_sort,
+    tree_nav::set_audio_breadcrumbs,
+};
 
 pub fn refresh_audio(
     window: &MainWindow,
@@ -89,11 +92,11 @@ fn refresh_audio_with_changes(
         .and_then(|workspace| preferences::pinned_track(&workspace, &folder));
     let workspace = audio_folder.borrow().clone().unwrap_or_default();
     let index = metadata::load_index(&folder);
+    let sort_order = file_system::SortOrder::from_i32(window.get_sort_order());
+    let mut entries = file_system::read_dir_sorted(&folder, sort_order);
+    pinned_track_sort::sort_tracks(&folder, pinned_path.as_deref(), sort_order, &mut entries);
     let mut rows = Vec::new();
-    for entry in file_system::read_dir_sorted(
-        &folder,
-        file_system::SortOrder::from_i32(window.get_sort_order()),
-    ) {
+    for entry in entries {
         if entry.kind != file_system::FileKind::Audio || !matches_audio_filter(&entry.name, &filter)
         {
             continue;
@@ -144,29 +147,6 @@ fn refresh_audio_with_changes(
             selected_comment_end: -1.0,
         });
     }
-    let sort_order = file_system::SortOrder::from_i32(window.get_sort_order());
-    rows.sort_by(|left, right| match sort_order {
-        file_system::SortOrder::AlphabeticalAscending => left
-            .name
-            .to_ascii_lowercase()
-            .cmp(&right.name.to_ascii_lowercase()),
-        file_system::SortOrder::AlphabeticalDescending => right
-            .name
-            .to_ascii_lowercase()
-            .cmp(&left.name.to_ascii_lowercase()),
-        file_system::SortOrder::ModifiedAscending => left
-            .modified_date
-            .parse::<u64>()
-            .unwrap_or_default()
-            .cmp(&right.modified_date.parse::<u64>().unwrap_or_default())
-            .then_with(|| left.name.to_ascii_lowercase().cmp(&right.name.to_ascii_lowercase())),
-        file_system::SortOrder::ModifiedDescending => right
-            .modified_date
-            .parse::<u64>()
-            .unwrap_or_default()
-            .cmp(&left.modified_date.parse::<u64>().unwrap_or_default())
-            .then_with(|| left.name.to_ascii_lowercase().cmp(&right.name.to_ascii_lowercase())),
-    });
     let previous_selected_path = PathBuf::from(window.get_selected_audio_path().as_str());
     let selected_path = rows
         .iter()

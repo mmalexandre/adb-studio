@@ -1,6 +1,9 @@
 use std::{cmp::Ordering, path::Path};
 
-use crate::metadata::{self, comfyui::{ComfyUIWorkflow, LoRAInfo}};
+use crate::metadata::{
+    self,
+    comfyui::{ComfyUIWorkflow, LoRAInfo},
+};
 
 use super::file_system::{DirEntryInfo, SortOrder};
 
@@ -12,7 +15,9 @@ struct Distance {
 
 impl Ord for Distance {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.tier.cmp(&other.tier).then_with(|| self.values.cmp(&other.values))
+        self.tier
+            .cmp(&other.tier)
+            .then_with(|| self.values.cmp(&other.values))
     }
 }
 
@@ -46,11 +51,17 @@ pub fn sort_tracks(
         .map(|entry| {
             let workflow = workflow_for(folder, &entry.path);
             let distance = if entry.path == pinned_path {
-                Distance { tier: 0, values: Vec::new() }
+                Distance {
+                    tier: 0,
+                    values: Vec::new(),
+                }
             } else if let (Some(pinned), Some(track)) = (&pinned_workflow, &workflow) {
                 distance_between(pinned, track)
             } else {
-                Distance { tier: 4, values: Vec::new() }
+                Distance {
+                    tier: 4,
+                    values: Vec::new(),
+                }
             };
             RankedEntry {
                 path: entry.path.clone(),
@@ -96,7 +107,11 @@ fn compare_modified(left: &DirEntryInfo, right: &DirEntryInfo) -> Ordering {
     std::fs::metadata(&left.path)
         .and_then(|metadata| metadata.modified())
         .ok()
-        .cmp(&std::fs::metadata(&right.path).and_then(|metadata| metadata.modified()).ok())
+        .cmp(
+            &std::fs::metadata(&right.path)
+                .and_then(|metadata| metadata.modified())
+                .ok(),
+        )
         .then_with(|| compare_names(&left.name, &right.name))
 }
 
@@ -111,19 +126,28 @@ fn workflow_for(folder: &Path, track_path: &Path) -> Option<ComfyUIWorkflow> {
 fn distance_between(pinned: &ComfyUIWorkflow, track: &ComfyUIWorkflow) -> Distance {
     let lora_distance = lora_distance(&pinned.loras, &track.loras);
     if lora_distance.iter().any(|value| *value != 0) {
-        return Distance { tier: 1, values: lora_distance };
+        return Distance {
+            tier: 1,
+            values: lora_distance,
+        };
     }
 
     let seed = integer_difference(&pinned.seed, &track.seed);
     let bpm = numeric_difference(&pinned.bpm, &track.bpm);
     let key = key_distance(&pinned.key, &track.key);
     if seed != 0 || bpm != 0 || key != 0 {
-        return Distance { tier: 2, values: vec![seed, bpm, key] };
+        return Distance {
+            tier: 2,
+            values: vec![seed, bpm, key],
+        };
     }
 
     let lyrics = edit_distance(&pinned.lyrics, &track.lyrics) as i64;
     let prompt = edit_distance(&pinned.prompt, &track.prompt) as i64;
-    Distance { tier: if lyrics != 0 || prompt != 0 { 3 } else { 0 }, values: vec![lyrics, prompt] }
+    Distance {
+        tier: if lyrics != 0 || prompt != 0 { 3 } else { 0 },
+        values: vec![lyrics, prompt],
+    }
 }
 
 fn lora_distance(pinned: &[LoRAInfo], track: &[LoRAInfo]) -> Vec<i64> {
@@ -182,10 +206,9 @@ fn key_distance(left: &str, right: &str) -> i64 {
 
 fn key_index(key: &str) -> Option<i64> {
     [
-        "C major", "C minor", "C# major", "C# minor", "D major", "D minor",
-        "Eb major", "Eb minor", "E major", "E minor", "F major", "F minor",
-        "F# major", "F# minor", "G major", "G minor", "Ab major", "Ab minor",
-        "A major", "A minor", "Bb major", "Bb minor", "B major", "B minor",
+        "C major", "C minor", "C# major", "C# minor", "D major", "D minor", "Eb major", "Eb minor",
+        "E major", "E minor", "F major", "F minor", "F# major", "F# minor", "G major", "G minor",
+        "Ab major", "Ab minor", "A major", "A minor", "Bb major", "Bb minor", "B major", "B minor",
     ]
     .iter()
     .position(|candidate| candidate.eq_ignore_ascii_case(key))
@@ -228,7 +251,10 @@ mod tests {
     fn lower_tier_always_wins() {
         let pinned = workflow();
         let mut lora = workflow();
-        lora.loras = vec![LoRAInfo { filename: "a".into(), strength: "0.1".into() }];
+        lora.loras = vec![LoRAInfo {
+            filename: "a".into(),
+            strength: "0.1".into(),
+        }];
         let mut seed = workflow();
         seed.seed = "11".into();
         assert!(distance_between(&pinned, &lora) < distance_between(&pinned, &seed));

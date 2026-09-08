@@ -344,6 +344,12 @@ component AudioRowView inherits Rectangle {
                 overflow: elide;
                 horizontal-stretch: 1;
             }
+            if root.is-pinned : Text {
+                text: "Reference";
+                color: #000000;
+                font-size: 12px;
+                font-weight: 700;
+            }
             if root.differences.length > 0 : Text {
                 text: " - ";
                 color: #000000;
@@ -361,6 +367,7 @@ component AudioRowView inherits Rectangle {
                     text: difference.value;
                     color: #000000;
                     font-size: 12px;
+                    font-italic: difference.value == "missing workflow file";
                     overflow: elide;
                 }
             }
