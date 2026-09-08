@@ -74,9 +74,36 @@ pub fn load_index(folder: &Path) -> MetadataIndex {
 pub fn workflow_path(folder: &Path, audio_path: &Path) -> Option<PathBuf> {
     let relative_path = audio_path.strip_prefix(folder).ok()?;
     let file_name = relative_path.file_name()?.to_str()?;
+    let adjacent = audio_path.with_file_name(format!("{file_name}.workflow.json"));
+    if adjacent.is_file() {
+        return Some(adjacent);
+    }
     let mut workflow_relative_path = relative_path.to_path_buf();
     workflow_relative_path.set_file_name(format!("{file_name}.workflow.json"));
     Some(folder.join(".adbstudio").join("workflows").join(workflow_relative_path))
+}
+
+pub fn recreated_metadata_path(folder: &Path, audio_path: &Path) -> Option<PathBuf> {
+    let adjacent = audio_path.with_file_name(format!(
+        "{}.metadata.json",
+        audio_path.file_name()?.to_str()?
+    ));
+    if adjacent.is_file() {
+        return Some(adjacent);
+    }
+    let workflow = workflow_path(folder, audio_path)?;
+    Some(workflow.with_file_name(format!(
+        "{}.metadata.json",
+        workflow.file_name()?.to_str()?
+    )))
+}
+
+pub fn workflow_was_recreated(folder: &Path, audio_path: &Path) -> bool {
+    recreated_metadata_path(folder, audio_path)
+        .and_then(|path| fs::read_to_string(path).ok())
+        .and_then(|contents| serde_json::from_str::<serde_json::Value>(&contents).ok())
+        .and_then(|value| value.get("recreated_by_script").and_then(serde_json::Value::as_bool))
+        .unwrap_or(false)
 }
 
 pub fn comment_path(folder: &Path, audio_path: &Path) -> Option<PathBuf> {
