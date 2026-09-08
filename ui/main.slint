@@ -413,7 +413,7 @@ component AudioRowView inherits Rectangle {
                     y: (parent.height - self.height) / 2;
                     width: 18px;
                     height: 18px;
-                    colorize: #ffffff;
+                    colorize: root.light-theme ? #202833 : #ffffff;
                     opacity: trash-area.has-hover ? 1 : 0.65;
                 }
                 trash-area := TouchArea {
@@ -431,7 +431,7 @@ component AudioRowView inherits Rectangle {
                     y: (parent.height - self.height) / 2;
                     width: 18px;
                     height: 18px;
-                    colorize: #ffffff;
+                    colorize: root.light-theme ? #202833 : #ffffff;
                     opacity: pin-area.has-hover ? 1 : (root.is-pinned ? 1 : 0.65);
                 }
                 pin-area := TouchArea {
