@@ -373,7 +373,7 @@ pub fn register_tree_callbacks(
         let tree_state = Rc::clone(tree_state);
         let settings = Rc::clone(settings);
         let audio_folder = Rc::clone(audio_folder);
-        window.on_tree_drop_requested(move |source, target_index| {
+        window.on_tree_drop_requested(move |source, target_index, pointer_y| {
             let Some(window) = weak_window.upgrade() else {
                 return;
             };
@@ -386,10 +386,36 @@ pub fn register_tree_callbacks(
                 let rows = file_system::build_visible_rows(
                     state,
                     file_system::SortOrder::from_i32(window.get_sort_order()),
-                );
+                )
+                .into_iter()
+                .filter(|row| {
+                    file_system::is_visible_in_tree(row.kind)
+                        && (row.kind != file_system::FileKind::Audio
+                            || file_system::matches_audio_filter(
+                                &row.name,
+                                &window.get_audio_filter().to_string(),
+                            ))
+                })
+                .collect::<Vec<_>>();
                 let Some(row) = rows.get(target_index as usize) else {
+                    println!(
+                        "tree drop: source={} target_index={} target=<none> filter={:?} visible_rows={}",
+                        source.display(),
+                        target_index,
+                        window.get_audio_filter().to_string(),
+                        rows.len(),
+                    );
                     return;
                 };
+                println!(
+                    "tree drop: source={} target_index={} pointer_y={:.1} target={} filter={:?} visible_rows={}",
+                    source.display(),
+                    target_index,
+                    pointer_y,
+                    row.path.display(),
+                    window.get_audio_filter().to_string(),
+                    rows.len(),
+                );
                 let mut sources = state.selected_paths();
                 if !sources.iter().any(|path| path == &source) {
                     sources = vec![source.clone()];

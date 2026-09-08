@@ -174,7 +174,7 @@ export component MainWindow inherits Window {
     callback conversion-closed();
     callback sort-order-selected(int);
     callback tree-trash-requested(string);
-    callback tree-drop-requested(string, int);
+    callback tree-drop-requested(string, int, float);
     callback rename-requested();
     callback tree-reveal-requested(string);
     callback new-folder-requested(string);
@@ -518,7 +518,7 @@ export component MainWindow inherits Window {
                                     root.tree-menu-visible = true;
                                 }
                                 tree-trash-requested(path) => { root.tree-trash-requested(path); }
-                                tree-drop-requested(path, index) => { root.tree-drop-requested(path, index); }
+                                tree-drop-requested(path, index, pointer-y) => { root.tree-drop-requested(path, index, pointer-y); }
                                 edit-accepted(path, text) => { root.tree-edit-accepted(path, text, root.tree-edit-mode); }
                                 edit-cancelled => { root.tree-edit-cancelled(); }
                             }

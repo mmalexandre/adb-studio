@@ -368,6 +368,7 @@ component ExplorerRow inherits Rectangle {
         if root.editing : LineEdit {
             text <=> root.edit-text;
             horizontal-stretch: 1;
+            init => { self.focus(); }
             key-pressed(event) => {
                 if event.text == Key.Escape {
                     root.edit-cancelled();
@@ -380,7 +381,11 @@ component ExplorerRow inherits Rectangle {
                     root.edit-cancelled();
                 }
             }
-            accepted(text) => { root.edit-accepted(text); }
+            accepted(text) => {
+                if text != "" {
+                    root.edit-accepted(text);
+                }
+            }
         }
         if !root.editing : Text {
             text: root.name;
@@ -415,7 +420,7 @@ component ExplorerRow inherits Rectangle {
                     root.dragged = true;
                 }
             } else if event.kind == PointerEventKind.up && root.dragging {
-                root.drag-finished(root.dragged, (self.absolute-position.y + self.mouse-y) / 1px);
+                root.drag-finished(root.dragged, self.mouse-y / 1px);
                 root.dragging = false;
             }
         }
@@ -460,7 +465,7 @@ export component ExplorerList inherits ListView {
     callback chevron-clicked(string);
     callback tree-context-menu(string, length, length);
     callback tree-trash-requested(string);
-    callback tree-drop-requested(string, int);
+    callback tree-drop-requested(string, int, float);
     callback edit-accepted(string, string);
     callback edit-cancelled();
 
@@ -486,9 +491,9 @@ export component ExplorerList inherits ListView {
         edit-text <=> root.edit-text;
         drag-finished(was-dragged, pointer-y) => {
             if was-dragged {
-                let target-index = ((pointer-y - root.absolute-position.y / 1px - root.viewport-y / 1px) / 26.0).floor();
-                if target-index >= 0 && target-index < root.rows.length {
-                    root.tree-drop-requested(row.path, target-index);
+                let target-index = (index + ((pointer-y - 13.0) / 26.0).round()).max(0).min(root.rows.length - 1);
+                if target-index >= 0 {
+                    root.tree-drop-requested(row.path, target-index, pointer-y);
                 }
             }
         }
