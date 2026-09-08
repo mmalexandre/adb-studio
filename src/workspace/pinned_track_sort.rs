@@ -55,6 +55,11 @@ pub fn sort_tracks(
                     tier: 0,
                     values: Vec::new(),
                 }
+            } else if pinned_workflow.is_none() {
+                Distance {
+                    tier: if workflow.is_some() { 1 } else { 2 },
+                    values: Vec::new(),
+                }
             } else if let (Some(pinned), Some(track)) = (&pinned_workflow, &workflow) {
                 distance_between(pinned, track)
             } else {
@@ -236,7 +241,10 @@ fn edit_distance(left: &str, right: &str) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::{distance_between, ComfyUIWorkflow, LoRAInfo};
+    use std::{fs, path::PathBuf};
+
+    use super::{distance_between, sort_tracks, ComfyUIWorkflow, LoRAInfo};
+    use crate::workspace::file_system::{DirEntryInfo, FileKind, SortOrder};
 
     fn workflow() -> ComfyUIWorkflow {
         ComfyUIWorkflow {
@@ -268,5 +276,53 @@ mod tests {
         let mut content = workflow();
         content.prompt = "changed".into();
         assert!(distance_between(&pinned, &generation) < distance_between(&pinned, &content));
+    }
+
+    #[test]
+    fn known_workflows_precede_missing_workflows_without_pinned_metadata() {
+        let folder = std::env::temp_dir().join(format!(
+            "adb-studio-pinned-sort-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&folder);
+        fs::create_dir_all(folder.join(".adbstudio/workflows")).unwrap();
+        let pinned = folder.join("pinned.wav");
+        let known = folder.join("known.wav");
+        let missing = folder.join("missing.wav");
+        fs::write(
+            crate::metadata::workflow_path(&folder, &known).unwrap(),
+            "{}",
+        )
+        .unwrap();
+        let mut entries = vec![
+            entry(&missing),
+            entry(&known),
+            entry(&pinned),
+        ];
+
+        sort_tracks(
+            &folder,
+            Some(&pinned),
+            SortOrder::AlphabeticalAscending,
+            &mut entries,
+        );
+
+        assert_eq!(
+            entries
+                .iter()
+                .map(|entry| entry.path.clone())
+                .collect::<Vec<_>>(),
+            vec![pinned, known, missing]
+        );
+        let _ = fs::remove_dir_all(folder);
+    }
+
+    fn entry(path: &PathBuf) -> DirEntryInfo {
+        DirEntryInfo {
+            path: path.clone(),
+            name: path.file_name().unwrap().to_string_lossy().into_owned(),
+            is_dir: false,
+            kind: FileKind::Audio,
+        }
     }
 }

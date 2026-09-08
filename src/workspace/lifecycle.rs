@@ -48,7 +48,7 @@ pub fn set_workspace(
             let changed_paths = event
                 .paths
                 .into_iter()
-                .filter(|path| !is_internal_path(path))
+                .filter(|path| !is_internal_path(path) || is_workflow_path(path))
                 .collect::<Vec<_>>();
             if !changed_paths.is_empty() {
                 let _ = workspace_change_sender.send(changed_paths);
@@ -274,8 +274,9 @@ pub fn refresh_workspace(
             .collect::<Vec<_>>(),
     )));
     if changed_paths.iter().any(|path| {
-        path.parent() == Some(audio_view_folder.as_path())
-            && file_system::FileKind::from_path(path) == file_system::FileKind::Audio
+        (path.parent() == Some(audio_view_folder.as_path())
+            && file_system::FileKind::from_path(path) == file_system::FileKind::Audio)
+            || workflow_change_affects_folder(path, &folder, &audio_view_folder)
     }) {
         library::refresh_audio_for_changes(
             window,
@@ -291,4 +292,26 @@ pub fn refresh_workspace(
 fn is_internal_path(path: &Path) -> bool {
     path.components()
         .any(|component| component.as_os_str() == ".adbstudio")
+}
+
+fn is_workflow_path(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.ends_with(".workflow.json"))
+}
+
+fn workflow_change_affects_folder(path: &Path, workspace: &Path, folder: &Path) -> bool {
+    let workflows_root = workspace.join(".adbstudio").join("workflows");
+    let Ok(relative_path) = path.strip_prefix(workflows_root) else {
+        return false;
+    };
+    let Some(file_name) = relative_path.file_name().and_then(|name| name.to_str()) else {
+        return false;
+    };
+    let Some(audio_name) = file_name.strip_suffix(".workflow.json") else {
+        return false;
+    };
+    let relative_folder = relative_path.parent().unwrap_or_else(|| Path::new(""));
+    workspace.join(relative_folder) == folder
+        && file_system::FileKind::from_path(Path::new(audio_name)) == file_system::FileKind::Audio
 }

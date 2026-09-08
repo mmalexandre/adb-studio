@@ -7,7 +7,7 @@ use crate::{
     settings::{self, AppSettings},
     workspace::{
         file_system::{self, TreeState},
-        library::{refresh_audio, track_differences},
+        library::refresh_audio,
         tree_nav::{refresh_tree, select_tree_path},
         workflow::load_workflow_for_audio,
     },
@@ -144,6 +144,7 @@ pub fn register_tree_callbacks(
         let weak_window = window.as_weak();
         let audio_folder = Rc::clone(audio_folder);
         let audio_model = Rc::clone(audio_model);
+        let audio_load_state = Arc::clone(audio_load_state);
         window.on_pin_requested(move |path| {
             let Some(window) = weak_window.upgrade() else {
                 return;
@@ -169,41 +170,13 @@ pub fn register_tree_callbacks(
                 folder,
                 (!already_pinned).then_some(path.as_path()),
             );
-            let pinned_path = (!already_pinned).then_some(path.as_path());
-            if let Some(model) = audio_model.borrow().clone() {
-                for index in 0..model.row_count() {
-                    let Some(row) = model.row_data(index) else {
-                        continue;
-                    };
-                    let is_pinned =
-                        !already_pinned && std::path::Path::new(row.path.as_str()) == path;
-                    model.set_row_data(
-                        index,
-                        AudioRow {
-                            path: row.path.clone(),
-                            name: row.name,
-                            modified_date: row.modified_date,
-                            peaks: row.peaks,
-                            is_loading: row.is_loading,
-                            comments: row.comments,
-                            differences: track_differences(
-                                &workspace,
-                                pinned_path,
-                                std::path::Path::new(row.path.as_str()),
-                            ),
-                            rating: row.rating,
-                            is_pinned,
-                            is_selected: row.is_selected,
-                            is_active: row.is_active,
-                            is_playing: row.is_playing,
-                            progress: row.progress,
-                            loop_enabled: row.loop_enabled,
-                            selected_comment_start: row.selected_comment_start,
-                            selected_comment_end: row.selected_comment_end,
-                        },
-                    );
-                }
-            }
+            refresh_audio(
+                &window,
+                &audio_folder,
+                &audio_model,
+                &audio_load_state,
+                folder.to_path_buf(),
+            );
             window.set_audio_error("".into());
         });
     }
