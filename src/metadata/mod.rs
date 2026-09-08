@@ -127,19 +127,30 @@ pub fn load_audio_metadata(folder: &Path, audio_path: &Path) -> AudioFileMetadat
 }
 
 pub fn save_audio_metadata(folder: &Path, audio_path: &Path, metadata: &AudioFileMetadata) {
+    let _ = save_audio_metadata_checked(folder, audio_path, metadata);
+}
+
+pub fn save_audio_metadata_checked(
+    folder: &Path,
+    audio_path: &Path,
+    metadata: &AudioFileMetadata,
+) -> std::io::Result<()> {
     let Some(path) = comment_path(folder, audio_path) else {
-        return;
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "audio path is outside the workspace",
+        ));
     };
     let Some(parent) = path.parent() else {
-        return;
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "metadata path has no parent",
+        ));
     };
-    if fs::create_dir_all(parent).is_err() {
-        return;
-    }
-    let Ok(contents) = serde_json::to_string_pretty(metadata) else {
-        return;
-    };
-    let _ = fs::write(path, contents);
+    fs::create_dir_all(parent)?;
+    let contents = serde_json::to_string_pretty(metadata)
+        .map_err(|error| std::io::Error::other(format!("serialize metadata: {error}")))?;
+    fs::write(path, contents)
 }
 
 pub fn rename_associated_workflow(

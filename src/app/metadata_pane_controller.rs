@@ -357,11 +357,14 @@ pub fn register_metadata_pane_callbacks(
                 file.comments.retain(|item| item != &original);
             }
             file.comments.push(comment);
-            metadata::save_audio_metadata(&folder, &path, &file);
-            let view_folder = path.parent().unwrap_or(&folder).to_path_buf();
-            refresh_audio(&window, &audio_folder, &audio_model, &audio_load_state, view_folder);
+            if let Err(error) = metadata::save_audio_metadata_checked(&folder, &path, &file) {
+                window.set_audio_error(format!("Save comment: {error}").into());
+                return;
+            }
+            refresh_audio(&window, &audio_folder, &audio_model, &audio_load_state, folder.clone());
             select_comment(&audio_model, &path, selected_start, selected_end);
             window.set_comment_editor_visible(false);
+            window.set_audio_error("Comment saved".into());
         });
     }
 
