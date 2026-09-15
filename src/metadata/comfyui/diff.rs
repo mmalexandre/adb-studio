@@ -12,17 +12,32 @@ pub fn compare_files(folder: &Path, pinned_path: &Path, track_path: &Path) -> Ve
             value: "missing workflow file".to_string(),
         }];
     };
-    let Ok(track_workflow) = parser::parse_file(&track_workflow_path) else {
+    if !track_workflow_path.is_file() {
         return vec![TrackDifference {
             label: String::new(),
             value: "missing workflow file".to_string(),
+        }];
+    }
+    let Ok(track_workflow) = parser::parse_file(&track_workflow_path) else {
+        return vec![TrackDifference {
+            label: String::new(),
+            value: "invalid workflow file".to_string(),
         }];
     };
     let Some(pinned_workflow_path) = crate::metadata::workflow_path(folder, pinned_path) else {
         return Vec::new();
     };
+    if !pinned_workflow_path.is_file() {
+        return vec![TrackDifference {
+            label: String::new(),
+            value: "missing workflow file".to_string(),
+        }];
+    }
     let Ok(pinned_workflow) = parser::parse_file(&pinned_workflow_path) else {
-        return Vec::new();
+        return vec![TrackDifference {
+            label: String::new(),
+            value: "invalid workflow file".to_string(),
+        }];
     };
     compare_workflows(&pinned_workflow, &track_workflow)
 }

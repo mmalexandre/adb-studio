@@ -132,7 +132,7 @@ fn refresh_audio_with_changes(
             .unwrap_or(0.0);
         let differences = pinned_path
             .as_deref()
-            .map(|pinned| metadata::comfyui::compare_files(&folder, pinned, &entry.path))
+            .map(|pinned| metadata::comfyui::compare_files(&workspace, pinned, &entry.path))
             .unwrap_or_default();
         let similarity = pinned_path
             .as_deref()
