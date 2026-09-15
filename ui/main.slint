@@ -126,6 +126,8 @@ export component MainWindow inherits Window {
     in-out property <bool> workflow-dropdown-visible: false;
     in-out property <string> workflow-bpm: "";
     in-out property <int> workflow-bpm-number: 0;
+    in-out property <int> workflow-duration-minutes: 0;
+    in-out property <int> workflow-duration-seconds: 0;
     in-out property <string> workflow-key: "";
     in-out property <int> workflow-key-index: -1;
     in-out property <string> workflow-seed: "";
@@ -148,6 +150,7 @@ export component MainWindow inherits Window {
     in-out property <string> lora-editor-tag: "";
     in-out property <bool> splash-visible: true;
     callback open-folder();
+    callback redownload-missing-files();
     callback close-folder();
     callback close-about();
     callback close-settings();
@@ -773,7 +776,25 @@ export component MainWindow inherits Window {
                                     height: 100%;
                                     alignment: start;
                                     spacing: 6px;
-                                    Text { text: "Duration\n" + root.audio-total-duration; color: root.light-theme ? #202833 : #e3e8ef; }
+                                    Text { text: "Duration"; color: root.light-theme ? #202833 : #e3e8ef; }
+                                    HorizontalLayout {
+                                        spacing: 6px;
+                                        SpinBox {
+                                            minimum: 0;
+                                            maximum: 2147483647;
+                                            value <=> root.workflow-duration-minutes;
+                                            edited(value) => { root.workflow-number-changed("duration-minutes", value); }
+                                            changed has-focus => { root.text-input-focused = self.has-focus; }
+                                        }
+                                        Text { text: ":"; color: root.light-theme ? #202833 : #e3e8ef; vertical-alignment: center; }
+                                        SpinBox {
+                                            minimum: 0;
+                                            maximum: 59;
+                                            value <=> root.workflow-duration-seconds;
+                                            edited(value) => { root.workflow-number-changed("duration-seconds", value); }
+                                            changed has-focus => { root.text-input-focused = self.has-focus; }
+                                        }
+                                    }
                                     Text { text: "BPM"; color: root.light-theme ? #202833 : #e3e8ef; }
                                     SpinBox {
                                         minimum: 0;
@@ -1150,7 +1171,7 @@ export component MainWindow inherits Window {
             x: 0px;
             y: 40px;
             width: 210px;
-            height: 42px;
+            height: 84px;
             background: root.light-theme ? #ffffff : #202832;
             border-color: root.light-theme ? #cbd2dc : #435064;
             border-width: 1px;
@@ -1159,12 +1180,33 @@ export component MainWindow inherits Window {
                 color: root.light-theme ? #202833 : #f1f4f8;
                 x: 14px;
                 width: parent.width - 14px;
+                height: 42px;
                 vertical-alignment: center;
             }
             TouchArea {
+                width: parent.width;
+                height: 42px;
                 clicked => {
                     root.file-menu-visible = false;
                     root.open-folder();
+                }
+            }
+            Text {
+                text: "Redownload Missing Files";
+                color: root.light-theme ? #202833 : #f1f4f8;
+                x: 14px;
+                y: 42px;
+                width: parent.width - 14px;
+                height: 42px;
+                vertical-alignment: center;
+            }
+            TouchArea {
+                y: 42px;
+                width: parent.width;
+                height: 42px;
+                clicked => {
+                    root.file-menu-visible = false;
+                    root.redownload-missing-files();
                 }
             }
         }
@@ -2058,7 +2100,7 @@ export component MainWindow inherits Window {
                 y: (parent.height - self.height) / 2;
                 width: 576px;
                 height: 576px;
-                background: #f26a21;
+                background: @linear-gradient(135deg, #f26a21, #f58a52);
                 border-color: #000000;
                 border-width: 1px;
                 Text {

@@ -1,10 +1,13 @@
 use std::{
     collections::HashSet,
     fs, io,
+    io::Read,
     path::{Path, PathBuf},
     sync::mpsc::{self, Receiver, Sender},
     time::Duration,
 };
+
+use sha2::{Digest, Sha256};
 
 use crate::metadata;
 
@@ -70,12 +73,37 @@ pub(super) fn sync_loop(
                 });
                 match command_receiver.recv_timeout(interval) {
                     Ok(SyncCommand::Stop) | Err(mpsc::RecvTimeoutError::Disconnected) => return,
+                    Ok(SyncCommand::RedownloadMissing) => {
+                        if let Err(error) = clear_missing_downloads(&workspace, &mut download_index)
+                        {
+                            let _ = event_sender.send(SyncEvent::Error {
+                                generation,
+                                message: error.to_string(),
+                            });
+                        }
+                        continue;
+                    }
                     Err(mpsc::RecvTimeoutError::Timeout) => continue,
                 }
             }
         };
-        let mut current = match progress_with_index(&files, &destination, &config, &download_index)
-        {
+        let local_checksums = match local_checksums(&workspace) {
+            Ok(checksums) => checksums,
+            Err(error) => {
+                let _ = event_sender.send(SyncEvent::Error {
+                    generation,
+                    message: error.to_string(),
+                });
+                continue;
+            }
+        };
+        let mut current = match progress_with_index(
+            &files,
+            &destination,
+            &local_checksums,
+            &config,
+            &download_index,
+        ) {
             Ok(progress) => progress,
             Err(error) => {
                 let _ = event_sender.send(SyncEvent::Error {
@@ -84,6 +112,16 @@ pub(super) fn sync_loop(
                 });
                 match command_receiver.recv_timeout(interval) {
                     Ok(SyncCommand::Stop) | Err(mpsc::RecvTimeoutError::Disconnected) => return,
+                    Ok(SyncCommand::RedownloadMissing) => {
+                        if let Err(error) = clear_missing_downloads(&workspace, &mut download_index)
+                        {
+                            let _ = event_sender.send(SyncEvent::Error {
+                                generation,
+                                message: error.to_string(),
+                            });
+                        }
+                        continue;
+                    }
                     Err(mpsc::RecvTimeoutError::Timeout) => continue,
                 }
             }
@@ -95,8 +133,17 @@ pub(super) fn sync_loop(
 
         let mut last_downloaded_path = None;
         for file in &files {
-            if command_receiver.try_recv().is_ok() {
-                return;
+            match command_receiver.try_recv() {
+                Ok(SyncCommand::Stop) | Err(mpsc::TryRecvError::Disconnected) => return,
+                Ok(SyncCommand::RedownloadMissing) => {
+                    if let Err(error) = clear_missing_downloads(&workspace, &mut download_index) {
+                        let _ = event_sender.send(SyncEvent::Error {
+                            generation,
+                            message: error.to_string(),
+                        });
+                    }
+                }
+                Err(mpsc::TryRecvError::Empty) => {}
             }
             let filename = Path::new(&file.name)
                 .file_name()
@@ -105,10 +152,12 @@ pub(super) fn sync_loop(
             if filename.is_empty() {
                 continue;
             }
-            if !destination.join(filename).exists()
-                && !download_index.contains_completed(&config, file)
-                && !metadata::has_downloaded_audio(&workspace, &file.name)
-            {
+            let already_present = if file.checksum.is_empty() {
+                destination.join(filename).exists()
+            } else {
+                local_checksums.contains(&file.checksum)
+            };
+            if !already_present && !metadata::has_downloaded_audio(&workspace, &file.name) {
                 if let Err(error) = client.download_file(&config, file, &destination) {
                     let _ = event_sender.send(SyncEvent::Error {
                         generation,
@@ -137,7 +186,6 @@ pub(super) fn sync_loop(
                         generation,
                         message: error.to_string(),
                     });
-                    continue;
                 }
                 current.present += 1;
                 let _ = event_sender.send(SyncEvent::Progress {
@@ -148,21 +196,29 @@ pub(super) fn sync_loop(
             }
             let audio_path = destination.join(filename);
             if !download_index.contains_workflow_attempt(&config, file) {
-                download_index.record_workflow_attempt(&config, file);
-                if let Err(error) = save_download_index(&workspace, &download_index) {
-                    let _ = event_sender.send(SyncEvent::Error {
-                        generation,
-                        message: error.to_string(),
-                    });
-                }
                 match sync_workflow(&client, &config, file, &workspace, &audio_path) {
                     Ok(true) => {
+                        download_index.record_workflow_attempt(&config, file);
+                        if let Err(error) = save_download_index(&workspace, &download_index) {
+                            let _ = event_sender.send(SyncEvent::Error {
+                                generation,
+                                message: error.to_string(),
+                            });
+                        }
                         let _ = event_sender.send(SyncEvent::WorkflowUpdated {
                             generation,
                             audio_path: audio_path.to_string_lossy().into_owned(),
                         });
                     }
-                    Ok(false) => {}
+                    Ok(false) => {
+                        download_index.record_workflow_attempt(&config, file);
+                        if let Err(error) = save_download_index(&workspace, &download_index) {
+                            let _ = event_sender.send(SyncEvent::Error {
+                                generation,
+                                message: error.to_string(),
+                            });
+                        }
+                    }
                     Err(error) => {
                         let _ = event_sender.send(SyncEvent::Error {
                             generation,
@@ -183,6 +239,14 @@ pub(super) fn sync_loop(
 
         match command_receiver.recv_timeout(interval) {
             Ok(SyncCommand::Stop) | Err(mpsc::RecvTimeoutError::Disconnected) => return,
+            Ok(SyncCommand::RedownloadMissing) => {
+                if let Err(error) = clear_missing_downloads(&workspace, &mut download_index) {
+                    let _ = event_sender.send(SyncEvent::Error {
+                        generation,
+                        message: error.to_string(),
+                    });
+                }
+            }
             Err(mpsc::RecvTimeoutError::Timeout) => {}
         }
     }
@@ -201,6 +265,7 @@ fn sync_workflow(
             name: format!("{}.workflow.json", audio_file.name),
             path: format!("{}.workflow.json", audio_file.path),
             modified: audio_file.modified,
+            checksum: String::new(),
         };
         if client.download_optional_file(config, &workflow_file, &workflow_path)? {
             return Ok(true);
@@ -230,9 +295,24 @@ fn save_download_index(workspace: &Path, index: &DownloadIndex) -> Result<(), Sy
     fs::write(super::download_index_path(workspace), contents).map_err(SyncError::Io)
 }
 
+fn clear_missing_downloads(workspace: &Path, index: &mut DownloadIndex) -> Result<(), SyncError> {
+    let checksums = local_checksums(workspace)?;
+    let before = index.downloads.len();
+    index.downloads.retain(|record| {
+        record.status != "completed"
+            || record.checksum.is_empty()
+            || checksums.contains(&record.checksum)
+    });
+    if index.downloads.len() != before {
+        save_download_index(workspace, index)?;
+    }
+    Ok(())
+}
+
 fn progress_with_index(
     files: &[RemoteFile],
     destination: &Path,
+    local_checksums: &HashSet<String>,
     config: &SyncConfig,
     download_index: &DownloadIndex,
 ) -> Result<SyncProgress, SyncError> {
@@ -246,12 +326,15 @@ fn progress_with_index(
     };
     let present = files
         .iter()
-        .filter_map(|file| {
+        .filter(|file| {
+            if !file.checksum.is_empty() {
+                return local_checksums.contains(&file.checksum);
+            }
             Path::new(&file.name)
                 .file_name()
                 .and_then(|name| name.to_str())
+                .is_some_and(|name| local_names.contains(name))
         })
-        .filter(|name| local_names.contains(*name))
         .count();
     let recorded = files
         .iter()
@@ -263,6 +346,40 @@ fn progress_with_index(
     })
 }
 
+fn local_checksums(workspace: &Path) -> Result<HashSet<String>, SyncError> {
+    let mut checksums = HashSet::new();
+    let mut directories = vec![workspace.to_path_buf()];
+    while let Some(directory) = directories.pop() {
+        for entry in fs::read_dir(directory).map_err(SyncError::Io)? {
+            let entry = entry.map_err(SyncError::Io)?;
+            let path = entry.path();
+            if path.file_name().and_then(|name| name.to_str()) == Some(".adbstudio") {
+                continue;
+            }
+            let file_type = entry.file_type().map_err(SyncError::Io)?;
+            if file_type.is_dir() {
+                directories.push(path);
+                continue;
+            }
+            if !file_type.is_file() {
+                continue;
+            }
+            let mut file = fs::File::open(&path).map_err(SyncError::Io)?;
+            let mut digest = Sha256::new();
+            let mut buffer = [0u8; 1024 * 1024];
+            loop {
+                let bytes_read = file.read(&mut buffer).map_err(SyncError::Io)?;
+                if bytes_read == 0 {
+                    break;
+                }
+                digest.update(&buffer[..bytes_read]);
+            }
+            checksums.insert(format!("{:x}", digest.finalize()));
+        }
+    }
+    Ok(checksums)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -270,7 +387,9 @@ mod tests {
     };
     use crate::metadata;
     use crate::sync::{DownloadIndex, RemoteFile, SyncConfig};
+    use sha2::{Digest, Sha256};
     use std::{
+        collections::HashSet,
         fs,
         path::Path,
         sync::atomic::{AtomicU64, Ordering},
@@ -308,17 +427,20 @@ mod tests {
                 name: "nested/song.mp3".to_string(),
                 path: "/remote/song.mp3".to_string(),
                 modified: 2,
+                checksum: String::new(),
             },
             RemoteFile {
                 name: "other.mp3".to_string(),
                 path: "/remote/other.mp3".to_string(),
                 modified: 1,
+                checksum: String::new(),
             },
         ];
         assert_eq!(
             progress_with_index(
                 &files,
                 &directory,
+                &HashSet::new(),
                 &SyncConfig::default(),
                 &DownloadIndex::default()
             )
@@ -327,6 +449,26 @@ mod tests {
             1
         );
         fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn checksum_match_survives_moving_and_renaming_file() {
+        let workspace = tempfile_directory();
+        let original = workspace.join("downloads/original.mp3");
+        let moved = workspace.join("archive/renamed.mp3");
+        fs::create_dir_all(original.parent().unwrap()).unwrap();
+        fs::create_dir_all(moved.parent().unwrap()).unwrap();
+        fs::write(&original, b"audio").unwrap();
+        fs::rename(&original, &moved).unwrap();
+
+        let mut digest = Sha256::new();
+        digest.update(b"audio");
+        let checksum = format!("{:x}", digest.finalize());
+
+        assert!(super::local_checksums(&workspace)
+            .unwrap()
+            .contains(&checksum));
+        fs::remove_dir_all(workspace).unwrap();
     }
 
     #[test]
@@ -340,6 +482,7 @@ mod tests {
             name: "song.mp3".to_string(),
             path: "/output/audio/song.mp3".to_string(),
             modified: 0,
+            checksum: String::new(),
         };
         let mut index = DownloadIndex::default();
         index.record_completed(&config, &file, 1234);
@@ -350,11 +493,30 @@ mod tests {
         assert_eq!(loaded.downloads[0].status, "completed");
         assert_eq!(loaded.downloads[0].size, 1234);
         assert_eq!(
-            progress_with_index(&[file], &workspace, &config, &loaded)
+            progress_with_index(&[file], &workspace, &HashSet::new(), &config, &loaded)
                 .unwrap()
                 .present,
             1
         );
+        fs::remove_dir_all(workspace).unwrap();
+    }
+
+    #[test]
+    fn clear_missing_downloads_removes_records_without_local_checksum() {
+        let workspace = tempfile_directory();
+        let config = SyncConfig::default();
+        let file = RemoteFile {
+            name: "song.mp3".to_string(),
+            path: "/output/audio/song.mp3".to_string(),
+            modified: 0,
+            checksum: "missing-checksum".to_string(),
+        };
+        let mut index = DownloadIndex::default();
+        index.record_completed(&config, &file, 1234);
+
+        super::clear_missing_downloads(&workspace, &mut index).unwrap();
+
+        assert!(index.downloads.is_empty());
         fs::remove_dir_all(workspace).unwrap();
     }
 
@@ -373,6 +535,7 @@ mod tests {
             name: "song.mp3".to_string(),
             path: "/output/audio/song.mp3".to_string(),
             modified: 0,
+            checksum: String::new(),
         };
         let mut index = DownloadIndex::default();
         assert!(!index.contains_workflow_attempt(&config, &file));

@@ -86,6 +86,13 @@ pub fn register_window_callbacks(
     }
 
     {
+        let sync_controller = Rc::clone(sync_controller);
+        window.on_redownload_missing_files(move || {
+            sync_controller.borrow().redownload_missing();
+        });
+    }
+
+    {
         let weak_window = window.as_weak();
         let settings = Rc::clone(settings);
         let tree_state = Rc::clone(tree_state);
