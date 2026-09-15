@@ -87,6 +87,13 @@ pub(super) fn sync_loop(
                 }
             }
         };
+        let _ = event_sender.send(SyncEvent::Progress {
+            generation,
+            progress: SyncProgress {
+                present: 0,
+                total: files.len(),
+            },
+        });
         let local_checksums = match local_checksums(&workspace) {
             Ok(checksums) => checksums,
             Err(error) => {
