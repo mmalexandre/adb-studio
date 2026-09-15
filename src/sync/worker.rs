@@ -156,11 +156,13 @@ pub(super) fn sync_loop(
             if filename.is_empty() {
                 continue;
             }
-            let already_present = if file.checksum.is_empty() {
-                destination.join(filename).exists()
-            } else {
-                local_checksums.contains(&file.checksum)
-            };
+            let already_recorded = download_index.contains_completed(&config, file);
+            let already_present = already_recorded
+                || if file.checksum.is_empty() {
+                    destination.join(filename).exists()
+                } else {
+                    local_checksums.contains(&file.checksum)
+                };
             if !already_present && !metadata::has_downloaded_audio(&workspace, &file.name) {
                 if let Err(error) = client.download_file(&config, file, &destination) {
                     let _ = event_sender.send(SyncEvent::Error {
