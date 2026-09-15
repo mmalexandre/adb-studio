@@ -95,7 +95,7 @@ fn refresh_audio_with_changes(
     let workspace = audio_folder.borrow().clone().unwrap_or_default();
     let sort_order = file_system::SortOrder::from_i32(window.get_sort_order());
     let mut entries = file_system::read_dir_sorted(&folder, sort_order);
-    pinned_track_sort::sort_tracks(&folder, pinned_path.as_deref(), sort_order, &mut entries);
+    pinned_track_sort::sort_tracks(&workspace, pinned_path.as_deref(), sort_order, &mut entries);
     let mut rows = Vec::new();
     let mut preserved_waveform_paths = HashSet::new();
     for entry in entries {

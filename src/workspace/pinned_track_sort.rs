@@ -60,8 +60,15 @@ pub fn sort_tracks(
                     tier: if workflow.is_some() { 1 } else { 2 },
                     values: Vec::new(),
                 }
-            } else if let (Some(pinned), Some(track)) = (&pinned_workflow, &workflow) {
-                distance_between(pinned, track)
+            } else if pinned_workflow.is_some() {
+                Distance {
+                    tier: comparison_tier(&crate::metadata::comfyui::compare_files(
+                        folder,
+                        pinned_path,
+                        &entry.path,
+                    )),
+                    values: Vec::new(),
+                }
             } else {
                 Distance {
                     tier: 4,
@@ -86,6 +93,30 @@ pub fn sort_tracks(
         .map(|entry| entry.path)
         .collect::<Vec<_>>();
     entries.sort_by_key(|entry| order.iter().position(|path| path == &entry.path));
+}
+
+fn comparison_tier(differences: &[crate::metadata::comfyui::TrackDifference]) -> u8 {
+    if differences.is_empty() {
+        return 0;
+    }
+    if differences
+        .iter()
+        .any(|difference| difference.value == "missing workflow file")
+    {
+        return 4;
+    }
+    if differences
+        .iter()
+        .any(|difference| difference.label.starts_with("Lora") || difference.label == "Loras: ")
+    {
+        return 1;
+    }
+    if differences.iter().any(|difference| {
+        matches!(difference.label.as_str(), "BPM: " | "Seed: " | "Key: ")
+    }) {
+        return 2;
+    }
+    3
 }
 
 pub fn similarity_from_differences(
