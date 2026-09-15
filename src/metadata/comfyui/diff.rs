@@ -1,4 +1,5 @@
-use std::path::Path;
+use serde_json::Value;
+use std::{fs, path::Path};
 
 use super::{parser, ComfyUIWorkflow, LoRAInfo, TrackDifference};
 
@@ -39,7 +40,30 @@ pub fn compare_files(folder: &Path, pinned_path: &Path, track_path: &Path) -> Ve
             value: "invalid workflow file".to_string(),
         }];
     };
-    compare_workflows(&pinned_workflow, &track_workflow)
+    let mut differences = compare_workflows(&pinned_workflow, &track_workflow);
+    if differences.is_empty() && workflow_json_differs(&pinned_workflow_path, &track_workflow_path) {
+        differences.push(TrackDifference {
+            label: "Workflow: ".to_string(),
+            value: "content differs".to_string(),
+        });
+    }
+    differences
+}
+
+fn workflow_json_differs(pinned_path: &Path, track_path: &Path) -> bool {
+    let Ok(pinned_contents) = fs::read_to_string(pinned_path) else {
+        return false;
+    };
+    let Ok(track_contents) = fs::read_to_string(track_path) else {
+        return false;
+    };
+    let Ok(pinned_json) = serde_json::from_str::<Value>(&pinned_contents) else {
+        return false;
+    };
+    let Ok(track_json) = serde_json::from_str::<Value>(&track_contents) else {
+        return false;
+    };
+    pinned_json != track_json
 }
 
 fn compare_workflows(
