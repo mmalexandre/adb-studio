@@ -124,7 +124,9 @@ impl PlaybackEngine {
     }
 
     pub fn set_comment_loop(&mut self, start: Duration, end: Duration) {
-        self.comment_loop = Some((start.min(end), end.min(self.duration)));
+        let start = start.min(end).min(self.duration);
+        let end = end.min(self.duration);
+        self.comment_loop = (end - start >= Duration::from_millis(100)).then_some((start, end));
     }
 
     pub fn clear_comment_loop(&mut self) {
