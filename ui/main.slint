@@ -44,6 +44,7 @@ export component MainWindow inherits Window {
     in-out property <int> comfyui-sync-present: 0;
     in-out property <int> comfyui-sync-total: 0;
     in-out property <bool> comfyui-sync-active: false;
+    in-out property <bool> comfyui-sync-disconnected: false;
     in-out property <bool> comfyui-sync-error-state: false;
     in-out property <bool> file-menu-visible: false;
     in-out property <bool> edit-menu-visible: false;
@@ -1133,7 +1134,7 @@ export component MainWindow inherits Window {
                         font-size: 11px;
                         vertical-alignment: center;
                     }
-                    if root.comfyui-sync-active || root.comfyui-sync-error-state : Rectangle {
+                    if root.comfyui-sync-active || root.comfyui-sync-disconnected || root.comfyui-sync-error-state : Rectangle {
                         width: sync-status-text.preferred-width + (root.comfyui-sync-active ? 22px : 8px);
                         height: 28px;
                         background: transparent;
@@ -1147,10 +1148,14 @@ export component MainWindow inherits Window {
                         }
                         sync-status-text := Text {
                             x: root.comfyui-sync-active ? 20px : 4px;
-                            text: root.comfyui-sync-error-state
+                            text: root.comfyui-sync-disconnected
+                                ? "Not connected"
+                                : root.comfyui-sync-error-state
                                 ? "Syncing error..."
                                 : "Syncing " + root.comfyui-sync-present + "/" + root.comfyui-sync-total;
-                            color: root.comfyui-sync-error-state
+                            color: root.comfyui-sync-disconnected
+                                ? (root.light-theme ? #5c6878 : #7f8b9d)
+                                : root.comfyui-sync-error-state
                                 ? #d46b32
                                 : (root.light-theme ? #5c6878 : #7f8b9d);
                             font-size: 11px;

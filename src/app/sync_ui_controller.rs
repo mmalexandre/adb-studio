@@ -222,10 +222,12 @@ pub fn register_sync_ui_callbacks(
             let test_result =
                 ComfyUiClient::new().and_then(|client| client.list_files(&config).map(|_| ()));
             if let Err(error) = test_result {
-                window.set_comfyui_sync_active(false);
-                window.set_comfyui_sync_error_state(true);
-                window.set_comfyui_sync_error(error.to_string().into());
-                return;
+                if !error.is_not_found() {
+                    window.set_comfyui_sync_active(false);
+                    window.set_comfyui_sync_error_state(true);
+                    window.set_comfyui_sync_error(error.to_string().into());
+                    return;
+                }
             }
             if let Err(error) = sync::ensure_destination(&folder, &config) {
                 window.set_comfyui_sync_error(error.to_string().into());
@@ -236,8 +238,10 @@ pub fn register_sync_ui_callbacks(
                 return;
             }
             sync_controller.borrow_mut().start(folder, config);
+            window.set_comfyui_sync_active(true);
             window.set_comfyui_sync_error("".into());
             window.set_comfyui_sync_error_state(false);
+            window.set_comfyui_sync_status("Starting".into());
             window.set_comfyui_sync_visible(false);
             if *recreate_workflow_pending.borrow() {
                 *recreate_workflow_pending.borrow_mut() = false;
@@ -385,8 +389,16 @@ pub fn tick(
     let current_generation = sync_controller.borrow().generation();
     for event in sync_controller.borrow().events().try_iter() {
         match event {
+            SyncEvent::Disconnected { generation } if generation == current_generation => {
+                window.set_comfyui_sync_active(false);
+                window.set_comfyui_sync_disconnected(true);
+                window.set_comfyui_sync_error_state(false);
+                window.set_comfyui_sync_status("Not connected".into());
+                window.set_comfyui_sync_error("".into());
+            }
             SyncEvent::Running { generation } if generation == current_generation => {
                 window.set_comfyui_sync_active(true);
+                window.set_comfyui_sync_disconnected(false);
                 window.set_comfyui_sync_error_state(false);
                 window.set_comfyui_sync_status("Syncing".into());
             }
@@ -395,6 +407,7 @@ pub fn tick(
                 progress,
             } if generation == current_generation => {
                 window.set_comfyui_sync_active(true);
+                window.set_comfyui_sync_disconnected(false);
                 window.set_comfyui_sync_error_state(false);
                 window.set_comfyui_sync_present(progress.present as i32);
                 window.set_comfyui_sync_total(progress.total as i32);
@@ -473,6 +486,7 @@ pub fn tick(
                 message,
             } if generation == current_generation => {
                 window.set_comfyui_sync_active(false);
+                window.set_comfyui_sync_disconnected(false);
                 window.set_comfyui_sync_error_state(true);
                 window.set_comfyui_sync_status("Sync stopped".into());
                 window.set_comfyui_sync_error(message.into());

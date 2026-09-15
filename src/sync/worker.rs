@@ -13,6 +13,8 @@ use super::{
     SyncProgress,
 };
 
+const DISCONNECTED_POLL_INTERVAL: Duration = Duration::from_secs(30);
+
 pub(super) fn sync_loop(
     workspace: PathBuf,
     config: SyncConfig,
@@ -60,10 +62,27 @@ pub(super) fn sync_loop(
     };
 
     loop {
-        let _ = event_sender.send(SyncEvent::Running { generation });
         let files = match client.list_files(&config) {
             Ok(files) => files,
             Err(error) => {
+                if error.is_not_found() {
+                    let _ = event_sender.send(SyncEvent::Disconnected { generation });
+                    match command_receiver.recv_timeout(DISCONNECTED_POLL_INTERVAL) {
+                        Ok(SyncCommand::Stop) | Err(mpsc::RecvTimeoutError::Disconnected) => return,
+                        Ok(SyncCommand::RedownloadMissing) => {
+                            if let Err(error) =
+                                clear_missing_downloads(&workspace, &mut download_index)
+                            {
+                                let _ = event_sender.send(SyncEvent::Error {
+                                    generation,
+                                    message: error.to_string(),
+                                });
+                            }
+                            continue;
+                        }
+                        Err(mpsc::RecvTimeoutError::Timeout) => continue,
+                    }
+                }
                 let _ = event_sender.send(SyncEvent::Error {
                     generation,
                     message: error.to_string(),
@@ -84,6 +103,7 @@ pub(super) fn sync_loop(
                 }
             }
         };
+        let _ = event_sender.send(SyncEvent::Running { generation });
         let _ = event_sender.send(SyncEvent::Progress {
             generation,
             progress: SyncProgress {

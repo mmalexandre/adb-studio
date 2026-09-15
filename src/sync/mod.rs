@@ -178,6 +178,9 @@ pub struct SyncProgress {
 }
 
 pub enum SyncEvent {
+    Disconnected {
+        generation: u64,
+    },
     Running {
         generation: u64,
     },
@@ -268,6 +271,15 @@ pub enum SyncError {
     Request(reqwest::Error),
     Io(io::Error),
     Response(String),
+}
+
+impl SyncError {
+    pub(crate) fn is_not_found(&self) -> bool {
+        matches!(
+            self,
+            Self::Request(request) if request.status() == Some(reqwest::StatusCode::NOT_FOUND)
+        )
+    }
 }
 
 impl std::fmt::Display for SyncError {
