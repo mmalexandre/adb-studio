@@ -266,6 +266,12 @@ pub fn register_sync_ui_callbacks(
                             };
                             for (field, value) in [
                                 ("bpm", window.get_workflow_bpm().to_string()),
+                                (
+                                    "duration",
+                                    (window.get_workflow_duration_minutes() * 60
+                                        + window.get_workflow_duration_seconds())
+                                    .to_string(),
+                                ),
                                 ("key", window.get_workflow_key().to_string()),
                                 ("seed", window.get_workflow_seed().to_string()),
                                 ("prompt", window.get_workflow_prompt().to_string()),

@@ -64,8 +64,8 @@ impl ComfyUiClient {
                 &url,
                 self.client
                     .get(&url)
-            .query(&[("directory", config.remote_directory.as_str())])
-            .header(reqwest::header::ACCEPT, "application/json")
+                    .query(&[("directory", config.remote_directory.as_str())])
+                    .header(reqwest::header::ACCEPT, "application/json"),
             )
             .map_err(SyncError::Request)?
             .error_for_status()
@@ -329,9 +329,7 @@ impl ComfyUiClient {
                 .send_request(
                     "GET",
                     &url,
-                    self.client
-                        .get(&url)
-                        .query(&[("path", file.path.as_str())]),
+                    self.client.get(&url).query(&[("path", file.path.as_str())]),
                 )
                 .map_err(SyncError::Request)?
                 .error_for_status()
@@ -379,9 +377,7 @@ impl ComfyUiClient {
                 .send_request(
                     "GET",
                     &url,
-                    self.client
-                        .get(&url)
-                        .query(&[("path", file.path.as_str())]),
+                    self.client.get(&url).query(&[("path", file.path.as_str())]),
                 )
                 .map_err(SyncError::Request)?;
             if response.status() == reqwest::StatusCode::NOT_FOUND {
@@ -535,11 +531,13 @@ mod tests {
                 name: "older.mp3".to_string(),
                 path: "/remote/older.mp3".to_string(),
                 modified: 1,
+                checksum: String::new(),
             },
             RemoteFile {
                 name: "newer.mp3".to_string(),
                 path: "/remote/newer.mp3".to_string(),
                 modified: 2,
+                checksum: String::new(),
             },
         ];
         sort_remote_files(&mut files);

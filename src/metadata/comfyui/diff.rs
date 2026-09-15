@@ -218,6 +218,7 @@ mod tests {
     fn reports_workflow_field_and_lora_differences() {
         let pinned = ComfyUIWorkflow {
             bpm: "120".into(),
+            duration: "30".into(),
             seed: "10".into(),
             key: "C major".into(),
             model: "old.ckpt".into(),
@@ -231,6 +232,7 @@ mod tests {
         };
         let track = ComfyUIWorkflow {
             bpm: "121.5".into(),
+            duration: "35".into(),
             seed: "11".into(),
             key: "D major".into(),
             model: "new.ckpt".into(),

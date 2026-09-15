@@ -9,6 +9,7 @@ pub use updater::{add_lora, remove_lora, reorder_loras, set_lora_strength, updat
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ComfyUIWorkflow {
     pub bpm: String,
+    pub duration: String,
     pub key: String,
     pub seed: String,
     pub model: String,

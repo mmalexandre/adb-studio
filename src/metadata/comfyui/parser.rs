@@ -91,6 +91,8 @@ fn visit(
                         let key_lower = key.to_ascii_lowercase();
                         if workflow.bpm.is_empty() && key_lower == "bpm" {
                             workflow.bpm = scalar_text(child);
+                        } else if workflow.duration.is_empty() && key_lower == "duration" {
+                            workflow.duration = scalar_text(child);
                         } else if workflow.key.is_empty()
                             && (key_lower == "key" || key_lower == "tonality")
                         {
@@ -114,6 +116,8 @@ fn visit(
                 if ace_context {
                     if workflow.bpm.is_empty() && key_lower == "bpm" {
                         workflow.bpm = scalar_text(child);
+                    } else if workflow.duration.is_empty() && key_lower == "duration" {
+                        workflow.duration = scalar_text(child);
                     } else if workflow.key.is_empty()
                         && (key_lower == "key" || key_lower == "tonality")
                     {
@@ -206,6 +210,9 @@ fn parse_visual_node(node: &Value, workflow: &mut ComfyUIWorkflow) {
         if workflow.bpm.is_empty() {
             workflow.bpm = values.get("bpm").map(scalar_text).unwrap_or_default();
         }
+        if workflow.duration.is_empty() {
+            workflow.duration = values.get("duration").map(scalar_text).unwrap_or_default();
+        }
         if workflow.seed.is_empty() {
             workflow.seed = values.get("seed").map(scalar_text).unwrap_or_default();
         }
@@ -234,6 +241,7 @@ fn parse_visual_node(node: &Value, workflow: &mut ComfyUIWorkflow) {
             if workflow.bpm.is_empty() {
                 workflow.bpm = positional(4);
             }
+            workflow.duration = positional(5);
             if workflow.key.is_empty() {
                 workflow.key = positional(8);
             }
@@ -344,6 +352,7 @@ mod tests {
         }));
 
         assert_eq!(workflow.bpm, "128");
+        assert_eq!(workflow.duration, "");
         assert_eq!(workflow.key, "Bb minor");
         assert_eq!(workflow.model, "model.safetensors");
         assert_eq!(workflow.prompt, "bright synthwave");
@@ -486,6 +495,7 @@ mod tests {
         }));
 
         assert_eq!(workflow.bpm, "125");
+        assert_eq!(workflow.duration, "30");
         assert_eq!(workflow.key, "E minor");
         assert_eq!(workflow.seed, "32");
         assert_eq!(workflow.prompt, "prompt text");

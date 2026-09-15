@@ -470,6 +470,7 @@ pub fn update_metadata(value: &mut Value, field: &str, new_value: &str) -> bool 
                         "lyrics" => Some(1),
                         "seed" => Some(2),
                         "bpm" => Some(4),
+                        "duration" => Some(5),
                         "key" => Some(8),
                         _ => None,
                     };
@@ -632,8 +633,10 @@ mod tests {
         }]});
 
         assert!(super::update_metadata(&mut value, "seed", "777"));
+        assert!(super::update_metadata(&mut value, "duration", "45"));
         assert!(super::update_metadata(&mut value, "lyrics", "new lyrics"));
         assert_eq!(value["nodes"][0]["widgets_values"][1], json!("new lyrics"));
         assert_eq!(value["nodes"][0]["widgets_values"][2], json!(777));
+        assert_eq!(value["nodes"][0]["widgets_values"][5], json!(45));
     }
 }

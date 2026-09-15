@@ -269,6 +269,12 @@ pub fn register_workflow_callbacks(
                 };
                 for (field, value) in [
                     ("bpm", window.get_workflow_bpm().to_string()),
+                    (
+                        "duration",
+                        (window.get_workflow_duration_minutes() * 60
+                            + window.get_workflow_duration_seconds())
+                        .to_string(),
+                    ),
                     ("key", window.get_workflow_key().to_string()),
                     ("seed", window.get_workflow_seed().to_string()),
                     ("prompt", window.get_workflow_prompt().to_string()),
@@ -469,6 +475,13 @@ pub fn register_workflow_callbacks(
             if field == "seed" {
                 window.set_workflow_seed(value.to_string().into());
             }
+            let workflow_value = if field == "duration-minutes" || field == "duration-seconds" {
+                (window.get_workflow_duration_minutes() * 60
+                    + window.get_workflow_duration_seconds())
+                .to_string()
+            } else {
+                value.to_string()
+            };
             let Some(folder) = audio_folder_for_number.borrow().clone() else {
                 return;
             };
@@ -481,11 +494,16 @@ pub fn register_workflow_callbacks(
                 return;
             }
             window.set_workflow_modified(true);
-            let value = value.to_string();
             let mut edited_workflow = edited_workflow_for_number.borrow_mut();
             if let Some(workflow) = edited_workflow.as_mut() {
-                let changed = metadata::comfyui::update_metadata(workflow, field.as_str(), &value);
-                print_edited_workflow(field.as_str(), &value, changed, workflow);
+                let update_field = if field == "duration-minutes" || field == "duration-seconds" {
+                    "duration"
+                } else {
+                    field.as_str()
+                };
+                let changed =
+                    metadata::comfyui::update_metadata(workflow, update_field, &workflow_value);
+                print_edited_workflow(update_field, &workflow_value, changed, workflow);
             }
         });
     }
@@ -718,6 +736,11 @@ fn recreate_workflow(
     };
     for (field, value) in [
         ("bpm", window.get_workflow_bpm().to_string()),
+        (
+            "duration",
+            (window.get_workflow_duration_minutes() * 60 + window.get_workflow_duration_seconds())
+                .to_string(),
+        ),
         ("key", window.get_workflow_key().to_string()),
         ("seed", window.get_workflow_seed().to_string()),
         ("prompt", window.get_workflow_prompt().to_string()),
@@ -755,6 +778,11 @@ fn save_workflow(
     let mut workflow = edited_workflow.borrow().clone().unwrap_or_default();
     for (field, value) in [
         ("bpm", window.get_workflow_bpm().to_string()),
+        (
+            "duration",
+            (window.get_workflow_duration_minutes() * 60 + window.get_workflow_duration_seconds())
+                .to_string(),
+        ),
         ("key", window.get_workflow_key().to_string()),
         ("seed", window.get_workflow_seed().to_string()),
         ("prompt", window.get_workflow_prompt().to_string()),

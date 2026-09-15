@@ -48,6 +48,8 @@ pub fn scan_json_files(folder: &Path) -> Vec<(String, String)> {
 pub fn clear_workflow(window: &MainWindow) {
     window.set_workflow_bpm("".into());
     window.set_workflow_bpm_number(0);
+    window.set_workflow_duration_minutes(0);
+    window.set_workflow_duration_seconds(0);
     window.set_workflow_key("".into());
     window.set_workflow_key_index(-1);
     window.set_workflow_seed("".into());
@@ -73,6 +75,14 @@ pub fn apply_workflow(
     let bpm_number = workflow.bpm.parse().unwrap_or(0);
     window.set_workflow_bpm(workflow.bpm.into());
     window.set_workflow_bpm_number(bpm_number);
+    let duration_seconds = workflow
+        .duration
+        .parse::<f64>()
+        .unwrap_or(0.0)
+        .max(0.0)
+        .round() as i32;
+    window.set_workflow_duration_minutes(duration_seconds / 60);
+    window.set_workflow_duration_seconds(duration_seconds % 60);
     window.set_workflow_key_index(key_index(&workflow.key));
     window.set_workflow_key(workflow.key.into());
     let seed_number = workflow.seed.parse().unwrap_or(0);
