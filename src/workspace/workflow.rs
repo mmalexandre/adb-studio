@@ -105,7 +105,7 @@ pub fn apply_workflow(
                     .map(|stored| stored.custom_tag.clone())
                     .unwrap_or_default()
                     .into(),
-                filename: lora.filename.into(),
+                filename: metadata::comfyui::display_lora_name(&lora.filename).into(),
                 strength: lora.strength.into(),
             })
             .collect::<Vec<_>>(),
@@ -127,7 +127,7 @@ pub fn refresh_workflow_loras(window: &MainWindow, folder: &Path, value: &serde_
                     .map(|stored| stored.custom_tag.clone())
                     .unwrap_or_default()
                     .into(),
-                filename: lora.filename.into(),
+                filename: metadata::comfyui::display_lora_name(&lora.filename).into(),
                 strength: lora.strength.into(),
             })
             .collect::<Vec<_>>(),

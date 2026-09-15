@@ -6,6 +6,13 @@ pub use diff::compare_files;
 pub use parser::{parse_file, parse_value};
 pub use updater::{add_lora, remove_lora, reorder_loras, set_lora_strength, update_metadata};
 
+pub fn display_lora_name(filename: &str) -> String {
+    filename
+        .strip_suffix(".safetensors")
+        .unwrap_or(filename)
+        .to_string()
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ComfyUIWorkflow {
     pub bpm: String,
@@ -29,4 +36,15 @@ pub struct LoRAInfo {
 pub struct TrackDifference {
     pub label: String,
     pub value: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::display_lora_name;
+
+    #[test]
+    fn display_lora_name_strips_only_safetensors_suffix() {
+        assert_eq!(display_lora_name("voice.safetensors"), "voice");
+        assert_eq!(display_lora_name("voice.ckpt"), "voice.ckpt");
+    }
 }

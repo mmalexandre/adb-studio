@@ -1,7 +1,7 @@
 use serde_json::Value;
 use std::{fs, path::Path};
 
-use super::{parser, ComfyUIWorkflow, LoRAInfo, TrackDifference};
+use super::{display_lora_name, parser, ComfyUIWorkflow, LoRAInfo, TrackDifference};
 
 pub fn compare_files(folder: &Path, pinned_path: &Path, track_path: &Path) -> Vec<TrackDifference> {
     if pinned_path == track_path {
@@ -194,7 +194,7 @@ fn add_lora_differences(
             _ => lora.strength.clone(),
         };
         differences.push(TrackDifference {
-            label: format!("Lora {} strength: ", lora.filename),
+            label: format!("Lora {} strength: ", display_lora_name(&lora.filename)),
             value,
         });
     }
@@ -315,7 +315,7 @@ mod tests {
             .iter()
             .any(|difference| { difference.label == "Loras: " && difference.value == "2 (+1)" }));
         assert!(differences.iter().any(|difference| {
-            difference.label == "Lora voice.safetensors strength: "
+            difference.label == "Lora voice strength: "
                 && difference.value == "0.75 (+0.25)"
         }));
     }
