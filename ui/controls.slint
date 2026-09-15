@@ -1,5 +1,14 @@
 import { Button } from "std-widgets.slint";
 
+export component ModalOverlay inherits Rectangle {
+    in property <color> overlay-background: #00000080;
+    background: root.overlay-background;
+    TouchArea {
+        width: 100%;
+        height: 100%;
+    }
+}
+
 export component AppButton inherits Rectangle {
     in property <string> text;
     in property <bool> enabled: true;

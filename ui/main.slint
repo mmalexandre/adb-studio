@@ -1,6 +1,6 @@
 import { CheckBox, ComboBox, LineEdit, ListView, Palette, ScrollView, Slider, SpinBox, TextEdit, VerticalBox } from "std-widgets.slint";
 import { AudioRow, BreadcrumbRow, CommentRow, ConversionRow, TrackDifference, TreeRow, WorkflowFileRow, WorkflowLoraRow } from "./models.slint";
-import { AppButton, CompactIconButton, IconButton, MenuButton, SortIconButton, SyncIconButton, ToolButton } from "./controls.slint";
+import { AppButton, CompactIconButton, IconButton, MenuButton, ModalOverlay, SortIconButton, SyncIconButton, ToolButton } from "./controls.slint";
 import { Waveform } from "./waveform.slint";
 import { AudioList, ExplorerList } from "./views.slint";
 
@@ -1457,8 +1457,7 @@ export component MainWindow inherits Window {
             }
         }
 
-        if root.conversion-options-visible : Rectangle {
-            background: #00000080;
+        if root.conversion-options-visible : ModalOverlay {
             x: 0px;
             y: 0px;
             width: parent.width;
@@ -1510,8 +1509,7 @@ export component MainWindow inherits Window {
             }
         }
 
-        if root.conversion-progress-visible : Rectangle {
-            background: #00000080;
+        if root.conversion-progress-visible : ModalOverlay {
             x: 0px;
             y: 0px;
             width: parent.width;
@@ -1556,8 +1554,7 @@ export component MainWindow inherits Window {
             }
         }
 
-        if root.comfyui-run-visible : Rectangle {
-            background: #00000080;
+        if root.comfyui-run-visible : ModalOverlay {
             x: 0px;
             y: 0px;
             width: parent.width;
@@ -1592,8 +1589,7 @@ export component MainWindow inherits Window {
             }
         }
 
-        if root.about-visible : Rectangle {
-            background: #00000080;
+        if root.about-visible : ModalOverlay {
             x: 0px;
             y: 0px;
             width: parent.width;
@@ -1628,8 +1624,7 @@ export component MainWindow inherits Window {
             }
         }
 
-        if root.settings-visible : Rectangle {
-            background: #00000080;
+        if root.settings-visible : ModalOverlay {
             x: 0px;
             y: 0px;
             width: parent.width;
@@ -1804,8 +1799,7 @@ export component MainWindow inherits Window {
             }
         }
 
-        if root.trash-confirm-visible : Rectangle {
-            background: #00000080;
+        if root.trash-confirm-visible : ModalOverlay {
             x: 0px;
             y: 0px;
             width: parent.width;
@@ -1835,8 +1829,7 @@ export component MainWindow inherits Window {
             }
         }
 
-        if root.workflow-save-confirm-visible : Rectangle {
-            background: #00000080;
+        if root.workflow-save-confirm-visible : ModalOverlay {
             x: 0px;
             y: 0px;
             width: parent.width;
@@ -1866,8 +1859,7 @@ export component MainWindow inherits Window {
             }
         }
 
-        if root.tips-visible : Rectangle {
-            background: #00000080;
+        if root.tips-visible : ModalOverlay {
             x: 0px;
             y: 0px;
             width: parent.width;
@@ -1910,8 +1902,7 @@ export component MainWindow inherits Window {
             }
         }
 
-        if root.comfyui-sync-visible : Rectangle {
-            background: #00000080;
+        if root.comfyui-sync-visible : ModalOverlay {
             x: 0px;
             y: 0px;
             width: parent.width;
@@ -1957,7 +1948,8 @@ export component MainWindow inherits Window {
             }
         }
 
-        if root.settings-visible && root.color-picker-visible : Rectangle {
+        if root.settings-visible && root.color-picker-visible : ModalOverlay {
+            overlay-background: transparent;
             x: (parent.width - 360px) / 2;
             y: (parent.height - 300px) / 2;
             width: 360px;
@@ -2016,8 +2008,7 @@ export component MainWindow inherits Window {
             }
         }
 
-        if root.comment-editor-visible : Rectangle {
-            background: #00000080;
+        if root.comment-editor-visible : ModalOverlay {
             x: 0px;
             y: 0px;
             width: parent.width;
@@ -2059,8 +2050,7 @@ export component MainWindow inherits Window {
             }
         }
 
-        if root.lora-editor-visible : Rectangle {
-            background: #00000080;
+        if root.lora-editor-visible : ModalOverlay {
             x: 0px;
             y: 0px;
             width: parent.width;
@@ -2089,7 +2079,8 @@ export component MainWindow inherits Window {
             }
         }
 
-        if root.splash-visible : Rectangle {
+        if root.splash-visible : ModalOverlay {
+            overlay-background: transparent;
             x: 0px;
             y: 0px;
             width: parent.width;
