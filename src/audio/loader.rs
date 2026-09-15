@@ -159,22 +159,10 @@ fn generate(state: Arc<Mutex<State>>) {
             let Some((cache_key, peaks)) = result else {
                 continue;
             };
-            let mut index_data = metadata::load_index(&folder);
+            let mut audio_metadata = metadata::load_audio_metadata(&folder, &path);
+            audio_metadata.waveform_cache_key = cache_key;
+            metadata::save_audio_metadata(&folder, &path, &audio_metadata);
             let path_string = path.to_string_lossy().into_owned();
-            if let Some(stored) = index_data
-                .audio_files
-                .iter_mut()
-                .find(|item| item.file_path == path_string)
-            {
-                stored.waveform_cache_key = cache_key;
-            } else {
-                index_data.audio_files.push(metadata::AudioFileMetadata {
-                    file_path: path_string.clone(),
-                    waveform_cache_key: cache_key,
-                    ..Default::default()
-                });
-            }
-            metadata::save_index(&folder, &index_data);
             let mut state_ref = state.lock().unwrap();
             if state_ref.generation != generation {
                 continue;

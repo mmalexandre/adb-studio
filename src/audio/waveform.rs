@@ -16,7 +16,7 @@ static CACHE_TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[derive(serde::Deserialize, serde::Serialize)]
 struct CacheEntry {
-    source_path: String,
+    checksum: String,
     peaks: Vec<f32>,
 }
 
@@ -41,12 +41,13 @@ pub fn load_or_generate_cancelable(
     workspace: &Path,
     should_cancel: impl Fn() -> bool,
 ) -> Option<(String, Vec<f32>)> {
-    let source_path = relative_source_path(path, workspace);
-    let cache_key = cache_key(path, &source_path);
+    let checksum = crate::metadata::checksum_for_file(workspace, path)
+        .unwrap_or_else(|_| path.to_string_lossy().into_owned());
+    let cache_key = cache_key(&checksum);
     let cache_path = cache_path(&cache_key, workspace);
     if let Ok(contents) = fs::read_to_string(&cache_path) {
         if let Ok(entry) = serde_json::from_str::<CacheEntry>(&contents) {
-            if entry.source_path == source_path {
+            if entry.checksum == checksum {
                 return Some((cache_key, entry.peaks));
             }
         }
@@ -59,7 +60,7 @@ pub fn load_or_generate_cancelable(
     if should_cancel() {
         return None;
     }
-    write_cache(&cache_path, &source_path, &peaks);
+    write_cache(&cache_path, &checksum, &peaks);
     Some((cache_key, peaks))
 }
 
@@ -70,7 +71,7 @@ fn cache_path(cache_key: &str, workspace: &Path) -> std::path::PathBuf {
         .join(format!("{cache_key}.json"))
 }
 
-fn write_cache(path: &Path, source_path: &str, peaks: &[f32]) {
+fn write_cache(path: &Path, checksum: &str, peaks: &[f32]) {
     let Some(parent) = path.parent() else {
         return;
     };
@@ -78,7 +79,7 @@ fn write_cache(path: &Path, source_path: &str, peaks: &[f32]) {
         return;
     }
     let entry = CacheEntry {
-        source_path: source_path.to_owned(),
+        checksum: checksum.to_owned(),
         peaks: peaks.to_vec(),
     };
     if let Ok(contents) = serde_json::to_string(&entry) {
@@ -95,23 +96,11 @@ fn write_cache(path: &Path, source_path: &str, peaks: &[f32]) {
     }
 }
 
-fn relative_source_path(path: &Path, workspace: &Path) -> String {
-    path.strip_prefix(workspace)
-        .unwrap_or(path)
-        .to_string_lossy()
-        .replace('\\', "/")
-}
-
-fn cache_key(path: &Path, source_path: &str) -> String {
+fn cache_key(checksum: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(env!("CARGO_PKG_VERSION").as_bytes());
     hasher.update(PEAK_COUNT.to_le_bytes());
-    hasher.update(source_path.as_bytes());
-    if let Ok(contents) = fs::read(path) {
-        hasher.update(contents);
-    } else {
-        hasher.update(path.to_string_lossy().as_bytes());
-    }
+    hasher.update(checksum.as_bytes());
     format!("{:x}", hasher.finalize())
 }
 

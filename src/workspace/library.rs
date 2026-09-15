@@ -88,7 +88,6 @@ fn refresh_audio_with_changes(
         .clone()
         .and_then(|workspace| preferences::pinned_track(&workspace, &folder));
     let workspace = audio_folder.borrow().clone().unwrap_or_default();
-    let index = metadata::load_index(&folder);
     let sort_order = file_system::SortOrder::from_i32(window.get_sort_order());
     let mut entries = file_system::read_dir_sorted(&folder, sort_order);
     pinned_track_sort::sort_tracks(&folder, pinned_path.as_deref(), sort_order, &mut entries);
@@ -113,16 +112,11 @@ fn refresh_audio_with_changes(
             .map(|time| time.as_secs())
             .unwrap_or_default();
         let path_string = entry.path.to_string_lossy().into_owned();
-        let stored_position = index
-            .audio_files
-            .iter()
-            .find(|item| item.file_path == path_string);
         let audio_metadata = metadata::load_audio_metadata(&workspace, &entry.path);
         let comments = comment_rows(&audio_metadata);
-        let progress = stored_position
-            .as_ref()
-            .filter(|item| item.duration_seconds > 0.0)
-            .map(|item| (item.last_position_seconds / item.duration_seconds).clamp(0.0, 1.0))
+        let progress = (audio_metadata.duration_seconds > 0.0)
+            .then_some(audio_metadata.last_position_seconds / audio_metadata.duration_seconds)
+            .map(|value| value.clamp(0.0, 1.0))
             .unwrap_or(0.0);
         rows.push(AudioRow {
             path: path_string.into(),

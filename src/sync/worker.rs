@@ -1,13 +1,10 @@
 use std::{
     collections::HashSet,
     fs, io,
-    io::Read,
     path::{Path, PathBuf},
     sync::mpsc::{self, Receiver, Sender},
     time::Duration,
 };
-
-use sha2::{Digest, Sha256};
 
 use crate::metadata;
 
@@ -371,17 +368,7 @@ fn local_checksums(workspace: &Path) -> Result<HashSet<String>, SyncError> {
             if !file_type.is_file() {
                 continue;
             }
-            let mut file = fs::File::open(&path).map_err(SyncError::Io)?;
-            let mut digest = Sha256::new();
-            let mut buffer = [0u8; 1024 * 1024];
-            loop {
-                let bytes_read = file.read(&mut buffer).map_err(SyncError::Io)?;
-                if bytes_read == 0 {
-                    break;
-                }
-                digest.update(&buffer[..bytes_read]);
-            }
-            checksums.insert(format!("{:x}", digest.finalize()));
+            checksums.insert(metadata::checksum_for_file(workspace, &path).map_err(SyncError::Io)?);
         }
     }
     Ok(checksums)

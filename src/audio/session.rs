@@ -40,24 +40,10 @@ pub fn save_playback_position(folder: &Path, engine: &PlaybackEngine) {
     let Some(path) = engine.path() else {
         return;
     };
-    let path_string = path.to_string_lossy().into_owned();
-    let mut index = metadata::load_index(folder);
-    if let Some(stored) = index
-        .audio_files
-        .iter_mut()
-        .find(|item| item.file_path == path_string)
-    {
-        stored.last_position_seconds = engine.position().as_secs_f32();
-        stored.duration_seconds = engine.duration().as_secs_f32();
-    } else {
-        index.audio_files.push(metadata::AudioFileMetadata {
-            file_path: path_string,
-            last_position_seconds: engine.position().as_secs_f32(),
-            duration_seconds: engine.duration().as_secs_f32(),
-            ..Default::default()
-        });
-    }
-    metadata::save_index(folder, &index);
+    let mut stored = metadata::load_audio_metadata(folder, path);
+    stored.last_position_seconds = engine.position().as_secs_f32();
+    stored.duration_seconds = engine.duration().as_secs_f32();
+    metadata::save_audio_metadata(folder, path, &stored);
 }
 
 pub fn request_audio_generation(

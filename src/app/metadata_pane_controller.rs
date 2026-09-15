@@ -95,24 +95,8 @@ pub fn register_metadata_pane_callbacks(
             };
             let path_string = path.to_string();
             let rating = rating.clamp(0, 5) as u8;
-            let mut index = metadata::load_index(&folder);
-            if let Some(file) = index
-                .audio_files
-                .iter_mut()
-                .find(|item| item.file_path == path_string)
-            {
-                file.rating = rating;
-            } else {
-                index.audio_files.push(metadata::AudioFileMetadata {
-                    file_path: path_string.clone(),
-                    rating,
-                    ..Default::default()
-                });
-            }
-            metadata::save_index(&folder, &index);
             let audio_path = PathBuf::from(path.as_str());
             let mut file = metadata::load_audio_metadata(&folder, &audio_path);
-            file.file_path = path_string.clone();
             file.rating = rating;
             metadata::save_audio_metadata(&folder, &audio_path, &file);
             if let Some(model) = audio_model.borrow().clone() {

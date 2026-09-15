@@ -1,10 +1,26 @@
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::{
     fs,
+    io::{self, Read},
     path::{Path, PathBuf},
+    time::UNIX_EPOCH,
 };
 
 pub mod comfyui;
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+struct ChecksumCache {
+    files: Vec<ChecksumCacheEntry>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct ChecksumCacheEntry {
+    path: String,
+    size: u64,
+    modified_nanos: u128,
+    checksum: String,
+}
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct AudioComment {
@@ -28,6 +44,8 @@ impl AudioComment {
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct AudioFileMetadata {
+    #[serde(default)]
+    pub checksum: String,
     #[serde(default)]
     pub original_file_name: String,
     #[serde(default)]
@@ -71,6 +89,61 @@ pub fn load_index(folder: &Path) -> MetadataIndex {
         .ok()
         .and_then(|contents| serde_json::from_str(&contents).ok())
         .unwrap_or_default()
+}
+
+pub fn checksum_for_file(folder: &Path, path: &Path) -> io::Result<String> {
+    let relative_path = path
+        .strip_prefix(folder)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "file is outside workspace"))?
+        .to_string_lossy()
+        .replace('\\', "/");
+    let file_metadata = fs::metadata(path)?;
+    let modified_nanos = file_metadata
+        .modified()?
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| io::Error::other(format!("file modification time is invalid: {error}")))?
+        .as_nanos();
+    let cache_path = folder.join(".adbstudio").join("checksums.json");
+    let mut cache = fs::read_to_string(&cache_path)
+        .ok()
+        .and_then(|contents| serde_json::from_str::<ChecksumCache>(&contents).ok())
+        .unwrap_or_default();
+    if let Some(entry) = cache.files.iter().find(|entry| {
+        entry.path == relative_path
+            && entry.size == file_metadata.len()
+            && entry.modified_nanos == modified_nanos
+    }) {
+        return Ok(entry.checksum.clone());
+    }
+
+    let mut file = fs::File::open(path)?;
+    let mut digest = Sha256::new();
+    let mut buffer = [0u8; 1024 * 1024];
+    loop {
+        let bytes_read = file.read(&mut buffer)?;
+        if bytes_read == 0 {
+            break;
+        }
+        digest.update(&buffer[..bytes_read]);
+    }
+    let checksum = format!("{:x}", digest.finalize());
+    cache.files.retain(|entry| entry.path != relative_path);
+    cache.files.push(ChecksumCacheEntry {
+        path: relative_path,
+        size: file_metadata.len(),
+        modified_nanos,
+        checksum: checksum.clone(),
+    });
+    save_checksum_cache(folder, &cache)?;
+    Ok(checksum)
+}
+
+fn save_checksum_cache(folder: &Path, cache: &ChecksumCache) -> io::Result<()> {
+    let directory = folder.join(".adbstudio");
+    fs::create_dir_all(&directory)?;
+    let contents = serde_json::to_string_pretty(cache)
+        .map_err(|error| io::Error::other(format!("serialize checksum cache: {error}")))?;
+    fs::write(directory.join("checksums.json"), contents)
 }
 
 pub fn workflow_path(folder: &Path, audio_path: &Path) -> Option<PathBuf> {
@@ -121,18 +194,44 @@ pub fn comment_path(folder: &Path, audio_path: &Path) -> Option<PathBuf> {
 }
 
 pub fn load_audio_metadata(folder: &Path, audio_path: &Path) -> AudioFileMetadata {
-    let metadata = comment_path(folder, audio_path)
+    let checksum = checksum_for_file(folder, audio_path).unwrap_or_default();
+    let mut index = load_index(folder);
+    let sidecar_metadata = comment_path(folder, audio_path)
         .and_then(|path| fs::read_to_string(path).ok())
-        .and_then(|contents| serde_json::from_str(&contents).ok());
-    metadata
+        .and_then(|contents| serde_json::from_str::<AudioFileMetadata>(&contents).ok());
+    let metadata = sidecar_metadata
+        .or_else(|| {
+            index
+                .audio_files
+                .iter()
+                .find(|item| !checksum.is_empty() && item.checksum == checksum)
+                .cloned()
+        })
         .or_else(|| {
             let path_string = audio_path.to_string_lossy();
-            load_index(folder)
+            index
                 .audio_files
-                .into_iter()
+                .iter()
                 .find(|item| item.file_path == path_string)
+                .cloned()
         })
-        .unwrap_or_default()
+        .unwrap_or_default();
+    if !checksum.is_empty() && metadata.checksum != checksum {
+        let mut metadata = metadata;
+        metadata.checksum = checksum;
+        metadata.file_path = audio_path.to_string_lossy().into_owned();
+        if let Some(stored) = index.audio_files.iter_mut().find(|item| {
+            (!metadata.checksum.is_empty() && item.checksum == metadata.checksum)
+                || item.file_path == metadata.file_path
+        }) {
+            *stored = metadata.clone();
+        } else {
+            index.audio_files.push(metadata.clone());
+        }
+        save_index(folder, &index);
+        return metadata;
+    }
+    metadata
 }
 
 pub fn save_audio_metadata(folder: &Path, audio_path: &Path, metadata: &AudioFileMetadata) {
@@ -144,6 +243,25 @@ pub fn save_audio_metadata_checked(
     audio_path: &Path,
     metadata: &AudioFileMetadata,
 ) -> std::io::Result<()> {
+    let mut metadata = metadata.clone();
+    if metadata.checksum.is_empty() {
+        metadata.checksum = checksum_for_file(folder, audio_path).unwrap_or_default();
+    }
+    metadata.file_path = audio_path.to_string_lossy().into_owned();
+    metadata.current_file_name = audio_path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let mut index = load_index(folder);
+    if let Some(stored) = index.audio_files.iter_mut().find(|item| {
+        (!metadata.checksum.is_empty() && item.checksum == metadata.checksum)
+            || item.file_path == metadata.file_path
+    }) {
+        *stored = metadata.clone();
+    } else {
+        index.audio_files.push(metadata.clone());
+    }
+    save_index(folder, &index);
     let Some(path) = comment_path(folder, audio_path) else {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
@@ -157,7 +275,7 @@ pub fn save_audio_metadata_checked(
         ));
     };
     fs::create_dir_all(parent)?;
-    let contents = serde_json::to_string_pretty(metadata)
+    let contents = serde_json::to_string_pretty(&metadata)
         .map_err(|error| std::io::Error::other(format!("serialize metadata: {error}")))?;
     fs::write(path, contents)
 }
@@ -218,6 +336,7 @@ pub fn save_index(folder: &Path, index: &MetadataIndex) {
 }
 
 pub fn record_downloaded_audio(folder: &Path, original_file_name: &str, current_path: &Path) {
+    let checksum = checksum_for_file(folder, current_path).unwrap_or_default();
     let mut index = load_index(folder);
     let current_path_string = current_path.to_string_lossy().into_owned();
     let current_file_name = current_path
@@ -225,15 +344,18 @@ pub fn record_downloaded_audio(folder: &Path, original_file_name: &str, current_
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_default();
     if let Some(metadata) = index.audio_files.iter_mut().find(|metadata| {
-        metadata.file_path == current_path_string
+        (!checksum.is_empty() && metadata.checksum == checksum)
+            || metadata.file_path == current_path_string
             || (metadata.current_file_name == current_file_name
                 && metadata.original_file_name == original_file_name)
     }) {
+        metadata.checksum = checksum;
         metadata.original_file_name = original_file_name.to_string();
         metadata.current_file_name = current_file_name;
         metadata.file_path = current_path_string;
     } else {
         index.audio_files.push(AudioFileMetadata {
+            checksum,
             original_file_name: original_file_name.to_string(),
             current_file_name,
             file_path: current_path_string,
@@ -351,7 +473,7 @@ mod tests {
     use std::fs;
 
     use super::{
-        comment_path, has_downloaded_audio, load_audio_metadata, load_index,
+        checksum_for_file, comment_path, has_downloaded_audio, load_audio_metadata, load_index,
         record_downloaded_audio, rename_associated_workflow, rename_audio_metadata,
         save_audio_metadata, save_index, AudioComment, AudioFileMetadata, MetadataIndex,
     };
@@ -463,6 +585,53 @@ mod tests {
             load_audio_metadata(&folder, &audio_path).user_comments,
             metadata.user_comments
         );
+        let _ = fs::remove_dir_all(folder);
+    }
+
+    #[test]
+    fn reuses_checksum_for_unchanged_file() {
+        let folder = test_folder("checksum-cache");
+        let audio_path = folder.join("track.wav");
+        fs::write(&audio_path, b"audio").unwrap();
+
+        let first = checksum_for_file(&folder, &audio_path).unwrap();
+        let cache_path = folder.join(".adbstudio/checksums.json");
+        let cached = fs::read_to_string(&cache_path).unwrap();
+        fs::write(&cache_path, cached.replace(&first, "cached-checksum")).unwrap();
+
+        assert_eq!(
+            checksum_for_file(&folder, &audio_path).unwrap(),
+            "cached-checksum"
+        );
+        let _ = fs::remove_dir_all(folder);
+    }
+
+    #[test]
+    fn moved_file_keeps_checksum_linked_metadata() {
+        let folder = test_folder("checksum-move");
+        let source = folder.join("old.wav");
+        let destination = folder.join("new.wav");
+        fs::write(&source, b"audio").unwrap();
+        let mut metadata = AudioFileMetadata {
+            comments: vec![AudioComment {
+                start_seconds: 1.0,
+                end_seconds: 2.0,
+                text: "keep me".to_string(),
+            }],
+            rating: 4,
+            ..Default::default()
+        };
+        metadata.file_path = source.to_string_lossy().into_owned();
+        save_audio_metadata(&folder, &source, &metadata);
+        fs::rename(&source, &destination).unwrap();
+
+        let moved = load_audio_metadata(&folder, &destination);
+        assert_eq!(
+            moved.checksum,
+            checksum_for_file(&folder, &destination).unwrap()
+        );
+        assert_eq!(moved.rating, 4);
+        assert_eq!(moved.comments, metadata.comments);
         let _ = fs::remove_dir_all(folder);
     }
 
