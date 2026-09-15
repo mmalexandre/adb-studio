@@ -379,6 +379,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 is_loading: false,
                                 comments: row.comments,
                                 differences: row.differences,
+                                similarity: row.similarity,
                                 rating: row.rating,
                                 is_pinned: row.is_pinned,
                                 is_selected: row.is_selected,

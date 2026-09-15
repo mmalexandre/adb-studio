@@ -115,6 +115,7 @@ pub fn register_metadata_pane_callbacks(
                                 is_loading: row.is_loading,
                                 comments: row.comments,
                                 differences: row.differences,
+                                similarity: row.similarity,
                                 rating: rating as i32,
                                 is_pinned: row.is_pinned,
                                 is_selected: row.is_selected,

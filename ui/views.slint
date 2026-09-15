@@ -15,6 +15,7 @@ component AudioRowView inherits Rectangle {
     in property <bool> is-loading;
     in property <[CommentRow]> comments;
     in property <[TrackDifference]> differences;
+    in property <float> similarity: -1.0;
     in property <int> rating: 0;
     in property <bool> is-pinned;
     property <int> hovered-rating: -1;
@@ -206,7 +207,7 @@ component AudioRowView inherits Rectangle {
         HorizontalLayout {
             height: 58px;
             Waveform {
-                width: parent.width - 292px;
+                width: parent.width - 330px;
                 light-theme: root.light-theme;
                 comment-background-color: root.comment-background-color;
                 comment-text-color: root.comment-text-color;
@@ -224,7 +225,26 @@ component AudioRowView inherits Rectangle {
                 comment-edit-requested(start, end, text) => { root.comment-edit-requested(start, end, text); }
                 comment-range-moved(old-start, old-end, start, end, text) => { root.comment-range-moved(old-start, old-end, start, end, text); }
             }
-            Rectangle { width: 292px; }
+            Rectangle {
+                width: 330px;
+                HorizontalLayout {
+                    alignment: start;
+                    if root.similarity >= 0.0 : Rectangle {
+                        width: 18px;
+                        height: 55px;
+                        y: -24px;
+                        for bar-index in 10 : Rectangle {
+                            x: 0px;
+                            y: (9 - bar-index) * 4px;
+                            width: 18px;
+                            height: 3px;
+                            background: bar-index < (root.similarity * 10.0).round()
+                                ? #000000
+                                : #9ca3af;
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -269,6 +289,7 @@ export component AudioList inherits ListView {
         peaks: row.peaks;
         comments: row.comments;
         differences: row.differences;
+        similarity: row.similarity;
         rating: row.rating;
         is-pinned: row.is-pinned;
         is-selected: row.is-selected;

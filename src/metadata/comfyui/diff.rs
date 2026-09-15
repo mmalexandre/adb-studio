@@ -3,6 +3,9 @@ use std::path::Path;
 use super::{parser, ComfyUIWorkflow, LoRAInfo, TrackDifference};
 
 pub fn compare_files(folder: &Path, pinned_path: &Path, track_path: &Path) -> Vec<TrackDifference> {
+    if pinned_path == track_path {
+        return Vec::new();
+    }
     let Some(track_workflow_path) = crate::metadata::workflow_path(folder, track_path) else {
         return vec![TrackDifference {
             label: String::new(),
@@ -15,9 +18,6 @@ pub fn compare_files(folder: &Path, pinned_path: &Path, track_path: &Path) -> Ve
             value: "missing workflow file".to_string(),
         }];
     };
-    if pinned_path == track_path {
-        return Vec::new();
-    }
     let Some(pinned_workflow_path) = crate::metadata::workflow_path(folder, pinned_path) else {
         return Vec::new();
     };

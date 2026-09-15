@@ -88,6 +88,35 @@ pub fn sort_tracks(
     entries.sort_by_key(|entry| order.iter().position(|path| path == &entry.path));
 }
 
+pub fn similarity_from_differences(
+    differences: &[crate::metadata::comfyui::TrackDifference],
+) -> f32 {
+    if differences.is_empty() {
+        return 1.0;
+    }
+    if differences
+        .iter()
+        .any(|difference| difference.value == "missing workflow file")
+    {
+        return 0.0;
+    }
+    if differences
+        .iter()
+        .any(|difference| difference.label.starts_with("Lora") || difference.label == "Loras: ")
+    {
+        return 0.7;
+    }
+    if differences.iter().any(|difference| {
+        matches!(
+            difference.label.as_str(),
+            "BPM: " | "Seed: " | "Key: "
+        )
+    }) {
+        return 0.4;
+    }
+    0.1
+}
+
 fn compare_existing(left: &DirEntryInfo, right: &DirEntryInfo, sort_order: SortOrder) -> Ordering {
     right.is_dir.cmp(&left.is_dir).then_with(|| {
         if left.is_dir {
@@ -243,7 +272,8 @@ fn edit_distance(left: &str, right: &str) -> usize {
 mod tests {
     use std::{fs, path::PathBuf};
 
-    use super::{distance_between, sort_tracks, ComfyUIWorkflow, LoRAInfo};
+    use super::{distance_between, similarity_from_differences, sort_tracks, ComfyUIWorkflow, LoRAInfo};
+    use crate::metadata::comfyui::TrackDifference;
     use crate::workspace::file_system::{DirEntryInfo, FileKind, SortOrder};
 
     fn workflow() -> ComfyUIWorkflow {
@@ -277,6 +307,16 @@ mod tests {
         let mut content = workflow();
         content.prompt = "changed".into();
         assert!(distance_between(&pinned, &generation) < distance_between(&pinned, &content));
+    }
+
+    #[test]
+    fn bpm_difference_gets_generation_similarity() {
+        let differences = vec![TrackDifference {
+            label: "BPM: ".into(),
+            value: "136 (-16)".into(),
+        }];
+
+        assert_eq!(similarity_from_differences(&differences), 0.4);
     }
 
     #[test]

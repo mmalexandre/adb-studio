@@ -83,6 +83,11 @@ fn refresh_audio_with_changes(
                 .collect::<HashMap<_, _>>()
         })
         .unwrap_or_default();
+    let generated_paths = audio_load_state
+        .lock()
+        .unwrap()
+        .generated
+        .clone();
     let pinned_path = audio_folder
         .borrow()
         .clone()
@@ -92,18 +97,12 @@ fn refresh_audio_with_changes(
     let mut entries = file_system::read_dir_sorted(&folder, sort_order);
     pinned_track_sort::sort_tracks(&folder, pinned_path.as_deref(), sort_order, &mut entries);
     let mut rows = Vec::new();
+    let mut preserved_waveform_paths = HashSet::new();
     for entry in entries {
         if entry.kind != file_system::FileKind::Audio
             || !file_system::matches_audio_filter(&entry.name, &filter)
         {
             continue;
-        }
-        let should_reload = reload_all || changed_audio_paths.contains(&entry.path);
-        if !should_reload {
-            if let Some(row) = existing_rows.get(&entry.path) {
-                rows.push(row.clone());
-                continue;
-            }
         }
         let modified_date = fs::metadata(&entry.path)
             .and_then(|metadata| metadata.modified())
@@ -111,6 +110,19 @@ fn refresh_audio_with_changes(
             .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
             .map(|time| time.as_secs())
             .unwrap_or_default();
+        let existing_row = existing_rows.get(&entry.path);
+        let can_reuse_waveform = existing_row.is_some_and(|row| {
+            generated_paths.contains(&entry.path)
+                && row.modified_date == modified_date.to_string()
+        });
+        let should_reload = changed_audio_paths.contains(&entry.path)
+            || (reload_all && !can_reuse_waveform);
+        if !should_reload && !reload_all {
+            if let Some(row) = existing_rows.get(&entry.path) {
+                rows.push(row.clone());
+                continue;
+            }
+        }
         let path_string = entry.path.to_string_lossy().into_owned();
         let audio_metadata = metadata::load_audio_metadata(&workspace, &entry.path);
         let comments = comment_rows(&audio_metadata);
@@ -118,14 +130,43 @@ fn refresh_audio_with_changes(
             .then_some(audio_metadata.last_position_seconds / audio_metadata.duration_seconds)
             .map(|value| value.clamp(0.0, 1.0))
             .unwrap_or(0.0);
+        let differences = pinned_path
+            .as_deref()
+            .map(|pinned| metadata::comfyui::compare_files(&folder, pinned, &entry.path))
+            .unwrap_or_default();
+        let similarity = pinned_path
+            .as_deref()
+            .map(|_| pinned_track_sort::similarity_from_differences(&differences))
+            .unwrap_or(-1.0);
         rows.push(AudioRow {
             path: path_string.into(),
             name: entry.name.into(),
             modified_date: modified_date.to_string().into(),
-            peaks: ModelRc::new(VecModel::from(vec![0.0; waveform::DISPLAY_PEAK_COUNT])),
+            peaks: if can_reuse_waveform {
+                preserved_waveform_paths.insert(entry.path.clone());
+                existing_row
+                    .map(|row| row.peaks.clone())
+                    .unwrap_or_else(|| {
+                        ModelRc::new(VecModel::from(vec![
+                            0.0;
+                            waveform::DISPLAY_PEAK_COUNT
+                        ]))
+                    })
+            } else {
+                ModelRc::new(VecModel::from(vec![0.0; waveform::DISPLAY_PEAK_COUNT]))
+            },
             is_loading: false,
             comments,
-            differences: track_differences(&workspace, pinned_path.as_deref(), &entry.path),
+            differences: ModelRc::new(VecModel::from(
+                differences
+                    .into_iter()
+                    .map(|difference| TrackDifference {
+                        label: difference.label.into(),
+                        value: difference.value.into(),
+                    })
+                    .collect::<Vec<_>>(),
+            )),
+            similarity,
             rating: audio_metadata.normalized_rating() as i32,
             is_pinned: pinned_path.as_deref() == Some(entry.path.as_path()),
             is_active: false,
@@ -170,7 +211,9 @@ fn refresh_audio_with_changes(
         state.folder = audio_folder.borrow().clone().unwrap_or_default();
         state.paths = paths;
         if reload_all {
-            state.generated.clear();
+            state
+                .generated
+                .retain(|path| preserved_waveform_paths.contains(path));
             state.loading.clear();
         } else {
             let current_paths = state.paths.iter().cloned().collect::<HashSet<_>>();
@@ -192,19 +235,3 @@ fn refresh_audio_with_changes(
     loader::request(audio_load_state, 0, 1);
 }
 
-pub fn track_differences(
-    folder: &Path,
-    pinned_path: Option<&Path>,
-    track_path: &Path,
-) -> ModelRc<TrackDifference> {
-    let differences = pinned_path
-        .map(|pinned_path| metadata::comfyui::compare_files(folder, pinned_path, track_path))
-        .unwrap_or_default()
-        .into_iter()
-        .map(|difference| TrackDifference {
-            label: difference.label.into(),
-            value: difference.value.into(),
-        })
-        .collect::<Vec<_>>();
-    ModelRc::new(VecModel::from(differences))
-}
