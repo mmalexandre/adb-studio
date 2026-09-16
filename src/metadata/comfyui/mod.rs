@@ -3,8 +3,10 @@ mod parser;
 mod updater;
 
 pub use diff::compare_files;
-pub use parser::{parse_file, parse_value};
+pub use parser::{parse_file_cached, parse_value};
 pub use updater::{add_lora, remove_lora, reorder_loras, set_lora_strength, update_metadata};
+
+use serde::{Deserialize, Serialize};
 
 pub fn display_lora_name(filename: &str) -> String {
     filename
@@ -13,7 +15,7 @@ pub fn display_lora_name(filename: &str) -> String {
         .to_string()
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct ComfyUIWorkflow {
     pub bpm: String,
     pub duration: String,
@@ -25,7 +27,7 @@ pub struct ComfyUIWorkflow {
     pub loras: Vec<LoRAInfo>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct LoRAInfo {
     pub node_id: String,
     pub filename: String,

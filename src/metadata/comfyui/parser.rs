@@ -1,13 +1,97 @@
 use serde_json::Value;
-use std::{fs, path::Path};
+use sha2::{Digest, Sha256};
+use std::{
+    collections::HashMap,
+    fs,
+    path::{Path, PathBuf},
+    sync::{Mutex, OnceLock},
+    time::UNIX_EPOCH,
+};
 
 use super::{ComfyUIWorkflow, LoRAInfo};
 
-pub fn parse_file(path: &Path) -> Result<ComfyUIWorkflow, String> {
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+struct CachedWorkflow {
+    relative_path: String,
+    size: u64,
+    modified_nanos: u128,
+    json_hash: String,
+    workflow: ComfyUIWorkflow,
+}
+
+static MEMORY_CACHE: OnceLock<Mutex<HashMap<PathBuf, CachedWorkflow>>> = OnceLock::new();
+
+pub fn parse_file_cached(folder: &Path, path: &Path) -> Result<ComfyUIWorkflow, String> {
+    parse_file_cached_with_hash(folder, path).map(|(workflow, _)| workflow)
+}
+
+pub fn parse_file_cached_with_hash(
+    folder: &Path,
+    path: &Path,
+) -> Result<(ComfyUIWorkflow, String), String> {
+    let relative_path = path
+        .strip_prefix(folder)
+        .map_err(|error| format!("workflow path is outside workspace: {error}"))?
+        .to_string_lossy()
+        .replace('\\', "/");
+    let file_metadata = fs::metadata(path).map_err(|error| error.to_string())?;
+    let modified_nanos = file_metadata
+        .modified()
+        .map_err(|error| error.to_string())?
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| error.to_string())?
+        .as_nanos();
+    let path_key = path.to_path_buf();
+
+    if let Some(cached) = memory_cache()
+        .lock()
+        .expect("workflow cache mutex poisoned")
+        .get(&path_key)
+        .filter(|cached| {
+            cached.relative_path == relative_path
+                && cached.size == file_metadata.len()
+                && cached.modified_nanos == modified_nanos
+        })
+        .cloned()
+    {
+        return Ok((cached.workflow, cached.json_hash));
+    }
+
+    let cache_path = cache_path(folder, &relative_path);
+    if let Some(cached) = load_cache_entry(&cache_path).filter(|cached| {
+        cached.relative_path == relative_path
+            && cached.size == file_metadata.len()
+            && cached.modified_nanos == modified_nanos
+    }) {
+        memory_cache()
+            .lock()
+            .expect("workflow cache mutex poisoned")
+            .insert(path_key, cached.clone());
+        return Ok((cached.workflow, cached.json_hash));
+    }
+
+    let (workflow, json_hash) = parse_file_with_hash(path)?;
+    let cached = CachedWorkflow {
+        relative_path,
+        size: file_metadata.len(),
+        modified_nanos,
+        json_hash: json_hash.clone(),
+        workflow: workflow.clone(),
+    };
+    memory_cache()
+        .lock()
+        .expect("workflow cache mutex poisoned")
+        .insert(path_key, cached.clone());
+    save_cache_entry(&cache_path, &cached);
+    Ok((workflow, json_hash))
+}
+
+fn parse_file_with_hash(path: &Path) -> Result<(ComfyUIWorkflow, String), String> {
     eprintln!("[metadata] parsing workflow: {}", path.display());
     let contents = fs::read_to_string(path).map_err(|error| error.to_string())?;
     let value: Value = serde_json::from_str(&contents).map_err(|error| error.to_string())?;
     let workflow = parse_value(&value);
+    let json_hash = canonical_json_hash(&value);
     eprintln!(
         "[metadata] parsed workflow: bpm={:?}, key={:?}, prompt_chars={}, lyrics_chars={}, loras={}",
         workflow.bpm,
@@ -16,7 +100,46 @@ pub fn parse_file(path: &Path) -> Result<ComfyUIWorkflow, String> {
         workflow.lyrics.chars().count(),
         workflow.loras.len()
     );
-    Ok(workflow)
+    Ok((workflow, json_hash))
+}
+
+fn memory_cache() -> &'static Mutex<HashMap<PathBuf, CachedWorkflow>> {
+    MEMORY_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn cache_path(folder: &Path, relative_path: &str) -> PathBuf {
+    let mut digest = Sha256::new();
+    digest.update(relative_path.as_bytes());
+    folder
+        .join(".adbstudio")
+        .join("workflow-cache")
+        .join(format!("{:x}.json", digest.finalize()))
+}
+
+fn load_cache_entry(path: &Path) -> Option<CachedWorkflow> {
+    fs::read_to_string(path)
+        .ok()
+        .and_then(|contents| serde_json::from_str(&contents).ok())
+}
+
+fn save_cache_entry(path: &Path, entry: &CachedWorkflow) {
+    let Some(directory) = path.parent() else {
+        return;
+    };
+    if fs::create_dir_all(directory).is_err() {
+        return;
+    }
+    let Ok(contents) = serde_json::to_string(entry) else {
+        return;
+    };
+    let _ = fs::write(path, contents);
+}
+
+fn canonical_json_hash(value: &Value) -> String {
+    let canonical = serde_json::to_vec(value).expect("JSON values should be serializable");
+    let mut digest = Sha256::new();
+    digest.update(canonical);
+    format!("{:x}", digest.finalize())
 }
 
 pub fn parse_value(value: &Value) -> ComfyUIWorkflow {
@@ -333,9 +456,34 @@ fn scalar_text(value: &Value) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_value;
+    use super::{memory_cache, parse_file_cached_with_hash, parse_value};
     use crate::metadata::comfyui::LoRAInfo;
     use serde_json::json;
+    use std::{
+        fs,
+        path::PathBuf,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    struct TempDirectory(PathBuf);
+
+    impl TempDirectory {
+        fn new() -> Self {
+            let suffix = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let path = std::env::temp_dir().join(format!("adb-studio-workflow-cache-{suffix}"));
+            fs::create_dir_all(&path).unwrap();
+            Self(path)
+        }
+    }
+
+    impl Drop for TempDirectory {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
 
     #[test]
     fn extracts_ace_step_metadata_and_loras() {
@@ -500,5 +648,35 @@ mod tests {
         assert_eq!(workflow.seed, "32");
         assert_eq!(workflow.prompt, "prompt text");
         assert_eq!(workflow.lyrics, "[Verse] lyrics");
+    }
+
+    #[test]
+    fn cached_parse_survives_memory_clear_and_invalidates_after_file_change() {
+        let temp = TempDirectory::new();
+        let path = temp.0.join("song.workflow.json");
+        fs::write(
+            &path,
+            r#"{"1":{"class_type":"TextEncodeAceStepAudio1.5","inputs":{"bpm":100}}}"#,
+        )
+        .unwrap();
+
+        let (first, first_hash) = parse_file_cached_with_hash(&temp.0, &path).unwrap();
+        assert_eq!(first.bpm, "100");
+        assert!(temp.0.join(".adbstudio/workflow-cache").is_dir());
+
+        memory_cache().lock().unwrap().clear();
+        let (from_disk, from_disk_hash) = parse_file_cached_with_hash(&temp.0, &path).unwrap();
+        assert_eq!(from_disk, first);
+        assert_eq!(from_disk_hash, first_hash);
+
+        fs::write(
+            &path,
+            r#"{"1":{"class_type":"TextEncodeAceStepAudio1.5","inputs":{"bpm":1000}}}"#,
+        )
+        .unwrap();
+        memory_cache().lock().unwrap().clear();
+        let (changed, changed_hash) = parse_file_cached_with_hash(&temp.0, &path).unwrap();
+        assert_eq!(changed.bpm, "1000");
+        assert_ne!(changed_hash, first_hash);
     }
 }

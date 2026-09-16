@@ -1,5 +1,4 @@
-use serde_json::Value;
-use std::{fs, path::Path};
+use std::path::Path;
 
 use super::{display_lora_name, parser, ComfyUIWorkflow, LoRAInfo, TrackDifference};
 
@@ -19,7 +18,9 @@ pub fn compare_files(folder: &Path, pinned_path: &Path, track_path: &Path) -> Ve
             value: "missing workflow file".to_string(),
         }];
     }
-    let Ok(track_workflow) = parser::parse_file(&track_workflow_path) else {
+    let Ok((track_workflow, track_json_hash)) =
+        parser::parse_file_cached_with_hash(folder, &track_workflow_path)
+    else {
         return vec![TrackDifference {
             label: String::new(),
             value: "invalid workflow file".to_string(),
@@ -34,36 +35,22 @@ pub fn compare_files(folder: &Path, pinned_path: &Path, track_path: &Path) -> Ve
             value: "missing workflow file".to_string(),
         }];
     }
-    let Ok(pinned_workflow) = parser::parse_file(&pinned_workflow_path) else {
+    let Ok((pinned_workflow, pinned_json_hash)) =
+        parser::parse_file_cached_with_hash(folder, &pinned_workflow_path)
+    else {
         return vec![TrackDifference {
             label: String::new(),
             value: "invalid workflow file".to_string(),
         }];
     };
     let mut differences = compare_workflows(&pinned_workflow, &track_workflow);
-    if differences.is_empty() && workflow_json_differs(&pinned_workflow_path, &track_workflow_path) {
+    if differences.is_empty() && pinned_json_hash != track_json_hash {
         differences.push(TrackDifference {
             label: "Workflow: ".to_string(),
             value: "content differs".to_string(),
         });
     }
     differences
-}
-
-fn workflow_json_differs(pinned_path: &Path, track_path: &Path) -> bool {
-    let Ok(pinned_contents) = fs::read_to_string(pinned_path) else {
-        return false;
-    };
-    let Ok(track_contents) = fs::read_to_string(track_path) else {
-        return false;
-    };
-    let Ok(pinned_json) = serde_json::from_str::<Value>(&pinned_contents) else {
-        return false;
-    };
-    let Ok(track_json) = serde_json::from_str::<Value>(&track_contents) else {
-        return false;
-    };
-    pinned_json != track_json
 }
 
 fn compare_workflows(
@@ -315,8 +302,7 @@ mod tests {
             .iter()
             .any(|difference| { difference.label == "Loras: " && difference.value == "2 (+1)" }));
         assert!(differences.iter().any(|difference| {
-            difference.label == "Lora voice strength: "
-                && difference.value == "0.75 (+0.25)"
+            difference.label == "Lora voice strength: " && difference.value == "0.75 (+0.25)"
         }));
     }
 

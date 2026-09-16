@@ -184,7 +184,7 @@ pub fn load_workflow_for_audio(
         *workflow_loading.borrow_mut() = false;
         return;
     }
-    match metadata::comfyui::parse_file(&workflow_path) {
+    match metadata::comfyui::parse_file_cached(folder, &workflow_path) {
         Ok(workflow) => {
             apply_workflow(window, folder, &workflow_path.to_string_lossy(), workflow);
             metadata::clear_workflow_recreated(folder, path);

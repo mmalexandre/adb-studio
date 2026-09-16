@@ -1,9 +1,6 @@
 use std::{cmp::Ordering, path::Path};
 
-use crate::metadata::{
-    self,
-    comfyui::ComfyUIWorkflow,
-};
+use crate::metadata::{self, comfyui::ComfyUIWorkflow};
 
 use super::file_system::{DirEntryInfo, SortOrder};
 
@@ -49,13 +46,13 @@ pub fn sort_tracks(
     let mut ranked = entries
         .iter()
         .map(|entry| {
-            let workflow = workflow_for(folder, &entry.path);
             let distance = if entry.path == pinned_path {
                 Distance {
                     tier: 0,
                     values: Vec::new(),
                 }
             } else if pinned_workflow.is_none() {
+                let workflow = workflow_for(folder, &entry.path);
                 Distance {
                     tier: if workflow.is_some() { 1 } else { 2 },
                     values: Vec::new(),
@@ -184,7 +181,7 @@ fn workflow_for(folder: &Path, track_path: &Path) -> Option<ComfyUIWorkflow> {
     if !workflow_path.is_file() {
         return None;
     }
-    crate::metadata::comfyui::parse_file(&workflow_path).ok()
+    crate::metadata::comfyui::parse_file_cached(folder, &workflow_path).ok()
 }
 
 #[cfg(test)]
