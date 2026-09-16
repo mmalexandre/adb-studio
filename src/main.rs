@@ -372,6 +372,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             AudioRow {
                                 path: result.path.into(),
                                 name: row.name,
+                                is_folder: row.is_folder,
+                                depth: row.depth,
+                                is_expanded: row.is_expanded,
                                 modified_date: row.modified_date,
                                 peaks: ModelRc::new(VecModel::from(waveform::aggregate_peaks(
                                     &result.peaks,

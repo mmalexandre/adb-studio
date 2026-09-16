@@ -248,6 +248,45 @@ component AudioRowView inherits Rectangle {
         }
     }
 }
+component AudioFolderRow inherits Rectangle {
+    height: 30px;
+    background: root.light-theme ? #e7ebf0 : #202833;
+    in property <bool> light-theme;
+    in property <string> name;
+    in property <int> depth;
+    in property <bool> is-expanded;
+    callback clicked();
+
+    HorizontalLayout {
+        padding-left: 15px + root.depth * 15px;
+        padding-right: 12px;
+        spacing: 6px;
+        Image {
+            source: @image-url("../assets/icons/chevron-right.svg");
+            width: 18px;
+            height: 18px;
+            transform-rotation: root.is-expanded ? 90deg : 0deg;
+            animate transform-rotation { duration: 160ms; easing: ease-in-out; }
+            vertical-alignment: center;
+        }
+        Image {
+            source: root.is-expanded
+                ? @image-url("../assets/icons/folder-open.svg")
+                : @image-url("../assets/icons/folder.svg");
+            width: 16px;
+            height: 16px;
+            vertical-alignment: center;
+        }
+        Text {
+            text: root.name;
+            color: root.light-theme ? #202833 : #e3e8ef;
+            font-size: 13px;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+    }
+    TouchArea { clicked => { root.clicked(); } }
+}
 export component AudioList inherits ListView {
     in property <bool> light-theme;
     in property <color> comment-background-color: #000000;
@@ -266,6 +305,7 @@ export component AudioList inherits ListView {
     callback rating-requested(string, int);
     callback pin-requested(string);
     callback trash-requested(string);
+    callback folder-clicked(string);
 
     changed viewport-y => {
         root.viewport-changed(
@@ -280,37 +320,47 @@ export component AudioList inherits ListView {
         }
     }
 
-    for row in root.rows : AudioRowView {
-        light-theme: root.light-theme;
-        comment-background-color: root.comment-background-color;
-        comment-text-color: root.comment-text-color;
-        name: row.name;
-        modified-date: row.modified-date;
-        peaks: row.peaks;
-        comments: row.comments;
-        differences: row.differences;
-        similarity: row.similarity;
-        rating: row.rating;
-        is-pinned: row.is-pinned;
-        is-selected: row.is-selected;
-        is-primary: row.is-primary;
-        is-active: row.is-active;
-        is-playing: row.is-playing;
-        progress: row.progress;
-        is-loading: row.is-loading;
-        loop-enabled: row.loop-enabled;
-        selected-comment-start: row.selected-comment-start;
-        selected-comment-end: row.selected-comment-end;
-        seek-requested(progress) => { root.row-selected(row.path); root.seek-requested(row.path, progress); }
-        play-requested => { root.row-selected(row.path); root.play-requested(row.path); }
-        comment-range-requested(start, end) => { root.row-selected(row.path); root.comment-range-requested(row.path, start, end); }
-        comment-selected(start, end, text) => { root.row-selected(row.path); root.comment-selected(row.path, start, end, text); }
-        comment-edit-requested(start, end, text) => { root.row-selected(row.path); root.comment-edit-requested(row.path, start, end, text); }
-        comment-range-moved(old-start, old-end, start, end, text) => { root.row-selected(row.path); root.comment-range-moved(row.path, old-start, old-end, start, end, text); }
-        rating-requested(rating) => { root.row-selected(row.path); root.rating-requested(row.path, rating); }
-        pin-requested => { root.pin-requested(row.path); }
-        trash-requested => { root.trash-requested(row.path); }
-        row-clicked(shift) => { root.row-clicked(row.path, shift); }
+    for row in root.rows : Rectangle {
+        height: row.is-folder ? 30px : 86px;
+        if row.is-folder : AudioFolderRow {
+            light-theme: root.light-theme;
+            name: row.name;
+            depth: row.depth;
+            is-expanded: row.is-expanded;
+            clicked => { root.folder-clicked(row.path); }
+        }
+        if !row.is-folder : AudioRowView {
+            light-theme: root.light-theme;
+            comment-background-color: root.comment-background-color;
+            comment-text-color: root.comment-text-color;
+            name: row.name;
+            modified-date: row.modified-date;
+            peaks: row.peaks;
+            comments: row.comments;
+            differences: row.differences;
+            similarity: row.similarity;
+            rating: row.rating;
+            is-pinned: row.is-pinned;
+            is-selected: row.is-selected;
+            is-primary: row.is-primary;
+            is-active: row.is-active;
+            is-playing: row.is-playing;
+            progress: row.progress;
+            is-loading: row.is-loading;
+            loop-enabled: row.loop-enabled;
+            selected-comment-start: row.selected-comment-start;
+            selected-comment-end: row.selected-comment-end;
+            seek-requested(progress) => { root.row-selected(row.path); root.seek-requested(row.path, progress); }
+            play-requested => { root.row-selected(row.path); root.play-requested(row.path); }
+            comment-range-requested(start, end) => { root.row-selected(row.path); root.comment-range-requested(row.path, start, end); }
+            comment-selected(start, end, text) => { root.row-selected(row.path); root.comment-selected(row.path, start, end, text); }
+            comment-edit-requested(start, end, text) => { root.row-selected(row.path); root.comment-edit-requested(row.path, start, end, text); }
+            comment-range-moved(old-start, old-end, start, end, text) => { root.row-selected(row.path); root.comment-range-moved(row.path, old-start, old-end, start, end, text); }
+            rating-requested(rating) => { root.row-selected(row.path); root.rating-requested(row.path, rating); }
+            pin-requested => { root.pin-requested(row.path); }
+            trash-requested => { root.trash-requested(row.path); }
+            row-clicked(shift) => { root.row-clicked(row.path, shift); }
+        }
     }
 }
 

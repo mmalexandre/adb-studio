@@ -110,6 +110,9 @@ pub fn register_metadata_pane_callbacks(
                             crate::AudioRow {
                                 path: row.path,
                                 name: row.name,
+                                is_folder: row.is_folder,
+                                depth: row.depth,
+                                is_expanded: row.is_expanded,
                                 modified_date: row.modified_date,
                                 peaks: row.peaks,
                                 is_loading: row.is_loading,

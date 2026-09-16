@@ -7,7 +7,7 @@ use std::{
 };
 
 use notify::RecommendedWatcher;
-use slint::ComponentHandle;
+use slint::{ComponentHandle, Model};
 
 use crate::{
     audio::{
@@ -80,6 +80,43 @@ pub fn register_window_callbacks(
                     &edited_workflow,
                     &edited_workflow_path,
                     &loaded_workflow_path,
+                );
+            }
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        let tree_state = Rc::clone(tree_state);
+        let audio_folder = Rc::clone(audio_folder);
+        let audio_model = Rc::clone(audio_model);
+        let audio_load_state = Arc::clone(audio_load_state);
+        window.on_audio_folder_clicked(move |path| {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            let path = PathBuf::from(path.as_str());
+            {
+                let mut state_ref = tree_state.borrow_mut();
+                let Some(state) = state_ref.as_mut() else {
+                    return;
+                };
+                state.toggle(&path);
+            }
+            refresh_tree(&window, &tree_state);
+            let folder = window
+                .get_audio_breadcrumbs()
+                .iter()
+                .last()
+                .map(|breadcrumb| PathBuf::from(breadcrumb.path.as_str()))
+                .or_else(|| audio_folder.borrow().clone());
+            if let Some(folder) = folder {
+                crate::workspace::library::refresh_audio(
+                    &window,
+                    &audio_folder,
+                    &audio_model,
+                    &audio_load_state,
+                    folder,
                 );
             }
         });

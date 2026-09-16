@@ -28,6 +28,9 @@ export struct TrackDifference {
 export struct AudioRow {
     path: string,
     name: string,
+    is-folder: bool,
+    depth: int,
+    is-expanded: bool,
     modified-date: string,
     peaks: [float],
     is-loading: bool,

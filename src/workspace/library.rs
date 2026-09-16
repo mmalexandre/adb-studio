@@ -18,6 +18,26 @@ use crate::{
 
 use super::{pinned_track_sort, tree_nav::set_audio_breadcrumbs};
 
+fn collect_visible_entries(
+    folder: &Path,
+    depth: i32,
+    expanded: &HashSet<PathBuf>,
+    sort_order: file_system::SortOrder,
+    pinned_path: Option<&Path>,
+    entries: &mut Vec<(file_system::DirEntryInfo, i32)>,
+) {
+    let mut directory_entries = file_system::read_dir_sorted(folder, sort_order);
+    pinned_track_sort::sort_tracks(folder, pinned_path, sort_order, &mut directory_entries);
+    for entry in directory_entries {
+        let is_directory = entry.kind == file_system::FileKind::Directory;
+        let child_path = entry.path.clone();
+        entries.push((entry, depth));
+        if is_directory && expanded.contains(&child_path) {
+            collect_visible_entries(&child_path, depth + 1, expanded, sort_order, None, entries);
+        }
+    }
+}
+
 pub fn refresh_audio(
     window: &MainWindow,
     audio_folder: &Rc<RefCell<Option<PathBuf>>>,
@@ -69,7 +89,7 @@ fn refresh_audio_with_changes(
     let changed_audio_paths = changed_paths
         .into_iter()
         .flat_map(|paths| paths.iter())
-        .filter(|path| path.parent() == Some(folder.as_path()))
+        .filter(|path| path.starts_with(&folder))
         .filter(|path| file_system::FileKind::from_path(path) == file_system::FileKind::Audio)
         .cloned()
         .collect::<HashSet<_>>();
@@ -83,22 +103,85 @@ fn refresh_audio_with_changes(
                 .collect::<HashMap<_, _>>()
         })
         .unwrap_or_default();
-    let generated_paths = audio_load_state
-        .lock()
-        .unwrap()
-        .generated
-        .clone();
+    let generated_paths = audio_load_state.lock().unwrap().generated.clone();
     let pinned_path = audio_folder
         .borrow()
         .clone()
         .and_then(|workspace| preferences::pinned_track(&workspace, &folder));
     let workspace = audio_folder.borrow().clone().unwrap_or_default();
     let sort_order = file_system::SortOrder::from_i32(window.get_sort_order());
-    let mut entries = file_system::read_dir_sorted(&folder, sort_order);
-    pinned_track_sort::sort_tracks(&workspace, pinned_path.as_deref(), sort_order, &mut entries);
+    let expanded = window
+        .get_tree_rows()
+        .iter()
+        .filter(|row| row.is_dir && row.is_expanded)
+        .map(|row| PathBuf::from(row.path.as_str()))
+        .chain(std::iter::once(folder.clone()))
+        .collect::<HashSet<_>>();
+    let mut entries = Vec::new();
+    collect_visible_entries(
+        &folder,
+        1,
+        &expanded,
+        sort_order,
+        pinned_path.as_deref(),
+        &mut entries,
+    );
+    let folder_name = folder
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_else(|| folder.to_str().unwrap_or("Workspace"));
     let mut rows = Vec::new();
     let mut preserved_waveform_paths = HashSet::new();
-    for entry in entries {
+    rows.push(AudioRow {
+        path: folder.to_string_lossy().into_owned().into(),
+        name: folder_name.into(),
+        is_folder: true,
+        depth: 0,
+        is_expanded: expanded.contains(&folder),
+        modified_date: "".into(),
+        peaks: ModelRc::new(VecModel::from(Vec::new())),
+        is_loading: false,
+        comments: ModelRc::new(VecModel::from(Vec::new())),
+        differences: ModelRc::new(VecModel::from(Vec::new())),
+        similarity: -1.0,
+        rating: 0,
+        is_pinned: false,
+        is_active: false,
+        is_selected: false,
+        is_primary: false,
+        is_playing: false,
+        progress: 0.0,
+        loop_enabled: false,
+        selected_comment_start: -1.0,
+        selected_comment_end: -1.0,
+    });
+    for (entry, depth) in entries {
+        if entry.kind == file_system::FileKind::Directory {
+            rows.push(AudioRow {
+                path: entry.path.to_string_lossy().into_owned().into(),
+                name: entry.name.into(),
+                is_folder: true,
+                depth,
+                is_expanded: expanded.contains(&entry.path),
+                modified_date: "".into(),
+                peaks: ModelRc::new(VecModel::from(Vec::new())),
+                is_loading: false,
+                comments: ModelRc::new(VecModel::from(Vec::new())),
+                differences: ModelRc::new(VecModel::from(Vec::new())),
+                similarity: -1.0,
+                rating: 0,
+                is_pinned: false,
+                is_active: false,
+                is_selected: false,
+                is_primary: false,
+                is_playing: false,
+                progress: 0.0,
+                loop_enabled: false,
+                selected_comment_start: -1.0,
+                selected_comment_end: -1.0,
+            });
+            continue;
+        }
         if entry.kind != file_system::FileKind::Audio
             || !file_system::matches_audio_filter(&entry.name, &filter)
         {
@@ -112,11 +195,10 @@ fn refresh_audio_with_changes(
             .unwrap_or_default();
         let existing_row = existing_rows.get(&entry.path);
         let can_reuse_waveform = existing_row.is_some_and(|row| {
-            generated_paths.contains(&entry.path)
-                && row.modified_date == modified_date.to_string()
+            generated_paths.contains(&entry.path) && row.modified_date == modified_date.to_string()
         });
-        let should_reload = changed_audio_paths.contains(&entry.path)
-            || (reload_all && !can_reuse_waveform);
+        let should_reload =
+            changed_audio_paths.contains(&entry.path) || (reload_all && !can_reuse_waveform);
         if !should_reload && !reload_all {
             if let Some(row) = existing_rows.get(&entry.path) {
                 rows.push(row.clone());
@@ -141,16 +223,16 @@ fn refresh_audio_with_changes(
         rows.push(AudioRow {
             path: path_string.into(),
             name: entry.name.into(),
+            is_folder: false,
+            depth,
+            is_expanded: false,
             modified_date: modified_date.to_string().into(),
             peaks: if can_reuse_waveform {
                 preserved_waveform_paths.insert(entry.path.clone());
                 existing_row
                     .map(|row| row.peaks.clone())
                     .unwrap_or_else(|| {
-                        ModelRc::new(VecModel::from(vec![
-                            0.0;
-                            waveform::DISPLAY_PEAK_COUNT
-                        ]))
+                        ModelRc::new(VecModel::from(vec![0.0; waveform::DISPLAY_PEAK_COUNT]))
                     })
             } else {
                 ModelRc::new(VecModel::from(vec![0.0; waveform::DISPLAY_PEAK_COUNT]))
@@ -188,9 +270,14 @@ fn refresh_audio_with_changes(
         .collect::<HashSet<_>>();
     let selected_path = rows
         .iter()
+        .filter(|row| !row.is_folder)
         .find(|row| Path::new(row.path.as_str()) == previous_selected_path)
         .map(|row| row.path.clone())
-        .or_else(|| rows.first().map(|row| row.path.clone()))
+        .or_else(|| {
+            rows.iter()
+                .find(|row| !row.is_folder)
+                .map(|row| row.path.clone())
+        })
         .unwrap_or_default();
     for row in &mut rows {
         let path = Path::new(row.path.as_str());
@@ -202,7 +289,10 @@ fn refresh_audio_with_changes(
         .iter()
         .map(|row| PathBuf::from(row.path.as_str()))
         .collect();
-    let total = paths.len();
+    let total = paths
+        .iter()
+        .filter(|path| file_system::FileKind::from_path(path) == file_system::FileKind::Audio)
+        .count();
     let model = Rc::new(VecModel::from(rows));
     window.set_audio_rows(ModelRc::new(model.clone()));
     *audio_model.borrow_mut() = Some(model);
@@ -234,4 +324,3 @@ fn refresh_audio_with_changes(
     }
     loader::request(audio_load_state, 0, 1);
 }
-

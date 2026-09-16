@@ -79,7 +79,9 @@ fn generate(state: Arc<Mutex<State>>) {
                     .iter()
                     .enumerate()
                     .filter(|(_, path)| {
-                        !state_ref.generated.contains(*path) && !state_ref.loading.contains(*path)
+                        path.is_file()
+                            && !state_ref.generated.contains(*path)
+                            && !state_ref.loading.contains(*path)
                     })
                     .map(|(index, path)| (index, path.clone()))
                     .collect::<Vec<_>>();
@@ -105,6 +107,7 @@ fn generate(state: Arc<Mutex<State>>) {
                     let path = paths[index].clone();
                     let state_ref = state.lock().unwrap();
                     (state_ref.generation == generation
+                        && path.is_file()
                         && !state_ref.generated.contains(&path)
                         && state_ref.loading.contains(&path))
                     .then_some((index, path))
