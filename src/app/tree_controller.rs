@@ -3,6 +3,7 @@ use std::{cell::RefCell, path::PathBuf, rc::Rc, sync::Arc, sync::Mutex};
 use slint::{ComponentHandle, Model, VecModel};
 
 use crate::{
+    app::file_controller,
     audio::loader::State as AudioLoadState,
     settings::{self, AppSettings},
     workspace::{
@@ -13,6 +14,34 @@ use crate::{
     },
     AudioRow, MainWindow,
 };
+
+fn audio_drop_target(
+    audio_model: &Rc<RefCell<Option<Rc<VecModel<AudioRow>>>>>,
+    source_index: i32,
+    pointer_y: f32,
+) -> Option<PathBuf> {
+    let model = audio_model.borrow().clone()?;
+    let mut target_y = pointer_y;
+    if source_index >= 0 {
+        target_y = (0..source_index as usize)
+            .filter_map(|index| model.row_data(index))
+            .map(|row| if row.is_folder { 30.0 } else { 86.0 })
+            .sum::<f32>()
+            + pointer_y;
+    }
+    let mut row_top = 0.0;
+    for index in 0..model.row_count() {
+        let Some(row) = model.row_data(index) else {
+            continue;
+        };
+        let row_height = if row.is_folder { 30.0 } else { 86.0 };
+        if target_y >= row_top && target_y < row_top + row_height {
+            return row.is_folder.then(|| PathBuf::from(row.path.as_str()));
+        }
+        row_top += row_height;
+    }
+    None
+}
 
 /// Wires tree navigation, file rename/create/move, and audio pin/trash callbacks.
 #[allow(clippy::too_many_arguments)]
@@ -386,6 +415,8 @@ pub fn register_tree_callbacks(
         let tree_state = Rc::clone(tree_state);
         let settings = Rc::clone(settings);
         let audio_folder = Rc::clone(audio_folder);
+        let audio_model = Rc::clone(audio_model);
+        let audio_load_state = Arc::clone(audio_load_state);
         window.on_tree_drop_requested(move |source, target_index, pointer_y| {
             let Some(window) = weak_window.upgrade() else {
                 return;
@@ -435,66 +466,45 @@ pub fn register_tree_callbacks(
                 }
                 (sources, PathBuf::from(&row.path))
             };
-            if sources.is_empty() || !target.is_dir() {
-                return;
-            }
-            let mut destinations = Vec::with_capacity(sources.len());
-            for source in &sources {
-                let Some(name) = source.file_name() else {
-                    return;
-                };
-                let Some(parent) = source.parent() else {
-                    return;
-                };
-                if !source.exists() || source == &target || parent == target {
-                    return;
-                }
-                if source.is_dir() && target.strip_prefix(source).is_ok() {
-                    window
-                        .set_audio_error("File operation: cannot move a folder into itself".into());
-                    return;
-                }
-                let destination = target.join(name);
-                if destination.exists() || destinations.contains(&destination) {
-                    window.set_audio_error("File operation: destination already exists".into());
-                    return;
-                }
-                destinations.push(destination);
-            }
-            for (source, destination) in sources.iter().zip(&destinations) {
-                if let Err(error) = std::fs::rename(source, destination) {
-                    window.set_audio_error(format!("File operation: {error}").into());
-                    return;
-                }
-                if let Some(folder) = audio_folder.borrow().as_ref() {
-                    if let Err(error) =
-                        crate::metadata::rename_associated_workflow(folder, source, destination)
-                    {
-                        window.set_audio_error(format!("Workflow file operation: {error}").into());
-                    }
-                    crate::metadata::rename_audio_metadata(folder, source, destination);
-                }
-            }
-            {
-                let mut state_ref = tree_state.borrow_mut();
-                let Some(state) = state_ref.as_mut() else {
-                    return;
-                };
-                state.select_paths(destinations.clone(), destinations.last().cloned().unwrap());
-            }
-            let primary = destinations.last().unwrap();
-            settings.borrow_mut().last_selected_path = Some(primary.to_string_lossy().into_owned());
-            let settings_snapshot = settings.borrow().clone();
-            settings::save(&settings_snapshot);
-            window.set_selected_name(
-                primary
-                    .file_name()
-                    .map(|name| name.to_string_lossy().into_owned())
-                    .unwrap_or_default()
-                    .into(),
+            file_controller::move_sources_to_directory(
+                &window,
+                &settings,
+                &tree_state,
+                &audio_folder,
+                &audio_model,
+                &audio_load_state,
+                &sources,
+                &target,
             );
-            window.set_audio_error("".into());
-            refresh_tree(&window, &tree_state);
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        let tree_state = Rc::clone(tree_state);
+        let settings = Rc::clone(settings);
+        let audio_folder = Rc::clone(audio_folder);
+        let audio_model = Rc::clone(audio_model);
+        let audio_load_state = Arc::clone(audio_load_state);
+        window.on_audio_drop_requested(move |source, source_index, pointer_y| {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            let Some(target) = audio_drop_target(&audio_model, source_index, pointer_y) else {
+                return;
+            };
+            let source = PathBuf::from(source.as_str());
+            let sources = file_controller::selected_sources(&tree_state, &source);
+            file_controller::move_sources_to_directory(
+                &window,
+                &settings,
+                &tree_state,
+                &audio_folder,
+                &audio_model,
+                &audio_load_state,
+                &sources,
+                &target,
+            );
         });
     }
 

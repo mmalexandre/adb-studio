@@ -49,6 +49,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let workspace_watcher = state.workspace_watcher.clone();
     let (workspace_change_sender, workspace_change_receiver) = mpsc::channel::<Vec<PathBuf>>();
     let audio_model = state.audio_model.clone();
+    let file_clipboard = state.file_clipboard.clone();
     let sync_controller = state.sync_controller.clone();
     let comment_editor_original = state.comment_editor_original.clone();
     let comment_editor_duration = state.comment_editor_duration.clone();
@@ -385,6 +386,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 rating: row.rating,
                                 is_pinned: row.is_pinned,
                                 is_selected: row.is_selected,
+                                is_cut: row.is_cut,
                                 is_primary: row.is_primary,
                                 is_active: row.is_active,
                                 is_playing: row.is_playing,
@@ -417,6 +419,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &edited_workflow,
         &edited_workflow_path,
         &loaded_workflow_path,
+        &file_clipboard,
     );
 
     app::sync_ui_controller::register_sync_ui_callbacks(

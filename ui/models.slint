@@ -5,6 +5,7 @@ export struct TreeRow {
     is-dir: bool,
     is-expanded: bool,
     is-selected: bool,
+    is-cut: bool,
     kind: string,
 }
 
@@ -44,6 +45,7 @@ export struct AudioRow {
     is-active: bool,
     is-playing: bool,
     progress: float,
+    is-cut: bool,
     loop-enabled: bool,
     selected-comment-start: float,
     selected-comment-end: float,

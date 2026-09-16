@@ -1,0 +1,54 @@
+TODO:
+-----
+x Distance grade (stack of horizontal bars as a similarity indicator)
+
+x Affichage recursif
+x Faster fluid UI
+
+- Tags sous les waveform + couleurs
+	- Est-ce qu'un repertoire est une idee? Ou plutot correspond a un tag?
+		Tag = Idee ?
+		Comment trier les fichiers par idee
+	- Etiquettes: Good idea, To use as short sample slice, Material, Effect. Custom tags.
+	- Neighbouring ideas. How to link versions together? Just by copying and pasting files in a folder? How to achieve that even before naming songs? How to remember song names? In Ableton, there are take lanes
+- Template ComfyUI files
+- Cache workflow parsing to speed up application start
+- Ctrl+C Ctrl+X Ctrl+V
+
+Mise en prod:
+-------------
+- Doc
+- License
+- Video Youtube
+- Publier quelque chose sur Hugging Face, Civit, ComfyUI Module
+
+Cerises sur le gâteau:
+----------------------
+- Root idea + A/B comparison and grades
+- Auto-install Runpod / other server
+- Online cloud service
+- Make it easy to use
+- Slice out function (extract audio from comment)
+- Git versioning of workflows?
+- Stitch track? Studio?
+- Detect instruments and transform into FFT / Serum preset
+- LoRas manager - give ratings, comment, metadata
+- Find files by LoRa (in the LoRas manager)
+- Alerte quand génération terminée
+- Auto-download missing LoRas
+- LoRas compressor (similar in one zip to optimize compression?)
+- LoRa trainer
+- Youno = workflows and loras and audio sharing platform
+- Soundcloud, Spotify connector
+
+
+Avantages de cette application:
+-------------------------------
+- Sauvegarde instantanément le travail pour ne rien perdre
+- Sauvegarde l'ensemble des paramètres sans devoir les noter manuellement
+- Aide à historiciser
+- Aide à optimiser son prompt
+- Aide à compresser les fichier
+- Aide à trier, sélectionner
+- Aide à créer des variantes et organiser
+- Commentaires

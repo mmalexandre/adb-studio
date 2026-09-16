@@ -331,6 +331,65 @@ pub fn is_visible_in_tree(kind: FileKind) -> bool {
     )
 }
 
+pub fn move_paths(sources: &[PathBuf], target: &Path) -> Result<Vec<PathBuf>, String> {
+    let destinations = validate_destinations(sources, target)?;
+    for (source, destination) in sources.iter().zip(&destinations) {
+        fs::rename(source, destination).map_err(|error| error.to_string())?;
+    }
+    Ok(destinations)
+}
+
+pub fn copy_paths(sources: &[PathBuf], target: &Path) -> Result<Vec<PathBuf>, String> {
+    let destinations = validate_destinations(sources, target)?;
+    for (source, destination) in sources.iter().zip(&destinations) {
+        copy_path(source, destination).map_err(|error| error.to_string())?;
+    }
+    Ok(destinations)
+}
+
+fn validate_destinations(sources: &[PathBuf], target: &Path) -> Result<Vec<PathBuf>, String> {
+    if sources.is_empty() || !target.is_dir() {
+        return Err("destination is not a directory".to_owned());
+    }
+    let mut destinations = Vec::with_capacity(sources.len());
+    for source in sources {
+        let Some(name) = source.file_name() else {
+            return Err("source has no file name".to_owned());
+        };
+        let Some(parent) = source.parent() else {
+            return Err("source has no parent directory".to_owned());
+        };
+        if !source.exists() {
+            return Err(format!("source does not exist: {}", source.display()));
+        }
+        if source == target || parent == target {
+            return Err("source is already in the destination directory".to_owned());
+        }
+        if source.is_dir() && target.strip_prefix(source).is_ok() {
+            return Err("cannot move a folder into itself".to_owned());
+        }
+        let destination = target.join(name);
+        if destination.exists() || destinations.contains(&destination) {
+            return Err("destination already exists".to_owned());
+        }
+        destinations.push(destination);
+    }
+    Ok(destinations)
+}
+
+fn copy_path(source: &Path, destination: &Path) -> std::io::Result<()> {
+    if source.is_dir() {
+        fs::create_dir(destination)?;
+        for entry in fs::read_dir(source)? {
+            let entry = entry?;
+            copy_path(&entry.path(), &destination.join(entry.file_name()))?;
+        }
+    } else {
+        fs::copy(source, destination)?;
+    }
+    Ok(())
+}
+
 fn push_children(
     dir: &Path,
     depth: i32,
@@ -359,8 +418,8 @@ fn push_children(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_visible_rows, is_visible_in_tree, matches_audio_filter, read_dir_sorted, FileKind,
-        SortOrder, TreeState,
+        build_visible_rows, copy_paths, is_visible_in_tree, matches_audio_filter, move_paths,
+        read_dir_sorted, FileKind, SortOrder, TreeState,
     };
     use std::{
         fs,
@@ -542,5 +601,27 @@ mod tests {
         assert!(is_visible_in_tree(FileKind::Safetensors));
         assert!(!is_visible_in_tree(FileKind::Json));
         assert!(!is_visible_in_tree(FileKind::Other));
+    }
+
+    #[test]
+    fn copy_and_move_paths_use_file_manager_semantics() {
+        let temp = TempDirectory::new();
+        let source = temp.path().join("source");
+        let copied = temp.path().join("copied");
+        let moved = temp.path().join("moved");
+        fs::create_dir(&source).unwrap();
+        fs::create_dir(&copied).unwrap();
+        fs::create_dir(&moved).unwrap();
+        let song = source.join("song.wav");
+        fs::write(&song, b"audio").unwrap();
+
+        let copied_song = copy_paths(std::slice::from_ref(&song), &copied).unwrap();
+        assert_eq!(fs::read(&copied_song[0]).unwrap(), b"audio");
+        assert!(song.exists());
+
+        let moved_song = move_paths(&copied_song, &moved).unwrap();
+        assert_eq!(moved_song, vec![moved.join("song.wav")]);
+        assert!(!copied_song[0].exists());
+        assert_eq!(fs::read(&moved_song[0]).unwrap(), b"audio");
     }
 }

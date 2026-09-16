@@ -83,6 +83,17 @@ export component MainWindow inherits Window {
     in-out property <int> tree-scroll-to-index: -1;
     in-out property <[BreadcrumbRow]> audio-breadcrumbs: [];
     in-out property <[AudioRow]> audio-rows: [];
+    in-out property <[string]> cut-paths: [];
+    property <float> tree-list-x: 0;
+    property <float> tree-list-y: 0;
+    property <float> tree-list-width: 0;
+    property <float> tree-list-height: 0;
+    property <float> tree-list-scroll-y: 0;
+    property <float> audio-list-x: 0;
+    property <float> audio-list-y: 0;
+    property <float> audio-list-width: 0;
+    property <float> audio-list-height: 0;
+    property <float> audio-list-scroll-y: 0;
     in-out property <int> audio-scroll-to-index: -1;
     in-out property <int> audio-viewport-start: 0;
     in-out property <int> audio-visible-rows: 0;
@@ -182,6 +193,8 @@ export component MainWindow inherits Window {
     callback sort-order-selected(int);
     callback tree-trash-requested(string);
     callback tree-drop-requested(string, int, float);
+    callback file-operation(int);
+    callback audio-drop-requested(string, int, float);
     callback rename-requested();
     callback tree-reveal-requested(string);
     callback new-folder-requested(string);
@@ -257,6 +270,16 @@ export component MainWindow inherits Window {
         key-pressed(event) => {
             if event.modifiers.control && event.text == "," {
                 root.settings-visible = true;
+                accept;
+            }
+            if !root.text-input-focused && root.tree-edit-path == "" && event.modifiers.control && (
+                event.text == "c" || event.text == "C" || event.text == "x" || event.text == "X" || event.text == "v" || event.text == "V"
+            ) {
+                root.file-operation(
+                    event.text == "c" || event.text == "C"
+                        ? 0
+                        : event.text == "x" || event.text == "X" ? 1 : 2
+                );
                 accept;
             }
             if (root.text-input-focused || root.tree-edit-path != "") && (
@@ -531,6 +554,25 @@ export component MainWindow inherits Window {
                                 }
                                 tree-trash-requested(path) => { root.tree-trash-requested(path); }
                                 tree-drop-requested(path, index, pointer-y) => { root.tree-drop-requested(path, index, pointer-y); }
+                                file-drag-finished(path, pointer-x, absolute-y) => {
+                                    if pointer-x >= root.audio-list-x
+                                        && pointer-x <= root.audio-list-x + root.audio-list-width
+                                        && absolute-y >= root.audio-list-y
+                                        && absolute-y <= root.audio-list-y + root.audio-list-height {
+                                        root.audio-drop-requested(
+                                            path,
+                                            -1,
+                                            absolute-y - root.audio-list-y - root.audio-list-scroll-y,
+                                        );
+                                    }
+                                }
+                                geometry-changed(x, y, width, height, scroll-y) => {
+                                    root.tree-list-x = x;
+                                    root.tree-list-y = y;
+                                    root.tree-list-width = width;
+                                    root.tree-list-height = height;
+                                    root.tree-list-scroll-y = scroll-y;
+                                }
                                 edit-accepted(path, text) => { root.tree-edit-accepted(path, text, root.tree-edit-mode); }
                                 edit-cancelled => { root.tree-edit-cancelled(); }
                             }
@@ -673,7 +715,7 @@ export component MainWindow inherits Window {
                                 horizontal-alignment: center;
                                 vertical-alignment: center;
                             }
-                            if root.audio-rows.length > 0 : AudioList {
+                            if root.audio-rows.length > 0 : audio-list := AudioList {
                                 light-theme: root.light-theme;
                                 comment-background-color: root.comment-background-color;
                                 comment-text-color: root.comment-text-color;
@@ -688,7 +730,10 @@ export component MainWindow inherits Window {
                                 }
                                 row-selected(path) => { root.audio-row-selected(path); }
                                 row-clicked(path, shift) => { root.audio-row-clicked(path, shift); }
-                                folder-clicked(path) => { root.audio-folder-clicked(path); }
+                                folder-clicked(path) => {
+                                    root.audio-row-clicked(path, false);
+                                    root.audio-folder-clicked(path);
+                                }
                                 folder-collapse-all-requested(path) => { root.audio-folder-collapse-all-requested(path); }
                                 folder-expand-all-requested(path) => { root.audio-folder-expand-all-requested(path); }
                                 seek-requested(path, progress) => { root.audio-seek(path, progress); }
@@ -700,6 +745,27 @@ export component MainWindow inherits Window {
                                 rating-requested(path, rating) => { root.rating-requested(path, rating); }
                                 pin-requested(path) => { root.pin-requested(path); }
                                 trash-requested(path) => { root.trash-requested(path); }
+                                file-drag-finished(path, source-index, pointer-y, pointer-x, absolute-y) => {
+                                    if pointer-x >= root.tree-list-x
+                                        && pointer-x <= root.tree-list-x + root.tree-list-width
+                                        && absolute-y >= root.tree-list-y
+                                        && absolute-y <= root.tree-list-y + root.tree-list-height {
+                                        let target-index = ((absolute-y - root.tree-list-y - root.tree-list-scroll-y) / 26.0).round().max(0).min(root.tree-rows.length - 1);
+                                        root.tree-drop-requested(path, target-index, absolute-y - root.tree-list-y);
+                                    } else if pointer-x >= root.audio-list-x
+                                        && pointer-x <= root.audio-list-x + root.audio-list-width
+                                        && absolute-y >= root.audio-list-y
+                                        && absolute-y <= root.audio-list-y + root.audio-list-height {
+                                        root.audio-drop-requested(path, source-index, pointer-y);
+                                    }
+                                }
+                                geometry-changed(x, y, width, height, scroll-y) => {
+                                    root.audio-list-x = x;
+                                    root.audio-list-y = y;
+                                    root.audio-list-width = width;
+                                    root.audio-list-height = height;
+                                    root.audio-list-scroll-y = scroll-y;
+                                }
                             }
                             if root.sort-menu-visible : Rectangle {
                                 x: parent.width - 196px;

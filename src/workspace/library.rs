@@ -168,6 +168,7 @@ fn refresh_audio_with_changes(
         .and_then(|workspace| preferences::pinned_track(&workspace, &folder));
     let workspace = audio_folder.borrow().clone().unwrap_or_default();
     let sort_order = file_system::SortOrder::from_i32(window.get_sort_order());
+    let cut_paths = window.get_cut_paths();
     let expanded = window
         .get_tree_rows()
         .iter()
@@ -211,6 +212,9 @@ fn refresh_audio_with_changes(
         loop_enabled: false,
         selected_comment_start: -1.0,
         selected_comment_end: -1.0,
+        is_cut: cut_paths
+            .iter()
+            .any(|cut_path| cut_path.as_str() == folder.to_string_lossy()),
     });
     for (entry, depth) in entries {
         if entry.kind == file_system::FileKind::Directory {
@@ -236,6 +240,9 @@ fn refresh_audio_with_changes(
                 loop_enabled: false,
                 selected_comment_start: -1.0,
                 selected_comment_end: -1.0,
+                is_cut: cut_paths
+                    .iter()
+                    .any(|cut_path| cut_path.as_str() == entry.path.to_string_lossy()),
             });
             continue;
         }
@@ -258,6 +265,9 @@ fn refresh_audio_with_changes(
             row.name = entry.name.clone().into();
             row.depth = depth;
             row.is_pinned = pinned_path.as_deref() == Some(entry.path.as_path());
+            row.is_cut = cut_paths
+                .iter()
+                .any(|cut_path| cut_path.as_str() == entry.path.to_string_lossy());
             if generated_paths.contains(&entry.path) {
                 preserved_waveform_paths.insert(entry.path.clone());
             }
@@ -327,6 +337,9 @@ fn refresh_audio_with_changes(
             loop_enabled: false,
             selected_comment_start: -1.0,
             selected_comment_end: -1.0,
+            is_cut: cut_paths
+                .iter()
+                .any(|cut_path| cut_path.as_str() == entry.path.to_string_lossy()),
         });
     }
     let previous_selected_path = PathBuf::from(window.get_selected_audio_path().as_str());

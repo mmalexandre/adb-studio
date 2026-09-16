@@ -1,6 +1,6 @@
 use std::{cell::RefCell, path::Path, rc::Rc};
 
-use slint::{ModelRc, VecModel};
+use slint::{Model, ModelRc, VecModel};
 
 use crate::{
     settings::{self, AppSettings},
@@ -98,6 +98,10 @@ pub fn refresh_tree(window: &MainWindow, tree_state: &Rc<RefCell<Option<TreeStat
         is_dir: row.is_dir,
         is_expanded: row.is_expanded,
         is_selected: row.is_selected,
+        is_cut: window
+            .get_cut_paths()
+            .iter()
+            .any(|cut_path| Path::new(cut_path.as_str()) == row.path),
         kind: row.kind.as_str().into(),
     })
     .collect();
@@ -119,6 +123,7 @@ pub fn refresh_tree(window: &MainWindow, tree_state: &Rc<RefCell<Option<TreeStat
                         is_dir: true,
                         is_expanded: false,
                         is_selected: false,
+                        is_cut: false,
                         kind: "dir".into(),
                     },
                 );

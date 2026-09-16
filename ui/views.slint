@@ -4,6 +4,7 @@ import { AudioRow, CommentRow, TrackDifference, TreeRow } from "./models.slint";
 import { Waveform } from "./waveform.slint";
 component AudioRowView inherits Rectangle {
     height: 86px;
+    opacity: root.is-cut ? 0.5 : 1;
     background: root.light-theme ? #ffffff : #1a2029;
     border-color: root.is-selected ? (root.is-primary ? #000000 : #9ca3af) : root.is-active ? (root.light-theme ? #d46b32 : #e58a4d) : (root.light-theme ? #d9dee6 : #2a3340);
     border-width: root.is-selected ? 2px : 1px;
@@ -21,6 +22,7 @@ component AudioRowView inherits Rectangle {
     in property <bool> is-pinned;
     property <int> hovered-rating: -1;
     in property <bool> is-selected;
+    in property <bool> is-cut;
     in property <bool> is-primary;
     in property <bool> is-active;
     in property <bool> is-playing;
@@ -39,14 +41,41 @@ component AudioRowView inherits Rectangle {
     callback pin-requested();
     callback trash-requested();
     property <bool> click-shift: false;
+    property <bool> dragging: false;
+    property <bool> dragged: false;
+    property <length> drag-start-y: 0px;
+    property <length> drag-pointer-x: 0px;
+    property <length> drag-pointer-y: 0px;
+    callback drag-finished(bool, float, float, float);
 
     TouchArea {
         width: parent.width - 292px;
         height: parent.height;
-        clicked => { root.row-clicked(root.click-shift); }
+        clicked => {
+            if !root.dragged {
+                root.row-clicked(root.click-shift);
+            }
+        }
         pointer-event(event) => {
             if event.kind == PointerEventKind.down && event.button == PointerEventButton.left {
                 root.click-shift = event.modifiers.shift;
+                root.dragging = true;
+                root.dragged = false;
+                root.drag-start-y = self.mouse-y;
+            } else if event.kind == PointerEventKind.move && root.dragging {
+                root.drag-pointer-x = self.mouse-x;
+                root.drag-pointer-y = self.mouse-y;
+                if (self.mouse-y - root.drag-start-y).abs() > 4px {
+                    root.dragged = true;
+                }
+            } else if event.kind == PointerEventKind.up && root.dragging {
+                root.drag-finished(
+                    root.dragged,
+                    self.mouse-y / 1px,
+                    (self.absolute-position.x + self.mouse-x) / 1px,
+                    (self.absolute-position.y + self.mouse-y) / 1px,
+                );
+                root.dragging = false;
             }
         }
     }
@@ -248,6 +277,23 @@ component AudioRowView inherits Rectangle {
             }
         }
     }
+    if root.dragging && root.dragged : Rectangle {
+        x: root.drag-pointer-x + 8px;
+        y: root.drag-pointer-y + 8px;
+        width: 190px;
+        height: 30px;
+        z: 100;
+        background: root.light-theme ? #3b78c4 : #79b8ff;
+        Text {
+            text: root.name;
+            x: 10px;
+            width: parent.width - 20px;
+            color: #ffffff;
+            font-size: 12px;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+    }
 }
 component AudioFolderRow inherits Rectangle {
     width: 100%;
@@ -315,9 +361,31 @@ export component AudioList inherits ListView {
     callback rating-requested(string, int);
     callback pin-requested(string);
     callback trash-requested(string);
+    callback file-drag-finished(string, int, float, float, float);
+    callback geometry-changed(float, float, float, float, float);
     callback folder-clicked(string);
     callback folder-collapse-all-requested(string);
     callback folder-expand-all-requested(string);
+
+    init => {
+        root.geometry-changed(
+            self.absolute-position.x / 1px,
+            self.absolute-position.y / 1px,
+            self.width / 1px,
+            self.height / 1px,
+            self.viewport-y / 1px,
+        );
+    }
+
+    changed absolute-position => {
+        root.geometry-changed(
+            self.absolute-position.x / 1px,
+            self.absolute-position.y / 1px,
+            self.width / 1px,
+            self.height / 1px,
+            self.viewport-y / 1px,
+        );
+    }
 
     changed rows => {
         root.viewport-changed(
@@ -331,12 +399,26 @@ export component AudioList inherits ListView {
             (0px - root.viewport-y) / 86px,
             (root.height / 86px) + 1
         );
+        root.geometry-changed(
+            self.absolute-position.x / 1px,
+            self.absolute-position.y / 1px,
+            self.width / 1px,
+            self.height / 1px,
+            self.viewport-y / 1px,
+        );
     }
 
     changed viewport-y => {
         root.viewport-changed(
             (0px - root.viewport-y) / 86px,
             (root.height / 86px) + 1
+        );
+        root.geometry-changed(
+            self.absolute-position.x / 1px,
+            self.absolute-position.y / 1px,
+            self.width / 1px,
+            self.height / 1px,
+            self.viewport-y / 1px,
         );
     }
 
@@ -346,7 +428,7 @@ export component AudioList inherits ListView {
         }
     }
 
-    for row in root.rows : Rectangle {
+    for row[index] in root.rows : Rectangle {
         width: 100%;
         height: row.is-folder ? 30px : 86px;
         if row.is-folder : AudioFolderRow {
@@ -371,6 +453,7 @@ export component AudioList inherits ListView {
             rating: row.rating;
             is-pinned: row.is-pinned;
             is-selected: row.is-selected;
+            is-cut: row.is-cut;
             is-primary: row.is-primary;
             is-active: row.is-active;
             is-playing: row.is-playing;
@@ -389,6 +472,11 @@ export component AudioList inherits ListView {
             pin-requested => { root.pin-requested(row.path); }
             trash-requested => { root.trash-requested(row.path); }
             row-clicked(shift) => { root.row-clicked(row.path, shift); }
+            drag-finished(was-dragged, pointer-y, pointer-x, absolute-y) => {
+                if was-dragged {
+                    root.file-drag-finished(row.path, index, pointer-y, pointer-x, absolute-y);
+                }
+            }
         }
     }
 }
@@ -397,19 +485,21 @@ component ExplorerRow inherits Rectangle {
     width: 100%;
     height: 26px;
     background: root.is-selected ? (root.light-theme ? #d7e3f3 : #2a3546) : transparent;
+    opacity: root.is-cut ? 0.5 : 1;
     callback clicked(bool);
     callback right-clicked(length, length);
-    callback drag-finished(bool, float);
     callback edit-accepted(string);
     callback edit-cancelled();
     in property <bool> light-theme;
     in property <string> path;
     in property <string> name;
     in property <int> depth;
+    callback drag-finished(bool, float, float, float);
     in property <bool> is-dir;
     in property <bool> is-expanded;
     in property <bool> is-selected;
     in property <string> kind;
+    in property <bool> is-cut;
     in property <int> drag-count: 1;
     in property <bool> editing;
     in-out property <string> edit-text: "";
@@ -520,7 +610,12 @@ component ExplorerRow inherits Rectangle {
                     root.dragged = true;
                 }
             } else if event.kind == PointerEventKind.up && root.dragging {
-                root.drag-finished(root.dragged, self.mouse-y / 1px);
+                root.drag-finished(
+                    root.dragged,
+                    self.mouse-y / 1px,
+                    (self.absolute-position.x + self.mouse-x) / 1px,
+                    (self.absolute-position.y + self.mouse-y) / 1px,
+                );
                 root.dragging = false;
             }
         }
@@ -566,8 +661,40 @@ export component ExplorerList inherits ListView {
     callback tree-context-menu(string, length, length);
     callback tree-trash-requested(string);
     callback tree-drop-requested(string, int, float);
+    callback file-drag-finished(string, float, float);
+    callback geometry-changed(float, float, float, float, float);
     callback edit-accepted(string, string);
     callback edit-cancelled();
+
+    init => {
+        root.geometry-changed(
+            self.absolute-position.x / 1px,
+            self.absolute-position.y / 1px,
+            self.width / 1px,
+            self.height / 1px,
+            self.viewport-y / 1px,
+        );
+    }
+
+    changed absolute-position => {
+        root.geometry-changed(
+            self.absolute-position.x / 1px,
+            self.absolute-position.y / 1px,
+            self.width / 1px,
+            self.height / 1px,
+            self.viewport-y / 1px,
+        );
+    }
+
+    changed viewport-y => {
+        root.geometry-changed(
+            self.absolute-position.x / 1px,
+            self.absolute-position.y / 1px,
+            self.width / 1px,
+            self.height / 1px,
+            self.viewport-y / 1px,
+        );
+    }
 
     changed scroll-to-index => {
         if root.scroll-to-index >= 0 {
@@ -585,16 +712,18 @@ export component ExplorerList inherits ListView {
         is-dir: row.is-dir;
         is-expanded: row.is-expanded;
         is-selected: row.is-selected;
+        is-cut: row.is-cut;
         kind: row.kind;
         drag-count: root.selected-count;
         editing: root.edit-path == row.path;
         edit-text <=> root.edit-text;
-        drag-finished(was-dragged, pointer-y) => {
+        drag-finished(was-dragged, pointer-y, pointer-x, absolute-y) => {
             if was-dragged {
                 let target-index = (index + ((pointer-y - 13.0) / 26.0).round()).max(0).min(root.rows.length - 1);
                 if target-index >= 0 {
                     root.tree-drop-requested(row.path, target-index, pointer-y);
                 }
+                root.file-drag-finished(row.path, pointer-x, absolute-y);
             }
         }
         clicked(shift) => { root.row-clicked(row.path, shift); }

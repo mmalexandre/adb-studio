@@ -20,12 +20,19 @@ use crate::{
 
 pub mod conversion_controller;
 pub mod env;
+pub mod file_controller;
 pub mod metadata_pane_controller;
 pub mod playback_controller;
 pub mod sync_ui_controller;
 pub mod tree_controller;
 pub mod window_controller;
 pub mod workflow_controller;
+
+#[derive(Clone)]
+pub struct FileClipboard {
+    pub paths: Vec<PathBuf>,
+    pub cut: bool,
+}
 
 pub struct AppState {
     pub settings: Rc<RefCell<AppSettings>>,
@@ -39,6 +46,7 @@ pub struct AppState {
     pub recreate_workflow_pending: Rc<RefCell<bool>>,
     pub workspace_watcher: Rc<RefCell<Option<RecommendedWatcher>>>,
     pub audio_model: Rc<RefCell<Option<Rc<VecModel<crate::AudioRow>>>>>,
+    pub file_clipboard: Rc<RefCell<Option<FileClipboard>>>,
     pub sync_controller: Rc<RefCell<crate::sync::SyncController>>,
     pub comment_editor_original: Rc<RefCell<Option<crate::metadata::AudioComment>>>,
     pub comment_editor_duration: Rc<RefCell<f32>>,
@@ -92,6 +100,7 @@ impl AppState {
             recreate_workflow_pending: Rc::new(RefCell::new(false)),
             workspace_watcher: Rc::new(RefCell::new(None)),
             audio_model: Rc::new(RefCell::new(None)),
+            file_clipboard: Rc::new(RefCell::new(None)),
             sync_controller: Rc::new(RefCell::new(crate::sync::SyncController::new())),
             comment_editor_original: Rc::new(RefCell::new(None)),
             comment_editor_duration: Rc::new(RefCell::new(0.0_f32)),

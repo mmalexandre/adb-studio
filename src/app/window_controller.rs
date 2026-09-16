@@ -92,6 +92,7 @@ pub fn register_window_callbacks(
     edited_workflow: &Rc<RefCell<Option<serde_json::Value>>>,
     edited_workflow_path: &Rc<RefCell<Option<PathBuf>>>,
     loaded_workflow_path: &Rc<RefCell<Option<PathBuf>>>,
+    file_clipboard: &Rc<RefCell<Option<crate::app::FileClipboard>>>,
 ) {
     {
         let weak_window = window.as_weak();
@@ -223,10 +224,13 @@ pub fn register_window_callbacks(
         let edited_workflow = Rc::clone(edited_workflow);
         let edited_workflow_path = Rc::clone(edited_workflow_path);
         let loaded_workflow_path = Rc::clone(loaded_workflow_path);
+        let file_clipboard = Rc::clone(file_clipboard);
         window.on_close_folder(move || {
             let Some(window) = weak_window.upgrade() else {
                 return;
             };
+            *file_clipboard.borrow_mut() = None;
+            crate::app::file_controller::set_cut_paths(&window, &[]);
             close_workspace(
                 &window,
                 &settings,
@@ -241,6 +245,31 @@ pub fn register_window_callbacks(
                 &edited_workflow,
                 &edited_workflow_path,
                 &loaded_workflow_path,
+            );
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        let settings = Rc::clone(settings);
+        let tree_state = Rc::clone(tree_state);
+        let audio_folder = Rc::clone(audio_folder);
+        let audio_model = Rc::clone(audio_model);
+        let audio_load_state = Arc::clone(audio_load_state);
+        let file_clipboard = Rc::clone(file_clipboard);
+        window.on_file_operation(move |action| {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            crate::app::file_controller::handle_clipboard_action(
+                &window,
+                action,
+                &settings,
+                &tree_state,
+                &audio_folder,
+                &audio_model,
+                &audio_load_state,
+                &file_clipboard,
             );
         });
     }
