@@ -134,10 +134,12 @@ pub fn register_playback_callbacks(
                 start_seconds: (start * duration).clamp(0.0, duration),
                 end_seconds: (end * duration).clamp(0.0, duration),
                 text: String::new(),
+                label_id: None,
             });
             *comment_editor_duration.borrow_mut() = duration;
             window.set_comment_editor_path(path.to_string_lossy().into_owned().into());
             window.set_comment_editor_text("".into());
+            window.set_comment_editor_label_id(-1);
             window.set_comment_editor_visible(true);
         });
     }

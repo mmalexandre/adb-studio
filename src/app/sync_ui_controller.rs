@@ -6,7 +6,7 @@ use std::{
     time::Duration,
 };
 
-use slint::ComponentHandle;
+use slint::{ComponentHandle, ModelRc, VecModel};
 
 use crate::{
     audio::{
@@ -37,6 +37,95 @@ pub fn register_sync_ui_callbacks(
     recreate_workflow_pending: &Rc<RefCell<bool>>,
     edited_workflow: &Rc<RefCell<Option<serde_json::Value>>>,
 ) {
+    {
+        let weak_window = window.as_weak();
+        let settings = Rc::clone(settings);
+        window.on_label_created(move |name, color| {
+            let mut settings = settings.borrow_mut();
+            settings.create_label(name.to_string(), color.to_string());
+            let snapshot = settings.clone();
+            settings::save(&snapshot);
+            if let Some(window) = weak_window.upgrade() {
+                refresh_definition_properties(&window, &settings);
+            }
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        let settings = Rc::clone(settings);
+        window.on_label_updated(move |id, name, color| {
+            let mut settings = settings.borrow_mut();
+            if let Some(label) = settings.label_definitions.iter_mut().find(|label| label.id == id as u64) {
+                label.name = name.to_string();
+                label.color = color.to_string();
+                let snapshot = settings.clone();
+                settings::save(&snapshot);
+                if let Some(window) = weak_window.upgrade() {
+                    refresh_definition_properties(&window, &settings);
+                }
+            }
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        let settings = Rc::clone(settings);
+        window.on_label_deleted(move |id| {
+            let mut settings = settings.borrow_mut();
+            settings.label_definitions.retain(|label| label.id != id as u64);
+            let snapshot = settings.clone();
+            settings::save(&snapshot);
+            if let Some(window) = weak_window.upgrade() {
+                refresh_definition_properties(&window, &settings);
+            }
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        let settings = Rc::clone(settings);
+        window.on_tag_created(move |name| {
+            let mut settings = settings.borrow_mut();
+            settings.create_tag(name.to_string());
+            let snapshot = settings.clone();
+            settings::save(&snapshot);
+            if let Some(window) = weak_window.upgrade() {
+                refresh_definition_properties(&window, &settings);
+            }
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        let settings = Rc::clone(settings);
+        window.on_tag_updated(move |id, name| {
+            let mut settings = settings.borrow_mut();
+            if let Some(tag) = settings.tag_definitions.iter_mut().find(|tag| tag.id == id as u64) {
+                tag.name = name.to_string();
+                let snapshot = settings.clone();
+                settings::save(&snapshot);
+                if let Some(window) = weak_window.upgrade() {
+                    refresh_definition_properties(&window, &settings);
+                }
+            }
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        let settings = Rc::clone(settings);
+        window.on_tag_deleted(move |id| {
+            let mut settings = settings.borrow_mut();
+            settings.tag_definitions.retain(|tag| tag.id != id as u64);
+            let snapshot = settings.clone();
+            settings::save(&snapshot);
+            if let Some(window) = weak_window.upgrade() {
+                refresh_definition_properties(&window, &settings);
+            }
+        });
+    }
+
     {
         let weak_window = window.as_weak();
         window.on_close_about(move || {
@@ -369,6 +458,51 @@ pub fn register_sync_ui_callbacks(
             );
         });
     }
+}
+
+pub fn refresh_definition_properties(window: &MainWindow, settings: &AppSettings) {
+    window.set_label_ids(ModelRc::new(VecModel::from(
+        settings
+            .label_definitions
+            .iter()
+            .map(|label| label.id as i32)
+            .collect::<Vec<_>>(),
+    )));
+    window.set_label_names(ModelRc::new(VecModel::from(
+        settings
+            .label_definitions
+            .iter()
+            .map(|label| label.name.clone().into())
+            .collect::<Vec<slint::SharedString>>(),
+    )));
+    window.set_label_colors(ModelRc::new(VecModel::from(
+        settings
+            .label_definitions
+            .iter()
+            .map(|label| label.color.clone().into())
+            .collect::<Vec<slint::SharedString>>(),
+    )));
+    window.set_label_color_values(ModelRc::new(VecModel::from(
+        settings
+            .label_definitions
+            .iter()
+            .map(|label| settings::parse_color(&label.color, slint::Color::from_argb_u8(255, 169, 216, 245)))
+            .collect::<Vec<_>>(),
+    )));
+    window.set_tag_ids(ModelRc::new(VecModel::from(
+        settings
+            .tag_definitions
+            .iter()
+            .map(|tag| tag.id as i32)
+            .collect::<Vec<_>>(),
+    )));
+    window.set_tag_names(ModelRc::new(VecModel::from(
+        settings
+            .tag_definitions
+            .iter()
+            .map(|tag| tag.name.clone().into())
+            .collect::<Vec<slint::SharedString>>(),
+    )));
 }
 
 /// Drains ComfyUI sync events and applies them to the window/audio state; advances the spinner.

@@ -29,6 +29,15 @@ export component MainWindow inherits Window {
     in-out property <bool> about-visible: false;
     in-out property <bool> settings-visible: false;
     in-out property <int> settings-tab: 0;
+    in-out property <[int]> label-ids: [];
+    in-out property <[string]> label-names: [];
+    in-out property <[string]> label-colors: [];
+    in-out property <[color]> label-color-values: [];
+    in-out property <[int]> tag-ids: [];
+    in-out property <[string]> tag-names: [];
+    in-out property <string> new-label-name: "";
+    in-out property <string> new-label-color: "#a9d8f5";
+    in-out property <string> new-tag-name: "";
     in-out property <bool> tips-visible: false;
     in-out property <bool> hide-tips-of-the-day: false;
     in-out property <bool> comfyui-sync-visible: false;
@@ -166,6 +175,12 @@ export component MainWindow inherits Window {
     callback close-folder();
     callback close-about();
     callback close-settings();
+    callback label-created(string, string);
+    callback label-updated(int, string, string);
+    callback label-deleted(int);
+    callback tag-created(string);
+    callback tag-updated(int, string);
+    callback tag-deleted(int);
     callback close-tips();
     callback tips-preference-changed(bool);
     callback comfyui-sync-requested();
@@ -217,6 +232,9 @@ export component MainWindow inherits Window {
     callback comment-edit-requested(string, float, float, string);
     callback comment-range-moved(string, float, float, float, float, string);
     callback rating-requested(string, int);
+    callback audio-label-selected(string, int);
+    callback audio-tag-add-requested(string, int);
+    callback audio-tag-remove-requested(string, int);
     callback pin-requested(string);
     callback trash-requested(string);
     callback trash-confirmed(bool);
@@ -249,6 +267,7 @@ export component MainWindow inherits Window {
     in-out property <bool> comment-editor-visible: false;
     in-out property <string> comment-editor-path: "";
     in-out property <string> comment-editor-text: "";
+    in-out property <int> comment-editor-label-id: -1;
 
     changed left-pane-width => {
         root.left-pane-width-changed(root.left-pane-width);
@@ -730,6 +749,9 @@ export component MainWindow inherits Window {
                                 comment-background-color: root.comment-background-color;
                                 comment-text-color: root.comment-text-color;
                                 rows: root.audio-rows;
+                                label-ids: root.label-ids;
+                                label-names: root.label-names;
+                                label-colors: root.label-color-values;
                                 scroll-to-index: root.audio-scroll-to-index;
                                 width: 100%;
                                 height: 100%;
@@ -753,6 +775,9 @@ export component MainWindow inherits Window {
                                 comment-edit-requested(path, start, end, text) => { root.comment-edit-requested(path, start, end, text); }
                                 comment-range-moved(path, old-start, old-end, start, end, text) => { root.comment-range-moved(path, old-start, old-end, start, end, text); }
                                 rating-requested(path, rating) => { root.rating-requested(path, rating); }
+                                label-selected(path, label-id) => { root.audio-label-selected(path, label-id); }
+                                tag-add-requested(path, tag-id) => { root.audio-tag-add-requested(path, tag-id); }
+                                tag-remove-requested(path, tag-id) => { root.audio-tag-remove-requested(path, tag-id); }
                                 pin-requested(path) => { root.pin-requested(path); }
                                 trash-requested(path) => { root.trash-requested(path); }
                                 file-drag-finished(path, source-index, pointer-y, pointer-x, absolute-y) => {
@@ -1764,6 +1789,19 @@ export component MainWindow inherits Window {
                                 }
                                 TouchArea { clicked => { root.settings-tab = 1; } }
                             }
+                            Rectangle {
+                                height: 38px;
+                                background: root.settings-tab == 2 ? (root.light-theme ? #d7e3f3 : #2a3546) : transparent;
+                                border-color: root.settings-tab == 2 ? (root.light-theme ? #8ea9c6 : #5d7898) : transparent;
+                                border-width: 1px;
+                                Text {
+                                    text: "Labels and tags";
+                                    x: 12px;
+                                    color: root.light-theme ? #202833 : #f1f4f8;
+                                    vertical-alignment: center;
+                                }
+                                TouchArea { clicked => { root.settings-tab = 2; } }
+                            }
                             Rectangle { vertical-stretch: 1; }
                         }
                     }
@@ -1873,6 +1911,76 @@ export component MainWindow inherits Window {
                                 HorizontalLayout { Text { text: "Seek backward"; width: 130px; } ComboBox { model: shortcut-keys; current-index: root.shortcut-seek-backward; changed has-focus => { root.text-input-focused = self.has-focus; } changed current-index => { root.shortcut-changed(6, self.current-index); } } }
                                 HorizontalLayout { Text { text: "Seek forward"; width: 130px; } ComboBox { model: shortcut-keys; current-index: root.shortcut-seek-forward; changed has-focus => { root.text-input-focused = self.has-focus; } changed current-index => { root.shortcut-changed(7, self.current-index); } } }
                                 HorizontalLayout { Text { text: "Move to trash"; width: 130px; } ComboBox { model: shortcut-keys; current-index: root.shortcut-trash; changed has-focus => { root.text-input-focused = self.has-focus; } changed current-index => { root.shortcut-changed(8, self.current-index); } } }
+                            }
+                            Rectangle { vertical-stretch: 1; }
+                            HorizontalLayout {
+                                alignment: end;
+                                spacing: 8px;
+                                AppButton { text: "Close"; clicked => { root.close-settings(); } }
+                            }
+                        }
+                        if root.settings-tab == 2 : VerticalBox {
+                            padding: 24px;
+                            spacing: 8px;
+                            Text {
+                                text: "Labels and tags";
+                                color: root.light-theme ? #202833 : #f1f4f8;
+                                font-size: 22px;
+                            }
+                            Text { text: "Labels"; color: root.light-theme ? #5c6878 : #c4ccd8; }
+                            HorizontalLayout {
+                                spacing: 6px;
+                                LineEdit { text <=> root.new-label-name; placeholder-text: "Label name"; }
+                                LineEdit { width: 90px; text <=> root.new-label-color; }
+                                AppButton {
+                                    text: "Add";
+                                    clicked => {
+                                        if root.new-label-name != "" { root.label-created(root.new-label-name, root.new-label-color); }
+                                    }
+                                }
+                            }
+                            ListView {
+                                vertical-stretch: 1;
+                                for label-id[index] in root.label-ids : HorizontalLayout {
+                                    height: 30px;
+                                    spacing: 6px;
+                                    Rectangle { width: 18px; height: 18px; background: root.label-color-values[index]; border-radius: 9px; }
+                                    LineEdit {
+                                        horizontal-stretch: 1;
+                                        text: root.label-names[index];
+                                        edited(text) => { root.label-updated(label-id, text, root.label-colors[index]); }
+                                    }
+                                    LineEdit {
+                                        width: 90px;
+                                        text: root.label-colors[index];
+                                        edited(color) => { root.label-updated(label-id, root.label-names[index], color); }
+                                    }
+                                    AppButton { text: "Delete"; clicked => { root.label-deleted(label-id); } }
+                                }
+                            }
+                            Text { text: "Semantic tags"; color: root.light-theme ? #5c6878 : #c4ccd8; }
+                            HorizontalLayout {
+                                spacing: 6px;
+                                LineEdit { text <=> root.new-tag-name; placeholder-text: "Tag name"; }
+                                AppButton {
+                                    text: "Add";
+                                    clicked => {
+                                        if root.new-tag-name != "" { root.tag-created(root.new-tag-name); }
+                                    }
+                                }
+                            }
+                            ListView {
+                                height: 90px;
+                                for tag-id[index] in root.tag-ids : HorizontalLayout {
+                                    height: 30px;
+                                    spacing: 6px;
+                                    LineEdit {
+                                        horizontal-stretch: 1;
+                                        text: root.tag-names[index];
+                                        edited(text) => { root.tag-updated(tag-id, text); }
+                                    }
+                                    AppButton { text: "Delete"; clicked => { root.tag-deleted(tag-id); } }
+                                }
                             }
                             Rectangle { vertical-stretch: 1; }
                             HorizontalLayout {
@@ -2103,7 +2211,7 @@ export component MainWindow inherits Window {
             init => { comment-text-editor.focus(); }
             Rectangle {
                 width: 430px;
-                height: 270px;
+                height: 330px;
                 x: (parent.width - self.width) / 2;
                 y: (parent.height - self.height) / 2;
                 background: root.light-theme ? #ffffff : #202832;
@@ -2125,6 +2233,27 @@ export component MainWindow inherits Window {
                             reject;
                         }
                         changed has-focus => { root.text-input-focused = self.has-focus; }
+                    }
+                    Text { text: "Label"; color: root.light-theme ? #5c6878 : #c4ccd8; }
+                    HorizontalLayout {
+                        spacing: 6px;
+                        Rectangle {
+                            width: 28px;
+                            height: 24px;
+                            border-color: root.comment-editor-label-id < 0 ? (root.light-theme ? #202833 : #f1f4f8) : transparent;
+                            border-width: 1px;
+                            Text { text: "-"; horizontal-alignment: center; vertical-alignment: center; color: root.light-theme ? #202833 : #f1f4f8; }
+                            TouchArea { clicked => { root.comment-editor-label-id = -1; } }
+                        }
+                        for label-id[index] in root.label-ids : Rectangle {
+                            width: 28px;
+                            height: 24px;
+                            background: root.label-color-values[index];
+                            border-color: root.comment-editor-label-id == label-id ? (root.light-theme ? #202833 : #ffffff) : transparent;
+                            border-width: 2px;
+                            Text { text: root.label-names[index]; x: 34px; width: 130px; color: root.light-theme ? #202833 : #f1f4f8; vertical-alignment: center; }
+                            TouchArea { clicked => { root.comment-editor-label-id = label-id; } }
+                        }
                     }
                     Rectangle { vertical-stretch: 1; }
                     HorizontalLayout {

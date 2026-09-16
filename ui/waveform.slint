@@ -83,6 +83,17 @@ export component Waveform inherits Rectangle {
             }
         }
     }
+    for comment[index] in root.comments : Rectangle {
+        x: comment.start * parent.width;
+        width: (comment.end - comment.start) * parent.width;
+        y: 0px;
+        height: parent.height;
+        visible: comment.end >= comment.start;
+        background: comment.label-color;
+        opacity: 0.24;
+        border-color: comment.label-color;
+        border-width: 1px;
+    }
     if root.selected-comment-start >= 0 && root.selected-comment-end >= root.selected-comment-start : Rectangle {
         x: root.selected-comment-start * parent.width;
         width: (root.selected-comment-end - root.selected-comment-start) * parent.width;

@@ -9,7 +9,8 @@ use std::{
 use slint::{Model, ModelRc, VecModel};
 
 use crate::metadata;
-use crate::{AudioRow, CommentRow};
+use crate::settings::{self, LabelDefinition, TagDefinition};
+use crate::{AudioRow, CommentRow, TagRow};
 
 thread_local! {
     static AUDIO_ROW_INDEX: RefCell<HashMap<PathBuf, usize>> = RefCell::new(HashMap::new());
@@ -33,8 +34,15 @@ fn row_index(path: &Path) -> Option<usize> {
 }
 
 pub fn comment_rows(item: &metadata::AudioFileMetadata) -> ModelRc<CommentRow> {
+    comment_rows_with_labels(item, &settings::AppSettings::default().label_definitions)
+}
+
+pub fn comment_rows_with_labels(
+    item: &metadata::AudioFileMetadata,
+    labels: &[LabelDefinition],
+) -> ModelRc<CommentRow> {
     let duration = item.duration_seconds.max(0.001);
-    let mut normalized: Vec<(f32, f32, String)> = item
+    let mut normalized: Vec<(f32, f32, String, Option<u64>)> = item
         .comments
         .iter()
         .map(|comment| {
@@ -42,6 +50,7 @@ pub fn comment_rows(item: &metadata::AudioFileMetadata) -> ModelRc<CommentRow> {
                 (comment.start_seconds / duration).clamp(0.0, 1.0),
                 (comment.end_seconds / duration).clamp(0.0, 1.0),
                 comment.text.clone(),
+                comment.label_id,
             )
         })
         .collect();
@@ -49,7 +58,9 @@ pub fn comment_rows(item: &metadata::AudioFileMetadata) -> ModelRc<CommentRow> {
     let rows = normalized
         .iter()
         .enumerate()
-        .map(|(index, (start, end, text))| CommentRow {
+        .map(|(index, (start, end, text, label_id))| {
+            let label = label_id.and_then(|id| labels.iter().find(|label| label.id == id));
+            CommentRow {
             start: *start,
             end: *end,
             bubble_end: normalized
@@ -58,9 +69,66 @@ pub fn comment_rows(item: &metadata::AudioFileMetadata) -> ModelRc<CommentRow> {
                 .unwrap_or(1.0)
                 .max(*start),
             text: text.clone().into(),
+            label_id: label_id.map(|id| id as i32).unwrap_or(-1),
+            label_color: label
+                .map(|label| settings::parse_color(&label.color, fallback_label_color()))
+                .unwrap_or_else(fallback_label_color),
+            label_known: label.is_some(),
+        }
         })
         .collect::<Vec<_>>();
     ModelRc::new(VecModel::from(rows))
+}
+
+fn fallback_label_color() -> slint::Color {
+    slint::Color::from_argb_u8(255, 229, 138, 77)
+}
+
+pub fn label_row_fields(
+    label_id: Option<u64>,
+    labels: &[LabelDefinition],
+) -> (i32, slint::SharedString, slint::Color, bool) {
+    let Some(label_id) = label_id else {
+        return (-1, "".into(), fallback_label_color(), false);
+    };
+    let Some(label) = labels.iter().find(|label| label.id == label_id) else {
+        return (label_id as i32, "Unknown label".into(), fallback_label_color(), false);
+    };
+    (
+        label_id as i32,
+        label.name.clone().into(),
+        settings::parse_color(&label.color, fallback_label_color()),
+        true,
+    )
+}
+
+pub fn tag_rows(tag_ids: &[u64], tags: &[TagDefinition]) -> ModelRc<TagRow> {
+    ModelRc::new(VecModel::from(
+        tag_ids
+            .iter()
+            .map(|tag_id| TagRow {
+                id: *tag_id as i32,
+                name: tags
+                    .iter()
+                    .find(|tag| tag.id == *tag_id)
+                    .map(|tag| tag.name.clone())
+                    .unwrap_or_else(|| "Unknown tag".to_owned())
+                    .into(),
+            })
+            .collect::<Vec<_>>(),
+    ))
+}
+
+pub fn available_tag_rows(tag_ids: &[u64], tags: &[TagDefinition]) -> ModelRc<TagRow> {
+    ModelRc::new(VecModel::from(
+        tags.iter()
+            .filter(|tag| !tag_ids.contains(&tag.id))
+            .map(|tag| TagRow {
+                id: tag.id as i32,
+                name: tag.name.clone().into(),
+            })
+            .collect::<Vec<_>>(),
+    ))
 }
 
 pub fn update_comment_model(
@@ -150,6 +218,12 @@ pub fn update_audio_rows(
                     loop_enabled: row.loop_enabled,
                     selected_comment_start: row.selected_comment_start,
                     selected_comment_end: row.selected_comment_end,
+                    label_id: row.label_id,
+                    label_name: row.label_name,
+                    label_color: row.label_color,
+                    label_known: row.label_known,
+                    tags: row.tags,
+                    available_tags: row.available_tags,
                 },
             );
         }
@@ -204,6 +278,12 @@ pub fn update_audio_loading_rows(
                     loop_enabled: row.loop_enabled,
                     selected_comment_start: row.selected_comment_start,
                     selected_comment_end: row.selected_comment_end,
+                    label_id: row.label_id,
+                    label_name: row.label_name,
+                    label_color: row.label_color,
+                    label_known: row.label_known,
+                    tags: row.tags,
+                    available_tags: row.available_tags,
                 },
             );
         }
@@ -251,6 +331,12 @@ pub fn select_comment(
                     loop_enabled: row.loop_enabled,
                     selected_comment_start: if selected { start } else { -1.0 },
                     selected_comment_end: if selected { end } else { -1.0 },
+                    label_id: row.label_id,
+                    label_name: row.label_name,
+                    label_color: row.label_color,
+                    label_known: row.label_known,
+                    tags: row.tags,
+                    available_tags: row.available_tags,
                 },
             );
         }
@@ -299,6 +385,12 @@ pub fn select_audio_paths(
                     loop_enabled: row.loop_enabled,
                     selected_comment_start: row.selected_comment_start,
                     selected_comment_end: row.selected_comment_end,
+                    label_id: row.label_id,
+                    label_name: row.label_name,
+                    label_color: row.label_color,
+                    label_known: row.label_known,
+                    tags: row.tags,
+                    available_tags: row.available_tags,
                 },
             );
         }
@@ -435,11 +527,13 @@ mod tests {
                     start_seconds: 8.0,
                     end_seconds: 12.0,
                     text: "late".into(),
+                    label_id: None,
                 },
                 AudioComment {
                     start_seconds: -2.0,
                     end_seconds: 1.0,
                     text: "early".into(),
+                    label_id: None,
                 },
             ],
             ..Default::default()
@@ -465,6 +559,7 @@ mod tests {
                 start_seconds: 1.0,
                 end_seconds: 2.0,
                 text: "comment".into(),
+                label_id: None,
             }],
             ..Default::default()
         };

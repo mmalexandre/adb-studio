@@ -13,7 +13,8 @@ use crate::{
         playback::PlaybackEngine,
         session::comment_duration,
         view::{
-            comment_rows, select_comment, update_audio_subtitle, update_comment_model,
+            available_tag_rows, comment_rows_with_labels, label_row_fields, select_comment, tag_rows,
+            update_audio_subtitle, update_comment_model,
             user_comment_subtitle,
         },
     },
@@ -36,6 +37,98 @@ pub fn register_metadata_pane_callbacks(
     comment_editor_original: &Rc<RefCell<Option<AudioComment>>>,
     comment_editor_duration: &Rc<RefCell<f32>>,
 ) {
+    {
+        let audio_folder = Rc::clone(audio_folder);
+        let audio_model = Rc::clone(audio_model);
+        let settings = Rc::clone(settings);
+        window.on_audio_tag_add_requested(move |path, tag_id| {
+            update_audio_tag_assignment(
+                &audio_folder,
+                &audio_model,
+                &settings,
+                path.as_str(),
+                tag_id,
+                true,
+            );
+        });
+    }
+
+    {
+        let audio_folder = Rc::clone(audio_folder);
+        let audio_model = Rc::clone(audio_model);
+        let settings = Rc::clone(settings);
+        window.on_audio_tag_remove_requested(move |path, tag_id| {
+            update_audio_tag_assignment(
+                &audio_folder,
+                &audio_model,
+                &settings,
+                path.as_str(),
+                tag_id,
+                false,
+            );
+        });
+    }
+
+    {
+        let audio_folder = Rc::clone(audio_folder);
+        let audio_model = Rc::clone(audio_model);
+        let settings = Rc::clone(settings);
+        window.on_audio_label_selected(move |path, selected_label_id| {
+            let Some(folder) = audio_folder.borrow().clone() else {
+                return;
+            };
+            let audio_path = PathBuf::from(path.as_str());
+            let mut file = metadata::load_audio_metadata(&folder, &audio_path);
+            file.label_id = (selected_label_id >= 0).then_some(selected_label_id as u64);
+            metadata::save_audio_metadata(&folder, &audio_path, &file);
+            let (label_id, label_name, label_color, label_known) = label_row_fields(
+                file.label_id,
+                &settings.borrow().label_definitions,
+            );
+            if let Some(model) = audio_model.borrow().clone() {
+                for index in 0..model.row_count() {
+                    let Some(row) = model.row_data(index) else {
+                        continue;
+                    };
+                    if row.path == path {
+                        model.set_row_data(index, crate::AudioRow {
+                            path: row.path,
+                            name: row.name,
+                            subtitle: row.subtitle,
+                            is_folder: row.is_folder,
+                            depth: row.depth,
+                            is_expanded: row.is_expanded,
+                            modified_date: row.modified_date,
+                            waveform: row.waveform,
+                            is_loading: row.is_loading,
+                            comments: row.comments,
+                            differences: row.differences,
+                            similarity: row.similarity,
+                            rating: row.rating,
+                            is_pinned: row.is_pinned,
+                            is_selected: row.is_selected,
+                            is_cut: row.is_cut,
+                            is_primary: row.is_primary,
+                            is_active: row.is_active,
+                            is_playing: row.is_playing,
+                            progress: row.progress,
+                            loop_enabled: row.loop_enabled,
+                            selected_comment_start: row.selected_comment_start,
+                            selected_comment_end: row.selected_comment_end,
+                            label_id,
+                            label_name,
+                            label_color,
+                            label_known,
+                            tags: row.tags,
+                            available_tags: row.available_tags,
+                        });
+                        break;
+                    }
+                }
+            }
+        });
+    }
+
     {
         let weak_window = window.as_weak();
         let audio_folder = Rc::clone(audio_folder);
@@ -137,6 +230,12 @@ pub fn register_metadata_pane_callbacks(
                                 loop_enabled: row.loop_enabled,
                                 selected_comment_start: row.selected_comment_start,
                                 selected_comment_end: row.selected_comment_end,
+                                label_id: row.label_id,
+                                label_name: row.label_name,
+                                label_color: row.label_color,
+                                label_known: row.label_known,
+                                tags: row.tags,
+                                available_tags: row.available_tags,
                             },
                         );
                         break;
@@ -151,6 +250,7 @@ pub fn register_metadata_pane_callbacks(
         let _weak_window = window.as_weak();
         let audio_folder = Rc::clone(audio_folder);
         let audio_model = Rc::clone(audio_model);
+        let settings = Rc::clone(settings);
         window.on_comment_range_moved(move |path, old_start, old_end, start, end, text| {
             let Some(folder) = audio_folder.borrow().clone() else {
                 return;
@@ -175,7 +275,7 @@ pub fn register_metadata_pane_callbacks(
             } else {
                 return;
             }
-            let comments = comment_rows(&file);
+            let comments = comment_rows_with_labels(&file, &settings.borrow().label_definitions);
             metadata::save_audio_metadata(&folder, audio_path, &file);
             update_comment_model(&audio_model, audio_path, comments);
             select_comment(&audio_model, audio_path, start, end);
@@ -308,16 +408,31 @@ pub fn register_metadata_pane_callbacks(
             if duration <= 0.0 {
                 return;
             }
-            let original = AudioComment {
+            let mut original = AudioComment {
                 start_seconds: start * duration,
                 end_seconds: end * duration,
                 text: text.to_string(),
+                label_id: None,
             };
+            let stored_metadata = metadata::load_audio_metadata(&folder, &path);
+            let label_id = stored_metadata
+                .comments
+                .iter()
+                .find(|comment| {
+                    (comment.start_seconds / duration - start).abs() < 0.001
+                        && (comment.end_seconds / duration - end).abs() < 0.001
+                        && comment.text == text.as_str()
+                })
+                .and_then(|comment| comment.label_id)
+                .map(|id| id as i32)
+                .unwrap_or(-1);
+            original.label_id = (label_id >= 0).then_some(label_id as u64);
             *comment_editor_duration.borrow_mut() = duration;
             select_comment(&audio_model, &path, start, end);
             *comment_editor_original.borrow_mut() = Some(original.clone());
             window.set_comment_editor_path(path.to_string_lossy().into_owned().into());
             window.set_comment_editor_text(original.text.into());
+            window.set_comment_editor_label_id(label_id);
             window.set_comment_editor_visible(true);
         });
     }
@@ -328,6 +443,7 @@ pub fn register_metadata_pane_callbacks(
         let audio_model = Rc::clone(audio_model);
         let comment_editor_original = Rc::clone(comment_editor_original);
         let comment_editor_duration = Rc::clone(comment_editor_duration);
+        let settings = Rc::clone(settings);
         window.on_comment_save(move |path, text| {
             let Some(window) = weak_window.upgrade() else {
                 return;
@@ -354,6 +470,8 @@ pub fn register_metadata_pane_callbacks(
                 start_seconds,
                 end_seconds,
                 text: text.to_string(),
+                label_id: (window.get_comment_editor_label_id() >= 0)
+                    .then_some(window.get_comment_editor_label_id() as u64),
             }
             .normalized(duration);
             let selected_start = comment.start_seconds / duration;
@@ -368,7 +486,11 @@ pub fn register_metadata_pane_callbacks(
                 window.set_audio_error(format!("Save comment: {error}").into());
                 return;
             }
-            update_comment_model(&audio_model, &path, comment_rows(&file));
+            update_comment_model(
+                &audio_model,
+                &path,
+                comment_rows_with_labels(&file, &settings.borrow().label_definitions),
+            );
             select_comment(&audio_model, &path, selected_start, selected_end);
             window.set_comment_editor_visible(false);
             window.set_audio_error("Comment saved".into());
@@ -380,6 +502,7 @@ pub fn register_metadata_pane_callbacks(
         let audio_folder = Rc::clone(audio_folder);
         let audio_model = Rc::clone(audio_model);
         let comment_editor_original = Rc::clone(comment_editor_original);
+        let settings = Rc::clone(settings);
         window.on_comment_delete(move |path| {
             let Some(window) = weak_window.upgrade() else {
                 return;
@@ -399,7 +522,11 @@ pub fn register_metadata_pane_callbacks(
                     window.set_audio_error(format!("Delete comment: {error}").into());
                     return;
                 }
-                update_comment_model(&audio_model, &path, comment_rows(&file));
+                update_comment_model(
+                    &audio_model,
+                    &path,
+                    comment_rows_with_labels(&file, &settings.borrow().label_definitions),
+                );
             }
             window.set_comment_editor_visible(false);
             window.set_audio_error("Comment deleted".into());
@@ -433,5 +560,75 @@ pub fn register_metadata_pane_callbacks(
             let settings_snapshot = settings.borrow().clone();
             settings::save(&settings_snapshot);
         });
+    }
+}
+
+fn update_audio_tag_assignment(
+    audio_folder: &Rc<RefCell<Option<PathBuf>>>,
+    audio_model: &Rc<RefCell<Option<Rc<slint::VecModel<crate::AudioRow>>>>>,
+    settings: &Rc<RefCell<AppSettings>>,
+    path: &str,
+    tag_id: i32,
+    add: bool,
+) {
+    let Some(folder) = audio_folder.borrow().clone() else {
+        return;
+    };
+    let audio_path = PathBuf::from(path);
+    let mut file = metadata::load_audio_metadata(&folder, &audio_path);
+    let tag_id = tag_id as u64;
+    if add {
+        if !file.tag_ids.contains(&tag_id) {
+            file.tag_ids.push(tag_id);
+        }
+    } else {
+        file.tag_ids.retain(|id| *id != tag_id);
+    }
+    metadata::save_audio_metadata(&folder, &audio_path, &file);
+    let settings = settings.borrow();
+    let tags = tag_rows(&file.tag_ids, &settings.tag_definitions);
+    let available_tags = available_tag_rows(&file.tag_ids, &settings.tag_definitions);
+    let Some(model) = audio_model.borrow().clone() else {
+        return;
+    };
+    for index in 0..model.row_count() {
+        let Some(row) = model.row_data(index) else {
+            continue;
+        };
+        if row.path.as_str() != path {
+            continue;
+        }
+        model.set_row_data(index, crate::AudioRow {
+            path: row.path,
+            name: row.name,
+            subtitle: row.subtitle,
+            is_folder: row.is_folder,
+            depth: row.depth,
+            is_expanded: row.is_expanded,
+            modified_date: row.modified_date,
+            waveform: row.waveform,
+            is_loading: row.is_loading,
+            comments: row.comments,
+            differences: row.differences,
+            similarity: row.similarity,
+            rating: row.rating,
+            is_pinned: row.is_pinned,
+            is_selected: row.is_selected,
+            is_cut: row.is_cut,
+            is_primary: row.is_primary,
+            is_active: row.is_active,
+            is_playing: row.is_playing,
+            progress: row.progress,
+            loop_enabled: row.loop_enabled,
+            selected_comment_start: row.selected_comment_start,
+            selected_comment_end: row.selected_comment_end,
+            label_id: row.label_id,
+            label_name: row.label_name,
+            label_color: row.label_color,
+            label_known: row.label_known,
+            tags,
+            available_tags,
+        });
+        break;
     }
 }

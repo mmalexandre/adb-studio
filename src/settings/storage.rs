@@ -6,10 +6,13 @@ pub fn load() -> AppSettings {
     let Some(path) = settings_path() else {
         return AppSettings::default();
     };
-    fs::read_to_string(path)
+    let mut settings: AppSettings = fs::read_to_string(path)
         .ok()
         .and_then(|contents| serde_json::from_str(&contents).ok())
         .unwrap_or_default()
+        ;
+    settings.normalize_next_ids();
+    settings
 }
 
 pub fn save(settings: &AppSettings) {

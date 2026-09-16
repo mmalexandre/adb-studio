@@ -8,6 +8,19 @@ mod window;
 pub use storage::{load, save};
 pub use window::{restore as restore_window, save as save_window};
 
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+pub struct LabelDefinition {
+    pub id: u64,
+    pub name: String,
+    pub color: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+pub struct TagDefinition {
+    pub id: u64,
+    pub name: String,
+}
+
 #[derive(Clone, Deserialize, Serialize)]
 pub struct AppSettings {
     pub last_folder: Option<String>,
@@ -59,6 +72,14 @@ pub struct AppSettings {
     pub comment_background_color: String,
     #[serde(default = "default_comment_text_color")]
     pub comment_text_color: String,
+    #[serde(default = "default_label_definitions")]
+    pub label_definitions: Vec<LabelDefinition>,
+    #[serde(default = "default_tag_definitions")]
+    pub tag_definitions: Vec<TagDefinition>,
+    #[serde(default = "default_next_label_id")]
+    pub next_label_id: u64,
+    #[serde(default = "default_next_tag_id")]
+    pub next_tag_id: u64,
     #[serde(default)]
     pub window_width: Option<u32>,
     #[serde(default)]
@@ -118,6 +139,55 @@ fn default_comment_text_color() -> String {
     "#ffffff".to_owned()
 }
 
+fn default_label_definitions() -> Vec<LabelDefinition> {
+    vec![
+        LabelDefinition {
+            id: 1,
+            name: "Base idea".to_owned(),
+            color: "#a9d8f5".to_owned(),
+        },
+        LabelDefinition {
+            id: 2,
+            name: "Good alternative".to_owned(),
+            color: "#d5efff".to_owned(),
+        },
+        LabelDefinition {
+            id: 3,
+            name: "Bad".to_owned(),
+            color: "#f3b1b1".to_owned(),
+        },
+        LabelDefinition {
+            id: 4,
+            name: "Use as FX material".to_owned(),
+            color: "#d6b8ed".to_owned(),
+        },
+        LabelDefinition {
+            id: 5,
+            name: "Could be improved".to_owned(),
+            color: "#f4e29c".to_owned(),
+        },
+    ]
+}
+
+fn default_tag_definitions() -> Vec<TagDefinition> {
+    ["Funk", "Techno", "Electro", "Jazz", "Classical", "Choir"]
+        .into_iter()
+        .enumerate()
+        .map(|(index, name)| TagDefinition {
+            id: (index + 1) as u64,
+            name: name.to_owned(),
+        })
+        .collect()
+}
+
+fn default_next_label_id() -> u64 {
+    6
+}
+
+fn default_next_tag_id() -> u64 {
+    7
+}
+
 #[derive(Deserialize)]
 #[serde(untagged)]
 enum StoredLoopMode {
@@ -162,12 +232,51 @@ impl Default for AppSettings {
             hide_tips_of_the_day: false,
             comment_background_color: default_comment_background_color(),
             comment_text_color: default_comment_text_color(),
+            label_definitions: default_label_definitions(),
+            tag_definitions: default_tag_definitions(),
+            next_label_id: default_next_label_id(),
+            next_tag_id: default_next_tag_id(),
             window_width: None,
             window_height: None,
             window_x: None,
             window_y: None,
             window_maximized: false,
         }
+    }
+}
+
+impl AppSettings {
+    pub fn create_label(&mut self, name: String, color: String) -> u64 {
+        let id = self.next_label_id.max(1);
+        self.next_label_id = id.saturating_add(1);
+        self.label_definitions.push(LabelDefinition { id, name, color });
+        id
+    }
+
+    pub fn create_tag(&mut self, name: String) -> u64 {
+        let id = self.next_tag_id.max(1);
+        self.next_tag_id = id.saturating_add(1);
+        self.tag_definitions.push(TagDefinition { id, name });
+        id
+    }
+
+    pub fn normalize_next_ids(&mut self) {
+        let next_label_id = self
+            .label_definitions
+            .iter()
+            .map(|label| label.id)
+            .max()
+            .unwrap_or(0)
+            .saturating_add(1);
+        let next_tag_id = self
+            .tag_definitions
+            .iter()
+            .map(|tag| tag.id)
+            .max()
+            .unwrap_or(0)
+            .saturating_add(1);
+        self.next_label_id = self.next_label_id.max(next_label_id);
+        self.next_tag_id = self.next_tag_id.max(next_tag_id);
     }
 }
 
@@ -202,6 +311,10 @@ mod tests {
         assert_eq!(settings.metadata_pane_height, 320.0);
         assert_eq!(settings.comment_background_color, "#000000");
         assert_eq!(settings.comment_text_color, "#ffffff");
+        assert_eq!(settings.label_definitions.len(), 5);
+        assert_eq!(settings.tag_definitions.len(), 6);
+        assert_eq!(settings.next_label_id, 6);
+        assert_eq!(settings.next_tag_id, 7);
     }
 
     #[test]
@@ -233,5 +346,31 @@ mod tests {
     fn parse_color_returns_fallback_for_invalid_values() {
         let fallback = slint::Color::from_argb_u8(255, 1, 2, 3);
         assert_eq!(parse_color("not-a-color", fallback), fallback);
+    }
+
+    #[test]
+    fn created_definition_ids_are_monotonic() {
+        let mut settings = AppSettings::default();
+        let first_label = settings.create_label("Custom".into(), "#123456".into());
+        let second_label = settings.create_label("Another".into(), "#654321".into());
+        let first_tag = settings.create_tag("Ambient".into());
+
+        assert_eq!(first_label, 6);
+        assert_eq!(second_label, 7);
+        assert_eq!(first_tag, 7);
+        settings.label_definitions.retain(|label| label.id != first_label);
+        assert_eq!(settings.create_label("Recreated".into(), "#abcdef".into()), 8);
+    }
+
+    #[test]
+    fn next_ids_are_repaired_without_recycling_existing_ids() {
+        let mut settings: AppSettings = serde_json::from_str(
+            r##"{"light_theme":true,"label_definitions":[{"id":42,"name":"Saved","color":"#123456"}],"tag_definitions":[{"id":19,"name":"Saved tag"}]}"##,
+        )
+        .unwrap();
+        settings.normalize_next_ids();
+
+        assert_eq!(settings.create_label("New".into(), "#abcdef".into()), 43);
+        assert_eq!(settings.create_tag("New tag".into()), 20);
     }
 }

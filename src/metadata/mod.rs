@@ -27,6 +27,8 @@ pub struct AudioComment {
     pub start_seconds: f32,
     pub end_seconds: f32,
     pub text: String,
+    #[serde(default)]
+    pub label_id: Option<u64>,
 }
 
 impl AudioComment {
@@ -38,6 +40,7 @@ impl AudioComment {
             start_seconds: start.min(end),
             end_seconds: start.max(end),
             text: self.text,
+            label_id: self.label_id,
         }
     }
 }
@@ -53,6 +56,10 @@ pub struct AudioFileMetadata {
     pub file_path: String,
     pub rating: u8,
     pub comments: Vec<AudioComment>,
+    #[serde(default)]
+    pub label_id: Option<u64>,
+    #[serde(default)]
+    pub tag_ids: Vec<u64>,
     #[serde(default)]
     pub user_comments: String,
     pub modified_date: String,
@@ -560,6 +567,7 @@ mod tests {
                 start_seconds: 1.5,
                 end_seconds: 4.0,
                 text: "chorus".to_string(),
+                label_id: None,
             }],
             ..Default::default()
         };
@@ -617,6 +625,7 @@ mod tests {
                 start_seconds: 1.0,
                 end_seconds: 2.0,
                 text: "keep me".to_string(),
+                label_id: None,
             }],
             rating: 4,
             ..Default::default()
@@ -641,6 +650,7 @@ mod tests {
             start_seconds: 8.0,
             end_seconds: -2.0,
             text: "range".to_string(),
+            label_id: None,
         }
         .normalized(5.0);
 
@@ -694,6 +704,7 @@ mod tests {
                 start_seconds: 1.0,
                 end_seconds: 2.0,
                 text: "note".into(),
+                label_id: None,
             }],
             ..Default::default()
         };
@@ -743,6 +754,7 @@ mod tests {
                 start_seconds: 1.0,
                 end_seconds: 2.0,
                 text: "note".into(),
+                label_id: None,
             }],
             ..Default::default()
         };

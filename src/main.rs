@@ -104,6 +104,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &settings.borrow().comment_text_color,
         slint::Color::from_argb_u8(255, 255, 255, 255),
     ));
+    app::sync_ui_controller::refresh_definition_properties(&window, &settings.borrow());
 
     app::playback_controller::register_playback_callbacks(
         &window,
@@ -395,6 +396,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 loop_enabled: row.loop_enabled,
                                 selected_comment_start: row.selected_comment_start,
                                 selected_comment_end: row.selected_comment_end,
+                                label_id: row.label_id,
+                                label_name: row.label_name,
+                                label_color: row.label_color,
+                                label_known: row.label_known,
+                                tags: row.tags,
+                                available_tags: row.available_tags,
                             },
                         );
                     }

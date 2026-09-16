@@ -19,6 +19,14 @@ export struct CommentRow {
     end: float,
     bubble-end: float,
     text: string,
+    label-id: int,
+    label-color: color,
+    label-known: bool,
+}
+
+export struct TagRow {
+    id: int,
+    name: string,
 }
 
 export struct TrackDifference {
@@ -50,6 +58,12 @@ export struct AudioRow {
     loop-enabled: bool,
     selected-comment-start: float,
     selected-comment-end: float,
+    label-id: int,
+    label-name: string,
+    label-color: color,
+    label-known: bool,
+    tags: [TagRow],
+    available-tags: [TagRow],
 }
 
 export struct WorkflowLoraRow {
