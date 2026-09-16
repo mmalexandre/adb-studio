@@ -125,7 +125,7 @@ component AudioRowView inherits Rectangle {
     }
     if root.label-picker-visible : Rectangle {
         x: 12px;
-        y: 24px;
+        y: ((root.label-ids.length + 1) * 26px).min(122px) > 108px ? 10px : 24px;
         width: 220px;
         height: ((root.label-ids.length + 1) * 26px).min(122px);
         z: 100;

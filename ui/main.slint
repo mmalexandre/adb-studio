@@ -268,6 +268,7 @@ export component MainWindow inherits Window {
     in-out property <string> comment-editor-path: "";
     in-out property <string> comment-editor-text: "";
     in-out property <int> comment-editor-label-id: -1;
+    property <bool> comment-editor-label-picker-visible: false;
 
     changed left-pane-width => {
         root.left-pane-width-changed(root.left-pane-width);
@@ -2235,25 +2236,88 @@ export component MainWindow inherits Window {
                         changed has-focus => { root.text-input-focused = self.has-focus; }
                     }
                     Text { text: "Label"; color: root.light-theme ? #5c6878 : #c4ccd8; }
-                    HorizontalLayout {
-                        spacing: 6px;
-                        Rectangle {
-                            width: 28px;
-                            height: 24px;
+                    Rectangle {
+                        width: 220px;
+                        height: 28px;
+                        background: root.light-theme ? #ffffff : #202832;
+                        border-color: root.light-theme ? #cbd2dc : #435064;
+                        border-width: 1px;
+                        if root.comment-editor-label-id < 0 : Rectangle {
+                            x: 8px;
+                            y: 5px;
+                            width: 18px;
+                            height: 18px;
+                            border-radius: 9px;
                             background: #ffffff;
-                            border-color: root.comment-editor-label-id < 0 ? #cbd2dc : transparent;
+                            border-color: #cbd2dc;
                             border-width: 1px;
-                            Text { text: "No label"; x: 34px; color: root.light-theme ? #202833 : #f1f4f8; vertical-alignment: center; }
-                            TouchArea { clicked => { root.comment-editor-label-id = -1; } }
+                        }
+                        if root.comment-editor-label-id < 0 : Text {
+                            text: "No label";
+                            x: 34px;
+                            color: root.light-theme ? #202833 : #f1f4f8;
+                            vertical-alignment: center;
                         }
                         for label-id[index] in root.label-ids : Rectangle {
-                            width: 28px;
-                            height: 24px;
-                            background: root.label-color-values[index];
-                            border-color: root.comment-editor-label-id == label-id ? (root.light-theme ? #202833 : #ffffff) : transparent;
-                            border-width: 2px;
-                            Text { text: root.label-names[index]; x: 34px; width: 130px; color: root.light-theme ? #202833 : #f1f4f8; vertical-alignment: center; }
-                            TouchArea { clicked => { root.comment-editor-label-id = label-id; } }
+                            if root.comment-editor-label-id == label-id : Rectangle {
+                                x: 8px;
+                                y: 5px;
+                                width: 18px;
+                                height: 18px;
+                                border-radius: 9px;
+                                background: root.label-color-values[index];
+                            }
+                            if root.comment-editor-label-id == label-id : Text {
+                                text: root.label-names[index];
+                                x: 34px;
+                                color: root.light-theme ? #202833 : #f1f4f8;
+                                vertical-alignment: center;
+                            }
+                        }
+                        Text { text: "v"; x: 202px; color: root.light-theme ? #687586 : #aeb8c6; vertical-alignment: center; }
+                        TouchArea { clicked => { root.comment-editor-label-picker-visible = !root.comment-editor-label-picker-visible; } }
+                        if root.comment-editor-label-picker-visible : Rectangle {
+                            y: 28px;
+                            width: parent.width;
+                            height: ((root.label-ids.length + 1) * 26px).min(122px);
+                            z: 20;
+                            background: root.light-theme ? #ffffff : #202832;
+                            border-color: root.light-theme ? #cbd2dc : #435064;
+                            border-width: 1px;
+                            ListView {
+                                width: parent.width;
+                                height: parent.height;
+                                for label-index in root.label-ids.length + 1 : Rectangle {
+                                    height: 26px;
+                                    width: parent.width;
+                                    if label-index == 0 : Text {
+                                        text: "No label";
+                                        x: 10px;
+                                        color: root.light-theme ? #202833 : #f1f4f8;
+                                        vertical-alignment: center;
+                                    }
+                                    if label-index > 0 : Rectangle {
+                                        x: 10px;
+                                        y: 4px;
+                                        width: 18px;
+                                        height: 18px;
+                                        border-radius: 9px;
+                                        background: root.label-color-values[label-index - 1];
+                                    }
+                                    if label-index > 0 : Text {
+                                        text: root.label-names[label-index - 1];
+                                        x: 34px;
+                                        color: root.light-theme ? #202833 : #f1f4f8;
+                                        vertical-alignment: center;
+                                    }
+                                    TouchArea {
+                                        clicked => {
+                                            root.comment-editor-label-id = label-index == 0 ? -1 : root.label-ids[label-index - 1];
+                                            root.comment-editor-label-picker-visible = false;
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                     Rectangle { vertical-stretch: 1; }

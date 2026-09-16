@@ -6,13 +6,6 @@ x Affichage recursif
 x Faster fluid UI
 x Ctrl+C Ctrl+X Ctrl+V
 x Cache workflow parsing to speed up application start
-
-x Tags sous les waveform + couleurs
-	- Est-ce qu'un repertoire est une idee? Ou plutot correspond a un tag?
-		Tag = Idee ?
-		Comment trier les fichiers par idee
-	- Etiquettes: Good idea, To use as short sample slice, Material, Effect. Custom tags.
-	- Neighbouring ideas. How to link versions together? Just by copying and pasting files in a folder? How to achieve that even before naming songs? How to remember song names? In Ableton, there are take lanes
 - Template ComfyUI files
 
 Mise en prod:
@@ -40,7 +33,7 @@ Cerises sur le gâteau:
 - LoRa trainer
 - Youno = workflows and loras and audio sharing platform
 - Soundcloud, Spotify connector
-
+- Labels should probably be stored in workspace instead of globally (they are project data)
 
 Avantages de cette application:
 -------------------------------

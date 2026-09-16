@@ -166,6 +166,11 @@ fn default_label_definitions() -> Vec<LabelDefinition> {
             name: "Could be improved".to_owned(),
             color: "#f4e29c".to_owned(),
         },
+        LabelDefinition {
+            id: 6,
+            name: "Use as sample".to_owned(),
+            color: "#b7e4a8".to_owned(),
+        },
     ]
 }
 
@@ -181,7 +186,7 @@ fn default_tag_definitions() -> Vec<TagDefinition> {
 }
 
 fn default_next_label_id() -> u64 {
-    6
+    7
 }
 
 fn default_next_tag_id() -> u64 {
@@ -311,9 +316,9 @@ mod tests {
         assert_eq!(settings.metadata_pane_height, 320.0);
         assert_eq!(settings.comment_background_color, "#000000");
         assert_eq!(settings.comment_text_color, "#ffffff");
-        assert_eq!(settings.label_definitions.len(), 5);
+        assert_eq!(settings.label_definitions.len(), 6);
         assert_eq!(settings.tag_definitions.len(), 6);
-        assert_eq!(settings.next_label_id, 6);
+        assert_eq!(settings.next_label_id, 7);
         assert_eq!(settings.next_tag_id, 7);
     }
 
@@ -355,11 +360,11 @@ mod tests {
         let second_label = settings.create_label("Another".into(), "#654321".into());
         let first_tag = settings.create_tag("Ambient".into());
 
-        assert_eq!(first_label, 6);
-        assert_eq!(second_label, 7);
+        assert_eq!(first_label, 7);
+        assert_eq!(second_label, 8);
         assert_eq!(first_tag, 7);
         settings.label_definitions.retain(|label| label.id != first_label);
-        assert_eq!(settings.create_label("Recreated".into(), "#abcdef".into()), 8);
+        assert_eq!(settings.create_label("Recreated".into(), "#abcdef".into()), 9);
     }
 
     #[test]
