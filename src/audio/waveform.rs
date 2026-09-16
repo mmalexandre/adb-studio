@@ -12,11 +12,12 @@ use symphonia::core::{
 
 pub const PEAK_COUNT: usize = 4096;
 pub const DISPLAY_PEAK_COUNT: usize = 160;
-pub const RASTER_WIDTH: usize = DISPLAY_PEAK_COUNT * 4;
-pub const RASTER_HEIGHT: usize = 58;
+pub const RASTER_SCALE: usize = 3;
+pub const RASTER_WIDTH: usize = DISPLAY_PEAK_COUNT * 4 * RASTER_SCALE;
+pub const RASTER_HEIGHT: usize = 58 * RASTER_SCALE;
 
 static CACHE_TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
-const RASTER_MAGIC: &[u8] = b"ADB-STUDIO-WAVEFORM-RASTER-1";
+const RASTER_MAGIC: &[u8] = b"ADB-STUDIO-WAVEFORM-RASTER-2";
 
 #[derive(serde::Deserialize, serde::Serialize)]
 struct CacheEntry {
@@ -138,7 +139,8 @@ fn rasterize_peaks(peaks: &[f32]) -> Vec<u8> {
     let mut raster = vec![0; RASTER_WIDTH * RASTER_HEIGHT];
     let slot_width = RASTER_WIDTH / DISPLAY_PEAK_COUNT;
     for (index, peak) in peaks.iter().take(DISPLAY_PEAK_COUNT).enumerate() {
-        let height = (2.0 + peak.clamp(0.0, 1.0) * 25.0).round() as usize;
+        let height = ((2.0 + peak.clamp(0.0, 1.0) * 25.0) * RASTER_SCALE as f32).round()
+            as usize;
         let x_start = index * slot_width + slot_width / 2;
         let x_end = (index + 1) * slot_width;
         for y in RASTER_HEIGHT / 2 - height..RASTER_HEIGHT / 2 {
@@ -318,11 +320,11 @@ mod tests {
         let raster = rasterize_peaks(&peaks);
 
         assert_eq!(raster.len(), RASTER_WIDTH * RASTER_HEIGHT);
-        assert_eq!(raster[2 * RASTER_WIDTH + 2], 255);
-        assert_eq!(raster[28 * RASTER_WIDTH + 2], 255);
-        assert_eq!(raster[29 * RASTER_WIDTH + 2], 128);
-        assert_eq!(raster[55 * RASTER_WIDTH + 2], 128);
-        assert_eq!(raster[1], 0);
+        assert_eq!(raster[6 * RASTER_WIDTH + 6], 255);
+        assert_eq!(raster[86 * RASTER_WIDTH + 6], 255);
+        assert_eq!(raster[87 * RASTER_WIDTH + 6], 128);
+        assert_eq!(raster[167 * RASTER_WIDTH + 6], 128);
+        assert_eq!(raster[5 * RASTER_WIDTH + 6], 0);
     }
 
     #[test]
