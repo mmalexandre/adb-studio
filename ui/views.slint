@@ -1,4 +1,5 @@
 import { LineEdit, ListView, VerticalBox } from "std-widgets.slint";
+import { CompactIconButton } from "./controls.slint";
 import { AudioRow, CommentRow, TrackDifference, TreeRow } from "./models.slint";
 import { Waveform } from "./waveform.slint";
 component AudioRowView inherits Rectangle {
@@ -249,6 +250,7 @@ component AudioRowView inherits Rectangle {
     }
 }
 component AudioFolderRow inherits Rectangle {
+    width: 100%;
     height: 30px;
     background: root.light-theme ? #e7ebf0 : #202833;
     in property <bool> light-theme;
@@ -256,7 +258,15 @@ component AudioFolderRow inherits Rectangle {
     in property <int> depth;
     in property <bool> is-expanded;
     callback clicked();
+    callback collapse-all-clicked();
+    callback expand-all-clicked();
 
+    TouchArea {
+        z: -1;
+        width: parent.width - 68px;
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
     HorizontalLayout {
         padding-left: 15px + root.depth * 15px;
         padding-right: 12px;
@@ -269,23 +279,23 @@ component AudioFolderRow inherits Rectangle {
             animate transform-rotation { duration: 160ms; easing: ease-in-out; }
             vertical-alignment: center;
         }
-        Image {
-            source: root.is-expanded
-                ? @image-url("../assets/icons/folder-open.svg")
-                : @image-url("../assets/icons/folder.svg");
-            width: 16px;
-            height: 16px;
-            vertical-alignment: center;
-        }
         Text {
             text: root.name;
             color: root.light-theme ? #202833 : #e3e8ef;
             font-size: 13px;
+            horizontal-stretch: 1;
             vertical-alignment: center;
             overflow: elide;
         }
+        CompactIconButton {
+            icon: @image-url("../assets/icons/list-chevrons-down-up.svg");
+            clicked => { root.collapse-all-clicked(); }
+        }
+        CompactIconButton {
+            icon: @image-url("../assets/icons/list-chevrons-up-down.svg");
+            clicked => { root.expand-all-clicked(); }
+        }
     }
-    TouchArea { clicked => { root.clicked(); } }
 }
 export component AudioList inherits ListView {
     in property <bool> light-theme;
@@ -306,6 +316,8 @@ export component AudioList inherits ListView {
     callback pin-requested(string);
     callback trash-requested(string);
     callback folder-clicked(string);
+    callback folder-collapse-all-requested(string);
+    callback folder-expand-all-requested(string);
 
     changed viewport-y => {
         root.viewport-changed(
@@ -321,6 +333,7 @@ export component AudioList inherits ListView {
     }
 
     for row in root.rows : Rectangle {
+        width: 100%;
         height: row.is-folder ? 30px : 86px;
         if row.is-folder : AudioFolderRow {
             light-theme: root.light-theme;
@@ -328,6 +341,8 @@ export component AudioList inherits ListView {
             depth: row.depth;
             is-expanded: row.is-expanded;
             clicked => { root.folder-clicked(row.path); }
+            collapse-all-clicked => { root.folder-collapse-all-requested(row.path); }
+            expand-all-clicked => { root.folder-expand-all-requested(row.path); }
         }
         if !row.is-folder : AudioRowView {
             light-theme: root.light-theme;

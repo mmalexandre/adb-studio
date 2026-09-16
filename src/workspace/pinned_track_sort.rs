@@ -111,9 +111,10 @@ fn comparison_tier(differences: &[crate::metadata::comfyui::TrackDifference]) ->
     {
         return 1;
     }
-    if differences.iter().any(|difference| {
-        matches!(difference.label.as_str(), "BPM: " | "Seed: " | "Key: ")
-    }) {
+    if differences
+        .iter()
+        .any(|difference| matches!(difference.label.as_str(), "BPM: " | "Seed: " | "Key: "))
+    {
         return 2;
     }
     3
@@ -137,12 +138,10 @@ pub fn similarity_from_differences(
     {
         return 0.7;
     }
-    if differences.iter().any(|difference| {
-        matches!(
-            difference.label.as_str(),
-            "BPM: " | "Seed: " | "Key: "
-        )
-    }) {
+    if differences
+        .iter()
+        .any(|difference| matches!(difference.label.as_str(), "BPM: " | "Seed: " | "Key: "))
+    {
         return 0.4;
     }
     0.1
@@ -303,7 +302,9 @@ fn edit_distance(left: &str, right: &str) -> usize {
 mod tests {
     use std::{fs, path::PathBuf};
 
-    use super::{distance_between, similarity_from_differences, sort_tracks, ComfyUIWorkflow, LoRAInfo};
+    use super::{
+        distance_between, similarity_from_differences, sort_tracks, ComfyUIWorkflow, LoRAInfo,
+    };
     use crate::metadata::comfyui::TrackDifference;
     use crate::workspace::file_system::{DirEntryInfo, FileKind, SortOrder};
 

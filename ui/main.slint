@@ -171,6 +171,8 @@ export component MainWindow inherits Window {
     callback audio-row-selected(string);
     callback audio-row-clicked(string, bool);
     callback audio-folder-clicked(string);
+    callback audio-folder-collapse-all-requested(string);
+    callback audio-folder-expand-all-requested(string);
     callback audio-navigate(int);
     callback tree-context-menu(string);
     callback conversion-requested(string);
@@ -687,6 +689,8 @@ export component MainWindow inherits Window {
                                 row-selected(path) => { root.audio-row-selected(path); }
                                 row-clicked(path, shift) => { root.audio-row-clicked(path, shift); }
                                 folder-clicked(path) => { root.audio-folder-clicked(path); }
+                                folder-collapse-all-requested(path) => { root.audio-folder-collapse-all-requested(path); }
+                                folder-expand-all-requested(path) => { root.audio-folder-expand-all-requested(path); }
                                 seek-requested(path, progress) => { root.audio-seek(path, progress); }
                                 play-requested(path) => { root.audio-play(path); }
                                 comment-range-requested(path, start, end) => { root.comment-range-requested(path, start, end); }

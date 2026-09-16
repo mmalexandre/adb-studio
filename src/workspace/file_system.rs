@@ -153,6 +153,28 @@ impl TreeState {
         }
     }
 
+    pub fn collapse_descendants(&mut self, path: &Path) {
+        self.expanded.retain(|expanded| !expanded.starts_with(path));
+    }
+
+    pub fn expand_descendants(&mut self, path: &Path, sort_order: SortOrder) {
+        for ancestor in path.ancestors() {
+            self.expanded.insert(ancestor.to_path_buf());
+            if ancestor == self.root {
+                break;
+            }
+        }
+        let mut pending = vec![path.to_path_buf()];
+        while let Some(folder) = pending.pop() {
+            self.expanded.insert(folder.clone());
+            for entry in read_dir_sorted(&folder, sort_order) {
+                if entry.is_dir {
+                    pending.push(entry.path);
+                }
+            }
+        }
+    }
+
     pub fn select(&mut self, path: &Path) {
         self.selected = Some(path.to_path_buf());
         self.selected_paths.clear();
@@ -468,6 +490,42 @@ mod tests {
             build_visible_rows(&state, SortOrder::AlphabeticalAscending).len(),
             2
         );
+    }
+
+    #[test]
+    fn collapse_descendants_also_collapses_the_requested_folder() {
+        let temp = TempDirectory::new();
+        let folder = temp.path().join("folder");
+        let child = folder.join("child");
+        fs::create_dir_all(&child).unwrap();
+        let mut state = TreeState::new(temp.path().to_path_buf());
+        state.expand_descendants(&folder, SortOrder::AlphabeticalAscending);
+
+        state.collapse_descendants(&folder);
+
+        let rows = build_visible_rows(&state, SortOrder::AlphabeticalAscending);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[1].path, folder);
+        assert!(!rows[1].is_expanded);
+        assert!(!state.expanded.contains(&child));
+    }
+
+    #[test]
+    fn expanding_nested_folder_reopens_collapsed_ancestors() {
+        let temp = TempDirectory::new();
+        let folder = temp.path().join("folder");
+        let child = folder.join("child");
+        fs::create_dir_all(&child).unwrap();
+        fs::write(child.join("song.wav"), []).unwrap();
+        let mut state = TreeState::new(temp.path().to_path_buf());
+
+        state.expand_descendants(&folder, SortOrder::AlphabeticalAscending);
+        state.collapse_descendants(&folder);
+        state.expand_descendants(&child, SortOrder::AlphabeticalAscending);
+
+        let rows = build_visible_rows(&state, SortOrder::AlphabeticalAscending);
+        assert!(rows.iter().any(|row| row.path == child && row.is_expanded));
+        assert!(rows.iter().any(|row| row.path.ends_with("song.wav")));
     }
 
     #[test]

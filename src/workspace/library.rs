@@ -38,6 +38,64 @@ fn collect_visible_entries(
     }
 }
 
+#[cfg(test)]
+mod visible_entry_tests {
+    use std::{
+        collections::HashSet,
+        fs,
+        path::{Path, PathBuf},
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    use super::collect_visible_entries;
+    use crate::workspace::file_system::SortOrder;
+
+    struct TempDirectory(PathBuf);
+
+    impl TempDirectory {
+        fn new() -> Self {
+            let suffix = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let path = std::env::temp_dir().join(format!("adb-studio-library-{suffix}"));
+            fs::create_dir_all(&path).unwrap();
+            Self(path)
+        }
+    }
+
+    impl Drop for TempDirectory {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn expanded_folder_includes_audio_files_from_its_own_root() {
+        let temp = TempDirectory::new();
+        let folder = temp.0.join("folder");
+        fs::create_dir(&folder).unwrap();
+        let song = folder.join("song.wav");
+        fs::write(&song, []).unwrap();
+
+        let mut expanded = HashSet::new();
+        expanded.insert(folder.clone());
+        let mut entries = Vec::new();
+        collect_visible_entries(
+            &temp.0,
+            1,
+            &expanded,
+            SortOrder::AlphabeticalAscending,
+            None,
+            &mut entries,
+        );
+
+        assert!(entries.iter().any(|(entry, _)| entry.path == folder));
+        assert!(entries.iter().any(|(entry, _)| entry.path == song));
+        assert!(Path::new(&entries[1].0.path).ends_with("song.wav"));
+    }
+}
+
 pub fn refresh_audio(
     window: &MainWindow,
     audio_folder: &Rc<RefCell<Option<PathBuf>>>,
@@ -115,7 +173,6 @@ fn refresh_audio_with_changes(
         .iter()
         .filter(|row| row.is_dir && row.is_expanded)
         .map(|row| PathBuf::from(row.path.as_str()))
-        .chain(std::iter::once(folder.clone()))
         .collect::<HashSet<_>>();
     let mut entries = Vec::new();
     collect_visible_entries(

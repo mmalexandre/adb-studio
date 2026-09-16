@@ -26,6 +26,56 @@ use crate::{
     MainWindow,
 };
 
+fn refresh_audio_view(
+    window: &MainWindow,
+    audio_folder: &Rc<RefCell<Option<PathBuf>>>,
+    audio_model: &Rc<RefCell<Option<Rc<slint::VecModel<crate::AudioRow>>>>>,
+    audio_load_state: &Arc<Mutex<AudioLoadState>>,
+) {
+    let folder = window
+        .get_audio_breadcrumbs()
+        .iter()
+        .last()
+        .map(|breadcrumb| PathBuf::from(breadcrumb.path.as_str()))
+        .or_else(|| audio_folder.borrow().clone());
+    if let Some(folder) = folder {
+        crate::workspace::library::refresh_audio(
+            window,
+            audio_folder,
+            audio_model,
+            audio_load_state,
+            folder,
+        );
+    }
+}
+
+fn update_audio_folder_expansion(
+    window: &MainWindow,
+    tree_state: &Rc<RefCell<Option<TreeState>>>,
+    audio_folder: &Rc<RefCell<Option<PathBuf>>>,
+    audio_model: &Rc<RefCell<Option<Rc<slint::VecModel<crate::AudioRow>>>>>,
+    audio_load_state: &Arc<Mutex<AudioLoadState>>,
+    path: PathBuf,
+    expand_all: bool,
+) {
+    {
+        let mut state_ref = tree_state.borrow_mut();
+        let Some(state) = state_ref.as_mut() else {
+            return;
+        };
+        if expand_all {
+            state.expand_descendants(
+                &path,
+                file_system::SortOrder::from_i32(window.get_sort_order()),
+            );
+        } else {
+            state.collapse_descendants(&path);
+        }
+    }
+    refresh_tree(window, tree_state);
+    refresh_audio_view(window, audio_folder, audio_model, audio_load_state);
+}
+
 pub fn register_window_callbacks(
     window: &MainWindow,
     settings: &Rc<RefCell<AppSettings>>,
@@ -104,21 +154,51 @@ pub fn register_window_callbacks(
                 state.toggle(&path);
             }
             refresh_tree(&window, &tree_state);
-            let folder = window
-                .get_audio_breadcrumbs()
-                .iter()
-                .last()
-                .map(|breadcrumb| PathBuf::from(breadcrumb.path.as_str()))
-                .or_else(|| audio_folder.borrow().clone());
-            if let Some(folder) = folder {
-                crate::workspace::library::refresh_audio(
-                    &window,
-                    &audio_folder,
-                    &audio_model,
-                    &audio_load_state,
-                    folder,
-                );
-            }
+            refresh_audio_view(&window, &audio_folder, &audio_model, &audio_load_state);
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        let tree_state = Rc::clone(tree_state);
+        let audio_folder = Rc::clone(audio_folder);
+        let audio_model = Rc::clone(audio_model);
+        let audio_load_state = Arc::clone(audio_load_state);
+        window.on_audio_folder_collapse_all_requested(move |path| {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            update_audio_folder_expansion(
+                &window,
+                &tree_state,
+                &audio_folder,
+                &audio_model,
+                &audio_load_state,
+                PathBuf::from(path.as_str()),
+                false,
+            );
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        let tree_state = Rc::clone(tree_state);
+        let audio_folder = Rc::clone(audio_folder);
+        let audio_model = Rc::clone(audio_model);
+        let audio_load_state = Arc::clone(audio_load_state);
+        window.on_audio_folder_expand_all_requested(move |path| {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            update_audio_folder_expansion(
+                &window,
+                &tree_state,
+                &audio_folder,
+                &audio_model,
+                &audio_load_state,
+                PathBuf::from(path.as_str()),
+                true,
+            );
         });
     }
 
