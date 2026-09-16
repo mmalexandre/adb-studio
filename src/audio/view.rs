@@ -129,6 +129,7 @@ pub fn update_audio_rows(
                 AudioRow {
                     path: row.path,
                     name: row.name,
+                    subtitle: row.subtitle,
                     is_folder: row.is_folder,
                     depth: row.depth,
                     is_expanded: row.is_expanded,
@@ -182,6 +183,7 @@ pub fn update_audio_loading_rows(
                 AudioRow {
                     path: row.path,
                     name: row.name,
+                    subtitle: row.subtitle,
                     is_folder: row.is_folder,
                     depth: row.depth,
                     is_expanded: row.is_expanded,
@@ -228,6 +230,7 @@ pub fn select_comment(
                 AudioRow {
                     path: row.path,
                     name: row.name,
+                    subtitle: row.subtitle,
                     is_folder: row.is_folder,
                     depth: row.depth,
                     is_expanded: row.is_expanded,
@@ -275,6 +278,7 @@ pub fn select_audio_paths(
                 AudioRow {
                     path: row.path,
                     name: row.name,
+                    subtitle: row.subtitle,
                     is_folder: row.is_folder,
                     depth: row.depth,
                     is_expanded: row.is_expanded,
@@ -327,6 +331,36 @@ pub fn update_audio_cut_rows(
             model.set_row_data(index, updated);
         }
     }
+}
+
+pub fn update_audio_subtitle(
+    audio_model: &Rc<RefCell<Option<Rc<VecModel<AudioRow>>>>>,
+    path: &Path,
+    subtitle: &str,
+) {
+    let Some(model) = audio_model.borrow().clone() else {
+        return;
+    };
+    for index in 0..model.row_count() {
+        let Some(row) = model.row_data(index) else {
+            continue;
+        };
+        if Path::new(row.path.as_str()) == path && row.subtitle != subtitle {
+            let mut updated = row.clone();
+            updated.subtitle = subtitle.into();
+            model.set_row_data(index, updated);
+            break;
+        }
+    }
+}
+
+pub fn user_comment_subtitle(user_comments: &str) -> String {
+    user_comments
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .unwrap_or_default()
+        .to_owned()
 }
 
 pub fn scroll_to_path(

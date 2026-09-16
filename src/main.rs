@@ -374,6 +374,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             AudioRow {
                                 path: result.path.into(),
                                 name: row.name,
+                                subtitle: row.subtitle,
                                 is_folder: row.is_folder,
                                 depth: row.depth,
                                 is_expanded: row.is_expanded,

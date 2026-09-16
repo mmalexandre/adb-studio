@@ -10,7 +10,7 @@ use std::{
 use slint::{Image, Model, ModelRc, VecModel};
 
 use crate::{
-    audio::{loader, view::comment_rows},
+    audio::{loader, view::{comment_rows, user_comment_subtitle}},
     metadata,
     workspace::{file_system, preferences},
     AudioLoadState, AudioRow, MainWindow, TrackDifference,
@@ -193,6 +193,7 @@ fn refresh_audio_with_changes(
     rows.push(AudioRow {
         path: folder.to_string_lossy().into_owned().into(),
         name: folder_name.into(),
+        subtitle: "".into(),
         is_folder: true,
         depth: 0,
         is_expanded: expanded.contains(&folder),
@@ -221,6 +222,7 @@ fn refresh_audio_with_changes(
             rows.push(AudioRow {
                 path: entry.path.to_string_lossy().into_owned().into(),
                 name: entry.name.into(),
+                subtitle: "".into(),
                 is_folder: true,
                 depth,
                 is_expanded: expanded.contains(&entry.path),
@@ -263,6 +265,10 @@ fn refresh_audio_with_changes(
         {
             let mut row = existing_row.unwrap().clone();
             row.name = entry.name.clone().into();
+            row.subtitle = user_comment_subtitle(
+                &metadata::load_audio_metadata(&workspace, &entry.path).user_comments,
+            )
+            .into();
             row.depth = depth;
             row.is_pinned = pinned_path.as_deref() == Some(entry.path.as_path());
             row.is_cut = cut_paths
@@ -303,6 +309,7 @@ fn refresh_audio_with_changes(
         rows.push(AudioRow {
             path: path_string.into(),
             name: entry.name.into(),
+            subtitle: user_comment_subtitle(&audio_metadata.user_comments).into(),
             is_folder: false,
             depth,
             is_expanded: false,

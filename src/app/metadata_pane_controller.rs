@@ -12,7 +12,10 @@ use crate::{
         loader::State as AudioLoadState,
         playback::PlaybackEngine,
         session::comment_duration,
-        view::{comment_rows, select_comment, update_comment_model},
+        view::{
+            comment_rows, select_comment, update_audio_subtitle, update_comment_model,
+            user_comment_subtitle,
+        },
     },
     metadata::{self, AudioComment},
     settings::{self, AppSettings},
@@ -36,6 +39,7 @@ pub fn register_metadata_pane_callbacks(
     {
         let weak_window = window.as_weak();
         let audio_folder = Rc::clone(audio_folder);
+        let audio_model = Rc::clone(audio_model);
         window.on_user_comments_changed(move |comments| {
             let Some(window) = weak_window.upgrade() else {
                 return;
@@ -50,7 +54,9 @@ pub fn register_metadata_pane_callbacks(
             let mut file = metadata::load_audio_metadata(&folder, &path);
             file.file_path = path.to_string_lossy().into_owned();
             file.user_comments = comments.to_string();
+            let subtitle = user_comment_subtitle(&file.user_comments);
             metadata::save_audio_metadata(&folder, &path, &file);
+            update_audio_subtitle(&audio_model, &path, &subtitle);
         });
     }
 
@@ -110,6 +116,7 @@ pub fn register_metadata_pane_callbacks(
                             crate::AudioRow {
                                 path: row.path,
                                 name: row.name,
+                                subtitle: row.subtitle,
                                 is_folder: row.is_folder,
                                 depth: row.depth,
                                 is_expanded: row.is_expanded,

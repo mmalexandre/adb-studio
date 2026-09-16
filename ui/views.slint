@@ -12,6 +12,7 @@ component AudioRowView inherits Rectangle {
     in property <color> comment-background-color: #000000;
     in property <color> comment-text-color: #ffffff;
     in property <string> name;
+    in property <string> subtitle;
     in property <string> modified-date;
     in property <image> waveform;
     in property <bool> is-loading;
@@ -95,12 +96,22 @@ component AudioRowView inherits Rectangle {
         HorizontalLayout {
             height: 40px;
             spacing: 8px;
-            Text {
-                text: root.name;
-                color: root.light-theme ? #202833 : #e3e8ef;
-                font-size: 14px;
-                overflow: elide;
+            HorizontalLayout {
                 horizontal-stretch: 1;
+                spacing: 0px;
+                Text {
+                    text: root.name;
+                    color: root.light-theme ? #202833 : #e3e8ef;
+                    font-size: 14px;
+                    overflow: elide;
+                }
+                if root.subtitle != "" : Text {
+                    text: " - " + root.subtitle;
+                    color: root.light-theme ? #687586 : #aeb8c6;
+                    font-size: 12px;
+                    horizontal-stretch: 1;
+                    overflow: elide;
+                }
             }
             if root.is-pinned : Text {
                 text: "Reference";
@@ -445,6 +456,7 @@ export component AudioList inherits ListView {
             comment-background-color: root.comment-background-color;
             comment-text-color: root.comment-text-color;
             name: row.name;
+            subtitle: row.subtitle;
             modified-date: row.modified-date;
             waveform: row.waveform;
             comments: row.comments;
