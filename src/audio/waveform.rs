@@ -139,8 +139,7 @@ fn rasterize_peaks(peaks: &[f32]) -> Vec<u8> {
     let mut raster = vec![0; RASTER_WIDTH * RASTER_HEIGHT];
     let slot_width = RASTER_WIDTH / DISPLAY_PEAK_COUNT;
     for (index, peak) in peaks.iter().take(DISPLAY_PEAK_COUNT).enumerate() {
-        let height = ((2.0 + peak.clamp(0.0, 1.0) * 25.0) * RASTER_SCALE as f32).round()
-            as usize;
+        let height = ((2.0 + peak.clamp(0.0, 1.0) * 25.0) * RASTER_SCALE as f32).round() as usize;
         let x_start = index * slot_width + slot_width / 2;
         let x_end = (index + 1) * slot_width;
         for y in RASTER_HEIGHT / 2 - height..RASTER_HEIGHT / 2 {

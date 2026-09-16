@@ -4,16 +4,22 @@ x Distance grade (stack of horizontal bars as a similarity indicator)
 
 x Affichage recursif
 x Faster fluid UI
+x Ctrl+C Ctrl+X Ctrl+V
+o Cache workflow parsing to speed up application start
 
-- Tags sous les waveform + couleurs
+o Tags sous les waveform + couleurs
 	- Est-ce qu'un repertoire est une idee? Ou plutot correspond a un tag?
 		Tag = Idee ?
 		Comment trier les fichiers par idee
 	- Etiquettes: Good idea, To use as short sample slice, Material, Effect. Custom tags.
 	- Neighbouring ideas. How to link versions together? Just by copying and pasting files in a folder? How to achieve that even before naming songs? How to remember song names? In Ableton, there are take lanes
 - Template ComfyUI files
-- Cache workflow parsing to speed up application start
-o Ctrl+C Ctrl+X Ctrl+V
+
+
+I want the beginning of the user comment (whose textarea input is in the metadata pane) to be displayed as gray text to the right (appended with a dash separator) of the file name. This will server as a subtitle, which is nice for pre-naming songs without one needed to settle on a real name yet.
+
+I want to implement a tagging system. The user would be able to create tags in the settings dialog (in a new pane). Tags would have a color and a name (and internally a unique ID, incrementing with each creation). Default registered tags would be: Base idea (pastel blue), Good alternative (even lighter blue), Bad (pastel red), Use as FX material (pastel purple), Could be improved (pastel yellow). I want tags to be appliable at song level: a little circle would indicate the active tag at song level, and a little dropdown picker with colour circles accompanied by their tag label would allow selecting one. The tag song's background is then displayed in the tag's color. I also want tags to be implemented at comment's level: inside the comment create / edit dialog, the same picker allows selecting a tag. And I want comments ranges to always be displayed on the waveform timeline, and not only just when I select it. And the selection range would be of the colour of the selected tag (and orange otherwise), as it is already the case by default. Then, there would be a second type of tags called semantic tags: these would also be editable in the settings, but would have only a label and no colors. So, to fix a nomenclatura: we would call the first type of tags: labels, and the second type: tags. Use this naming convention from now on, to separate both concepts. And so these default tags exist: "Funk", "Techno", "Electro", "Jazz", "Classical", "Choir". And then these are displayed below the main waveform timeline (we need to make the lines higher to have enough space for it. Just add some blank space below, keeping the relative positions of the waveforms, buttons, texts and comments we have already placed properly in its current location in the row. There, a selectbox to the left would allow selecting secondary tags (only show not yet applied tags). And then they are displayed just to the right of the selectbox as little tag bubbles rounded 5px, gray background, and a little cross to remove each single one of them. I think that's it, am I missing something?
+
 
 Mise en prod:
 -------------
