@@ -37,8 +37,8 @@ pub struct Result {
 
 pub fn request(state: &Arc<Mutex<State>>, start_index: usize, visible_rows: usize) {
     let mut state_ref = state.lock().unwrap();
-    let start = start_index;
-    let end = start_index
+    let start = start_index.min(state_ref.paths.len());
+    let end = start
         .saturating_add(visible_rows)
         .min(state_ref.paths.len());
     let requested_range = (start, end);
@@ -255,5 +255,17 @@ mod tests {
         request(&state, 0, 1);
 
         assert!(!state.lock().unwrap().loading.contains(&path));
+    }
+
+    #[test]
+    fn request_clamps_start_past_the_end_without_panicking() {
+        let path = PathBuf::from("/workspace/one.wav");
+        let state = state(vec![path]);
+
+        request(&state, usize::MAX, 1);
+
+        let state_ref = state.lock().unwrap();
+        assert_eq!(state_ref.requested_range, Some((1, 1)));
+        assert!(state_ref.loading.is_empty());
     }
 }
