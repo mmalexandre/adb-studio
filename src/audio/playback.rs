@@ -43,11 +43,9 @@ impl PlaybackEngine {
         let player = Player::connect_new(self.stream.mixer());
         player.set_volume(self.volume);
         player.append(decoder);
-        if position > Duration::ZERO {
-            player
-                .try_seek(position)
-                .map_err(|error| format!("Could not seek audio file: {error}"))?;
-        }
+        player
+            .try_seek(position)
+            .map_err(|error| format!("Could not seek audio file: {error}"))?;
         player.play();
         if let Some(previous) = self.player.take() {
             previous.stop();

@@ -261,6 +261,7 @@ pub fn register_playback_callbacks(
             };
             engine.clear_comment_loop();
             let progress = progress.clamp(0.0, 1.0);
+            let progress = if progress <= 0.01 { 0.0 } else { progress };
             let result = if engine.path() == Some(path.as_path()) {
                 engine.seek(engine.duration().mul_f32(progress))
             } else {
