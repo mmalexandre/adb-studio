@@ -13,7 +13,7 @@ x Faster fluid UI
 	- Neighbouring ideas. How to link versions together? Just by copying and pasting files in a folder? How to achieve that even before naming songs? How to remember song names? In Ableton, there are take lanes
 - Template ComfyUI files
 - Cache workflow parsing to speed up application start
-- Ctrl+C Ctrl+X Ctrl+V
+o Ctrl+C Ctrl+X Ctrl+V
 
 Mise en prod:
 -------------

@@ -510,6 +510,16 @@ export component MainWindow inherits Window {
                         tree-focus := FocusScope {
                             vertical-stretch: 1;
                             key-pressed(event) => {
+                                if !root.text-input-focused && root.tree-edit-path == "" && event.modifiers.control && (
+                                    event.text == "c" || event.text == "C" || event.text == "x" || event.text == "X" || event.text == "v" || event.text == "V"
+                                ) {
+                                    root.file-operation(
+                                        event.text == "c" || event.text == "C"
+                                            ? 0
+                                            : event.text == "x" || event.text == "X" ? 1 : 2
+                                    );
+                                    accept;
+                                }
                                 if event.text == Key.F2 {
                                     root.rename-requested();
                                     accept;

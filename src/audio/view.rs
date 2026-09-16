@@ -307,6 +307,28 @@ pub fn select_audio_path(audio_model: &Rc<RefCell<Option<Rc<VecModel<AudioRow>>>
     select_audio_paths(audio_model, &selected_paths, path);
 }
 
+pub fn update_audio_cut_rows(
+    audio_model: &Rc<RefCell<Option<Rc<VecModel<AudioRow>>>>>,
+    cut_paths: &[PathBuf],
+) {
+    let Some(model) = audio_model.borrow().clone() else {
+        return;
+    };
+    for index in 0..model.row_count() {
+        let Some(row) = model.row_data(index) else {
+            continue;
+        };
+        let is_cut = cut_paths
+            .iter()
+            .any(|path| Path::new(row.path.as_str()) == path);
+        if row.is_cut != is_cut {
+            let mut updated = row.clone();
+            updated.is_cut = is_cut;
+            model.set_row_data(index, updated);
+        }
+    }
+}
+
 pub fn scroll_to_path(
     window: &crate::MainWindow,
     audio_model: &Rc<RefCell<Option<Rc<VecModel<AudioRow>>>>>,

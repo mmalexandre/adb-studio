@@ -139,14 +139,10 @@ pub fn handle_clipboard_action(
                 paths: sources.clone(),
                 cut,
             });
-            set_cut_paths(window, if cut { &sources } else { &[] });
-            refresh_views(
-                window,
-                tree_state,
-                audio_folder,
-                audio_model,
-                audio_load_state,
-            );
+            let cut_paths = if cut { sources.as_slice() } else { &[] };
+            set_cut_paths(window, cut_paths);
+            refresh_tree(window, tree_state);
+            crate::audio::view::update_audio_cut_rows(audio_model, cut_paths);
         }
         2 => {
             let Some(operation) = clipboard.borrow().clone() else {
@@ -181,13 +177,8 @@ pub fn handle_clipboard_action(
             if succeeded && operation.cut {
                 *clipboard.borrow_mut() = None;
                 set_cut_paths(window, &[]);
-                refresh_views(
-                    window,
-                    tree_state,
-                    audio_folder,
-                    audio_model,
-                    audio_load_state,
-                );
+                refresh_tree(window, tree_state);
+                crate::audio::view::update_audio_cut_rows(audio_model, &[]);
             }
         }
         _ => {}
