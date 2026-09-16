@@ -1,4 +1,3 @@
-import { VerticalBox } from "std-widgets.slint";
 import { CommentRow } from "./models.slint";
 
 export component Waveform inherits Rectangle {
@@ -8,7 +7,7 @@ export component Waveform inherits Rectangle {
     in property <color> comment-background-color: #000000;
     in property <color> comment-text-color: #ffffff;
     in property <bool> is-active;
-    in property <[float]> peaks;
+    in property <image> waveform;
     in property <bool> is-loading;
     in property <[CommentRow]> comments: [];
     in property <float> selected-comment-start: -1;
@@ -34,42 +33,25 @@ export component Waveform inherits Rectangle {
         return index == root.comment-drag-index ? root.comment-drag-preview-start : start;
     }
 
-    VerticalBox {
-        spacing: 0px;
-        Rectangle {
-            height: 29px;
-            HorizontalLayout {
-                spacing: 2px;
-                for peak[index] in root.peaks : Rectangle {
-                    width: (parent.width - (root.peaks.length - 1) * 2px) / root.peaks.length;
-                    height: 29px;
-                    Rectangle {
-                        width: 100%;
-                        height: 2px + peak.max(0.0).min(1.0) * 25px;
-                        border-radius: 1px;
-                        y: parent.height - self.height;
-                        background: (index / root.peaks.length) <= root.progress ? (root.light-theme ? #d46b32 : #e58a4d) : (root.light-theme ? #b8c0ca : #566171);
-                    }
-                }
-            }
-        }
-        Rectangle {
-            height: 29px;
-            HorizontalLayout {
-                spacing: 2px;
-                for peak[index] in root.peaks : Rectangle {
-                    width: (parent.width - (root.peaks.length - 1) * 2px) / root.peaks.length;
-                    height: 29px;
-                    Rectangle {
-                        width: 100%;
-                        height: 2px + peak.max(0.0).min(1.0) * 25px;
-                        border-radius: 1px;
-                        y: 0px;
-                        opacity: 0.5;
-                        background: (index / root.peaks.length) <= root.progress ? (root.light-theme ? #d46b32 : #e58a4d) : (root.light-theme ? #b8c0ca : #566171);
-                    }
-                }
-            }
+    Image {
+        source: root.waveform;
+        width: parent.width;
+        height: parent.height;
+        image-fit: fill;
+        colorize: root.light-theme ? #b8c0ca : #566171;
+    }
+    Rectangle {
+        x: 0px;
+        width: root.progress * parent.width;
+        height: parent.height;
+        clip: true;
+        Image {
+            x: 0px;
+            source: root.waveform;
+            width: root.width;
+            height: root.height;
+            image-fit: fill;
+            colorize: root.light-theme ? #d46b32 : #e58a4d;
         }
     }
     Rectangle {
@@ -78,7 +60,7 @@ export component Waveform inherits Rectangle {
         width: 1px;
         height: parent.height;
         background: #ffffff;
-        visible: root.is-active && root.peaks.length > 0;
+        visible: root.is-active;
     }
     if root.is-loading : Rectangle {
         x: (parent.width - 24px) / 2;

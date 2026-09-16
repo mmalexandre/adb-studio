@@ -1,4 +1,5 @@
 use sha2::{Digest, Sha256};
+use slint::{Image, Rgba8Pixel, SharedPixelBuffer};
 use std::{
     fs,
     path::Path,
@@ -11,8 +12,11 @@ use symphonia::core::{
 
 pub const PEAK_COUNT: usize = 4096;
 pub const DISPLAY_PEAK_COUNT: usize = 160;
+pub const RASTER_WIDTH: usize = DISPLAY_PEAK_COUNT * 4;
+pub const RASTER_HEIGHT: usize = 58;
 
 static CACHE_TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
+const RASTER_MAGIC: &[u8] = b"ADB-STUDIO-WAVEFORM-RASTER-1";
 
 #[derive(serde::Deserialize, serde::Serialize)]
 struct CacheEntry {
@@ -36,11 +40,29 @@ pub fn aggregate_peaks(peaks: &[f32]) -> Vec<f32> {
         .collect()
 }
 
+pub fn raster_image(raster: &[u8]) -> Image {
+    let mut buffer =
+        SharedPixelBuffer::<Rgba8Pixel>::new(RASTER_WIDTH as u32, RASTER_HEIGHT as u32);
+    for (pixel, alpha) in buffer
+        .make_mut_slice()
+        .iter_mut()
+        .zip(raster.iter().take(RASTER_WIDTH * RASTER_HEIGHT))
+    {
+        *pixel = Rgba8Pixel {
+            r: 255,
+            g: 255,
+            b: 255,
+            a: *alpha,
+        };
+    }
+    Image::from_rgba8(buffer)
+}
+
 pub fn load_or_generate_cancelable(
     path: &Path,
     workspace: &Path,
     should_cancel: impl Fn() -> bool,
-) -> Option<(String, Vec<f32>)> {
+) -> Option<(String, Vec<u8>)> {
     let checksum = crate::metadata::checksum_for_file(workspace, path)
         .unwrap_or_else(|_| path.to_string_lossy().into_owned());
     let cache_key = cache_key(&checksum);
@@ -48,7 +70,14 @@ pub fn load_or_generate_cancelable(
     if let Ok(contents) = fs::read_to_string(&cache_path) {
         if let Ok(entry) = serde_json::from_str::<CacheEntry>(&contents) {
             if entry.checksum == checksum && !entry.peaks.is_empty() {
-                return Some((cache_key, entry.peaks));
+                let display_peaks = aggregate_peaks(&entry.peaks);
+                let raster_path = raster_cache_path(&cache_key, workspace);
+                let raster = load_raster_cache(&raster_path).unwrap_or_else(|| {
+                    let raster = rasterize_peaks(&display_peaks);
+                    write_raster_cache(&raster_path, &raster);
+                    raster
+                });
+                return Some((cache_key, raster));
             }
         }
     }
@@ -61,7 +90,9 @@ pub fn load_or_generate_cancelable(
         return None;
     }
     write_cache(&cache_path, &checksum, &peaks);
-    Some((cache_key, peaks))
+    let raster = rasterize_peaks(&aggregate_peaks(&peaks));
+    write_raster_cache(&raster_cache_path(&cache_key, workspace), &raster);
+    Some((cache_key, raster))
 }
 
 fn cache_path(cache_key: &str, workspace: &Path) -> std::path::PathBuf {
@@ -93,6 +124,76 @@ fn write_cache(path: &Path, checksum: &str, peaks: &[f32]) {
                 let _ = fs::remove_file(temp_path);
             }
         }
+    }
+}
+
+fn raster_cache_path(cache_key: &str, workspace: &Path) -> std::path::PathBuf {
+    workspace
+        .join(".adbstudio")
+        .join("waveforms")
+        .join(format!("{cache_key}.raster"))
+}
+
+fn rasterize_peaks(peaks: &[f32]) -> Vec<u8> {
+    let mut raster = vec![0; RASTER_WIDTH * RASTER_HEIGHT];
+    let slot_width = RASTER_WIDTH / DISPLAY_PEAK_COUNT;
+    for (index, peak) in peaks.iter().take(DISPLAY_PEAK_COUNT).enumerate() {
+        let height = (2.0 + peak.clamp(0.0, 1.0) * 25.0).round() as usize;
+        let x_start = index * slot_width + slot_width / 2;
+        let x_end = (index + 1) * slot_width;
+        for y in RASTER_HEIGHT / 2 - height..RASTER_HEIGHT / 2 {
+            for x in x_start..x_end {
+                raster[y * RASTER_WIDTH + x] = 255;
+            }
+        }
+        for y in RASTER_HEIGHT / 2..(RASTER_HEIGHT / 2 + height).min(RASTER_HEIGHT) {
+            for x in x_start..x_end {
+                raster[y * RASTER_WIDTH + x] = 128;
+            }
+        }
+    }
+    raster
+}
+
+fn load_raster_cache(path: &Path) -> Option<Vec<u8>> {
+    let contents = fs::read(path).ok()?;
+    let header_len = RASTER_MAGIC.len() + 8;
+    if contents.len() < header_len || &contents[..RASTER_MAGIC.len()] != RASTER_MAGIC {
+        return None;
+    }
+    let width_start = RASTER_MAGIC.len();
+    let width = u32::from_le_bytes(contents[width_start..width_start + 4].try_into().ok()?);
+    let height_start = width_start + 4;
+    let height = u32::from_le_bytes(contents[height_start..height_start + 4].try_into().ok()?);
+    if width != RASTER_WIDTH as u32 || height != RASTER_HEIGHT as u32 {
+        return None;
+    }
+    let expected_len = header_len + RASTER_WIDTH * RASTER_HEIGHT;
+    (contents.len() == expected_len).then(|| contents[header_len..].to_vec())
+}
+
+fn write_raster_cache(path: &Path, raster: &[u8]) {
+    if raster.len() != RASTER_WIDTH * RASTER_HEIGHT {
+        return;
+    }
+    let Some(parent) = path.parent() else {
+        return;
+    };
+    if fs::create_dir_all(parent).is_err() {
+        return;
+    }
+    let mut contents = Vec::with_capacity(RASTER_MAGIC.len() + 8 + raster.len());
+    contents.extend_from_slice(RASTER_MAGIC);
+    contents.extend_from_slice(&(RASTER_WIDTH as u32).to_le_bytes());
+    contents.extend_from_slice(&(RASTER_HEIGHT as u32).to_le_bytes());
+    contents.extend_from_slice(raster);
+    let temp_path = path.with_extension(format!(
+        "raster.tmp-{}-{}",
+        std::process::id(),
+        CACHE_TEMP_COUNTER.fetch_add(1, Ordering::Relaxed)
+    ));
+    if fs::write(&temp_path, contents).is_ok() && fs::rename(&temp_path, path).is_err() {
+        let _ = fs::remove_file(temp_path);
     }
 }
 
@@ -159,7 +260,10 @@ fn decode_peaks(
 
 #[cfg(test)]
 mod tests {
-    use super::{aggregate_peaks, load_or_generate_cancelable, DISPLAY_PEAK_COUNT};
+    use super::{
+        aggregate_peaks, load_or_generate_cancelable, load_raster_cache, rasterize_peaks,
+        write_raster_cache, DISPLAY_PEAK_COUNT, RASTER_HEIGHT, RASTER_WIDTH,
+    };
     use std::{
         fs,
         path::PathBuf,
@@ -207,6 +311,32 @@ mod tests {
     }
 
     #[test]
+    fn raster_contains_expected_layers_and_dimensions() {
+        let mut peaks = vec![0.0; DISPLAY_PEAK_COUNT];
+        peaks[0] = 1.0;
+
+        let raster = rasterize_peaks(&peaks);
+
+        assert_eq!(raster.len(), RASTER_WIDTH * RASTER_HEIGHT);
+        assert_eq!(raster[2 * RASTER_WIDTH + 2], 255);
+        assert_eq!(raster[28 * RASTER_WIDTH + 2], 255);
+        assert_eq!(raster[29 * RASTER_WIDTH + 2], 128);
+        assert_eq!(raster[55 * RASTER_WIDTH + 2], 128);
+        assert_eq!(raster[1], 0);
+    }
+
+    #[test]
+    fn raster_cache_round_trips_with_dimensions() {
+        let temp = TempDirectory::new();
+        let path = temp.0.join("waveform.raster");
+        let raster = vec![64; RASTER_WIDTH * RASTER_HEIGHT];
+
+        write_raster_cache(&path, &raster);
+
+        assert_eq!(load_raster_cache(&path), Some(raster));
+    }
+
+    #[test]
     fn cancellation_prevents_generation_and_cache_creation() {
         let temp = TempDirectory::new();
         let source = temp.0.join("missing.wav");
@@ -220,7 +350,10 @@ mod tests {
     fn failed_decode_is_not_cached_as_empty_peaks() {
         let temp = TempDirectory::new();
         let source = temp.0.join("missing.wav");
-        assert_eq!(load_or_generate_cancelable(&source, &temp.0, || false), None);
+        assert_eq!(
+            load_or_generate_cancelable(&source, &temp.0, || false),
+            None
+        );
         assert!(!temp.0.join(".adbstudio/waveforms").exists());
     }
 }

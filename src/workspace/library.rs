@@ -7,10 +7,10 @@ use std::{
     sync::{atomic::Ordering, Arc, Mutex},
 };
 
-use slint::{Model, ModelRc, VecModel};
+use slint::{Image, Model, ModelRc, VecModel};
 
 use crate::{
-    audio::{loader, view::comment_rows, waveform},
+    audio::{loader, view::comment_rows},
     metadata,
     workspace::{file_system, preferences},
     AudioLoadState, AudioRow, MainWindow, TrackDifference,
@@ -196,7 +196,7 @@ fn refresh_audio_with_changes(
         depth: 0,
         is_expanded: expanded.contains(&folder),
         modified_date: "".into(),
-        peaks: ModelRc::new(VecModel::from(Vec::new())),
+        waveform: Image::default(),
         is_loading: false,
         comments: ModelRc::new(VecModel::from(Vec::new())),
         differences: ModelRc::new(VecModel::from(Vec::new())),
@@ -221,7 +221,7 @@ fn refresh_audio_with_changes(
                 depth,
                 is_expanded: expanded.contains(&entry.path),
                 modified_date: "".into(),
-                peaks: ModelRc::new(VecModel::from(Vec::new())),
+                waveform: Image::default(),
                 is_loading: false,
                 comments: ModelRc::new(VecModel::from(Vec::new())),
                 differences: ModelRc::new(VecModel::from(Vec::new())),
@@ -297,15 +297,13 @@ fn refresh_audio_with_changes(
             depth,
             is_expanded: false,
             modified_date: modified_date.to_string().into(),
-            peaks: if can_reuse_waveform {
+            waveform: if can_reuse_waveform {
                 preserved_waveform_paths.insert(entry.path.clone());
                 existing_row
-                    .map(|row| row.peaks.clone())
-                    .unwrap_or_else(|| {
-                        ModelRc::new(VecModel::from(vec![0.0; waveform::DISPLAY_PEAK_COUNT]))
-                    })
+                    .map(|row| row.waveform.clone())
+                    .unwrap_or_default()
             } else {
-                ModelRc::new(VecModel::from(vec![0.0; waveform::DISPLAY_PEAK_COUNT]))
+                Image::default()
             },
             is_loading: false,
             comments,

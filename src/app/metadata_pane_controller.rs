@@ -114,7 +114,7 @@ pub fn register_metadata_pane_callbacks(
                                 depth: row.depth,
                                 is_expanded: row.is_expanded,
                                 modified_date: row.modified_date,
-                                peaks: row.peaks,
+                                waveform: row.waveform,
                                 is_loading: row.is_loading,
                                 comments: row.comments,
                                 differences: row.differences,

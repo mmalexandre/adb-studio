@@ -12,7 +12,7 @@ component AudioRowView inherits Rectangle {
     in property <color> comment-text-color: #ffffff;
     in property <string> name;
     in property <string> modified-date;
-    in property <[float]> peaks;
+    in property <image> waveform;
     in property <bool> is-loading;
     in property <[CommentRow]> comments;
     in property <[TrackDifference]> differences;
@@ -214,7 +214,7 @@ component AudioRowView inherits Rectangle {
                 comment-text-color: root.comment-text-color;
                 is-active: root.is-active;
                 is-loading: root.is-loading;
-                peaks: root.peaks;
+                waveform: root.waveform;
                 comments: root.comments;
                 selected-comment-start: root.selected-comment-start;
                 selected-comment-end: root.selected-comment-end;
@@ -364,7 +364,7 @@ export component AudioList inherits ListView {
             comment-text-color: root.comment-text-color;
             name: row.name;
             modified-date: row.modified-date;
-            peaks: row.peaks;
+            waveform: row.waveform;
             comments: row.comments;
             differences: row.differences;
             similarity: row.similarity;

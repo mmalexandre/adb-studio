@@ -9,7 +9,7 @@ use std::{
 };
 
 use audio::playback::PlaybackEngine;
-use slint::{ComponentHandle, Model, ModelRc, VecModel};
+use slint::{ComponentHandle, Model};
 
 mod app;
 mod audio;
@@ -368,14 +368,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         let Some(row) = model.row_data(result.index) else {
                             continue;
                         };
-                        let display_peaks = waveform::aggregate_peaks(&result.peaks);
-                        if let Some(peaks_model) = row
-                            .peaks
-                            .as_any()
-                            .downcast_ref::<VecModel<f32>>()
-                        {
-                            peaks_model.set_vec(display_peaks);
-                        }
                         model.set_row_data(
                             result.index,
                             AudioRow {
@@ -385,7 +377,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 depth: row.depth,
                                 is_expanded: row.is_expanded,
                                 modified_date: row.modified_date,
-                                peaks: row.peaks,
+                                waveform: waveform::raster_image(&result.raster),
                                 is_loading: false,
                                 comments: row.comments,
                                 differences: row.differences,

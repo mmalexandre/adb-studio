@@ -32,7 +32,7 @@ pub struct Result {
     pub generation: u64,
     pub index: usize,
     pub path: String,
-    pub peaks: Vec<f32>,
+    pub raster: Vec<u8>,
 }
 
 pub fn request(state: &Arc<Mutex<State>>, start_index: usize, visible_rows: usize) {
@@ -160,7 +160,7 @@ fn generate(state: Arc<Mutex<State>>) {
             let Ok((index, path, result)) = worker_receiver.lock().unwrap().recv() else {
                 break;
             };
-            let Some((cache_key, peaks)) = result else {
+            let Some((cache_key, raster)) = result else {
                 continue;
             };
             let mut audio_metadata = metadata::load_audio_metadata(&folder, &path);
@@ -178,7 +178,7 @@ fn generate(state: Arc<Mutex<State>>) {
                 generation,
                 index,
                 path: path_string,
-                peaks,
+                raster,
             });
         }
         for worker in workers {
