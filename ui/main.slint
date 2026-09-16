@@ -2240,9 +2240,10 @@ export component MainWindow inherits Window {
                         Rectangle {
                             width: 28px;
                             height: 24px;
-                            border-color: root.comment-editor-label-id < 0 ? (root.light-theme ? #202833 : #f1f4f8) : transparent;
+                            background: #ffffff;
+                            border-color: root.comment-editor-label-id < 0 ? #cbd2dc : transparent;
                             border-width: 1px;
-                            Text { text: "-"; horizontal-alignment: center; vertical-alignment: center; color: root.light-theme ? #202833 : #f1f4f8; }
+                            Text { text: "No label"; x: 34px; color: root.light-theme ? #202833 : #f1f4f8; vertical-alignment: center; }
                             TouchArea { clicked => { root.comment-editor-label-id = -1; } }
                         }
                         for label-id[index] in root.label-ids : Rectangle {

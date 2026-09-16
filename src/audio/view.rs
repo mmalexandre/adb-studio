@@ -33,10 +33,6 @@ fn row_index(path: &Path) -> Option<usize> {
     AUDIO_ROW_INDEX.with(|index| index.borrow().get(path).copied())
 }
 
-pub fn comment_rows(item: &metadata::AudioFileMetadata) -> ModelRc<CommentRow> {
-    comment_rows_with_labels(item, &settings::AppSettings::default().label_definitions)
-}
-
 pub fn comment_rows_with_labels(
     item: &metadata::AudioFileMetadata,
     labels: &[LabelDefinition],
@@ -515,7 +511,7 @@ mod tests {
 
     use slint::Model;
 
-    use super::{comment_rows, format_duration};
+    use super::{comment_rows_with_labels, format_duration};
     use crate::metadata::{AudioComment, AudioFileMetadata};
 
     #[test]
@@ -539,7 +535,7 @@ mod tests {
             ..Default::default()
         };
 
-        let rows = comment_rows(&metadata);
+        let rows = comment_rows_with_labels(&metadata, &[]);
 
         assert_eq!(rows.row_count(), 2);
         assert_eq!(rows.row_data(0).unwrap().text, "early");
@@ -564,7 +560,7 @@ mod tests {
             ..Default::default()
         };
 
-        let row = comment_rows(&metadata).row_data(0).unwrap();
+        let row = comment_rows_with_labels(&metadata, &[]).row_data(0).unwrap();
 
         assert_eq!(row.start, 1.0);
         assert_eq!(row.end, 1.0);
