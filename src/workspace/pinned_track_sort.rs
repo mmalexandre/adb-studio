@@ -2,7 +2,7 @@ use std::{cmp::Ordering, path::Path};
 
 use crate::metadata::{
     self,
-    comfyui::{ComfyUIWorkflow, LoRAInfo},
+    comfyui::ComfyUIWorkflow,
 };
 
 use super::file_system::{DirEntryInfo, SortOrder};
@@ -187,159 +187,13 @@ fn workflow_for(folder: &Path, track_path: &Path) -> Option<ComfyUIWorkflow> {
     crate::metadata::comfyui::parse_file(&workflow_path).ok()
 }
 
-fn distance_between(pinned: &ComfyUIWorkflow, track: &ComfyUIWorkflow) -> Distance {
-    let lora_distance = lora_distance(&pinned.loras, &track.loras);
-    if lora_distance.iter().any(|value| *value != 0) {
-        return Distance {
-            tier: 1,
-            values: lora_distance,
-        };
-    }
-
-    let seed = integer_difference(&pinned.seed, &track.seed);
-    let bpm = numeric_difference(&pinned.bpm, &track.bpm);
-    let key = key_distance(&pinned.key, &track.key);
-    if seed != 0 || bpm != 0 || key != 0 {
-        return Distance {
-            tier: 2,
-            values: vec![seed, bpm, key],
-        };
-    }
-
-    let lyrics = edit_distance(&pinned.lyrics, &track.lyrics) as i64;
-    let prompt = edit_distance(&pinned.prompt, &track.prompt) as i64;
-    Distance {
-        tier: if lyrics != 0 || prompt != 0 { 3 } else { 0 },
-        values: vec![lyrics, prompt],
-    }
-}
-
-fn lora_distance(pinned: &[LoRAInfo], track: &[LoRAInfo]) -> Vec<i64> {
-    let strength_differences = pinned
-        .iter()
-        .zip(track)
-        .filter(|(left, right)| left.filename == right.filename && left.strength != right.strength)
-        .map(|(left, right)| numeric_difference(&left.strength, &right.strength))
-        .collect::<Vec<_>>();
-    let shared_order_difference = pinned
-        .iter()
-        .zip(track)
-        .filter(|(left, right)| left.filename != right.filename)
-        .count() as i64;
-    let identity_difference = pinned
-        .iter()
-        .zip(track)
-        .filter(|(left, right)| left.filename != right.filename)
-        .count() as i64
-        + (pinned.len() as i64 - track.len() as i64).abs();
-    vec![
-        strength_differences.len() as i64,
-        strength_differences.into_iter().sum(),
-        shared_order_difference,
-        identity_difference,
-    ]
-}
-
-fn numeric_difference(left: &str, right: &str) -> i64 {
-    match (left.parse::<f64>(), right.parse::<f64>()) {
-        (Ok(left), Ok(right)) => ((left - right).abs() * 1_000_000.0).round() as i64,
-        _ if left == right => 0,
-        _ => i64::MAX / 4,
-    }
-}
-
-fn integer_difference(left: &str, right: &str) -> i64 {
-    match (left.parse::<i128>(), right.parse::<i128>()) {
-        (Ok(left), Ok(right)) => (left - right).abs().min(i64::MAX as i128) as i64,
-        _ if left == right => 0,
-        _ => i64::MAX / 4,
-    }
-}
-
-fn key_distance(left: &str, right: &str) -> i64 {
-    if left == right {
-        return 0;
-    }
-    let left = key_index(left);
-    let right = key_index(right);
-    match (left, right) {
-        (Some(left), Some(right)) => (left - right).abs().min(24 - (left - right).abs()),
-        _ => 1,
-    }
-}
-
-fn key_index(key: &str) -> Option<i64> {
-    [
-        "C major", "C minor", "C# major", "C# minor", "D major", "D minor", "Eb major", "Eb minor",
-        "E major", "E minor", "F major", "F minor", "F# major", "F# minor", "G major", "G minor",
-        "Ab major", "Ab minor", "A major", "A minor", "Bb major", "Bb minor", "B major", "B minor",
-    ]
-    .iter()
-    .position(|candidate| candidate.eq_ignore_ascii_case(key))
-    .map(|index| index as i64)
-}
-
-fn edit_distance(left: &str, right: &str) -> usize {
-    let right = right.chars().collect::<Vec<_>>();
-    let mut distances = (0..=right.len()).collect::<Vec<_>>();
-    for (left_index, left_char) in left.chars().enumerate() {
-        let mut diagonal = distances[0];
-        distances[0] = left_index + 1;
-        for (right_index, right_char) in right.iter().enumerate() {
-            let previous = distances[right_index + 1];
-            distances[right_index + 1] = if left_char == *right_char {
-                diagonal
-            } else {
-                1 + diagonal.min(distances[right_index]).min(previous)
-            };
-            diagonal = previous;
-        }
-    }
-    distances[right.len()]
-}
-
 #[cfg(test)]
 mod tests {
     use std::{fs, path::PathBuf};
 
-    use super::{
-        distance_between, similarity_from_differences, sort_tracks, ComfyUIWorkflow, LoRAInfo,
-    };
+    use super::{similarity_from_differences, sort_tracks};
     use crate::metadata::comfyui::TrackDifference;
     use crate::workspace::file_system::{DirEntryInfo, FileKind, SortOrder};
-
-    fn workflow() -> ComfyUIWorkflow {
-        ComfyUIWorkflow {
-            bpm: "120".into(),
-            key: "C major".into(),
-            seed: "10".into(),
-            ..Default::default()
-        }
-    }
-
-    #[test]
-    fn lower_tier_always_wins() {
-        let pinned = workflow();
-        let mut lora = workflow();
-        lora.loras = vec![LoRAInfo {
-            node_id: "1".into(),
-            filename: "a".into(),
-            strength: "0.1".into(),
-        }];
-        let mut seed = workflow();
-        seed.seed = "11".into();
-        assert!(distance_between(&pinned, &lora) < distance_between(&pinned, &seed));
-    }
-
-    #[test]
-    fn content_changes_are_further_than_generation_changes() {
-        let pinned = workflow();
-        let mut generation = workflow();
-        generation.bpm = "121".into();
-        let mut content = workflow();
-        content.prompt = "changed".into();
-        assert!(distance_between(&pinned, &generation) < distance_between(&pinned, &content));
-    }
 
     #[test]
     fn bpm_difference_gets_generation_similarity() {

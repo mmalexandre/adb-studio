@@ -219,7 +219,7 @@ component AudioRowView inherits Rectangle {
                 selected-comment-start: root.selected-comment-start;
                 selected-comment-end: root.selected-comment-end;
                 progress: root.progress;
-                y: -40px;
+                y: -30px;
                 seek-requested(progress, shift) => { if shift { root.row-clicked(shift); } else { root.seek-requested(progress); } }
                 comment-range-requested(start, end) => { root.comment-range-requested(start, end); }
                 comment-selected(start, end, text) => { root.comment-selected(start, end, text); }
