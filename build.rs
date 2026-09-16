@@ -1,4 +1,7 @@
 fn main() {
+    println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=ui");
+
     slint_build::compile("ui/main.slint").expect("failed to compile Slint UI");
 
     let build_number = std::process::Command::new("git")
