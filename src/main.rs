@@ -218,6 +218,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut conversion_updates = 0usize;
         let mut spinner_frame = 0usize;
         let mut sync_spinner_frame = 0usize;
+        let mut previous_loading = std::collections::HashSet::new();
         let mut workspace_change_pending = false;
         let mut last_workspace_refresh = Instant::now();
         let mut workspace_change_paths = Vec::new();
@@ -355,7 +356,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     return;
                 };
                 let loading = audio_load_state.lock().unwrap().loading.clone();
-                update_audio_loading_rows(&audio_model, &loading);
+                update_audio_loading_rows(&audio_model, &loading, &mut previous_loading);
                 if let Some(receiver) = audio_result_receiver.borrow_mut().as_mut() {
                     for result in receiver.try_iter().take(3) {
                         let current_generation = audio_load_state.lock().unwrap().generation;
@@ -367,6 +368,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         let Some(row) = model.row_data(result.index) else {
                             continue;
                         };
+                        let display_peaks = waveform::aggregate_peaks(&result.peaks);
+                        if let Some(peaks_model) = row
+                            .peaks
+                            .as_any()
+                            .downcast_ref::<VecModel<f32>>()
+                        {
+                            peaks_model.set_vec(display_peaks);
+                        }
                         model.set_row_data(
                             result.index,
                             AudioRow {
@@ -376,9 +385,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 depth: row.depth,
                                 is_expanded: row.is_expanded,
                                 modified_date: row.modified_date,
-                                peaks: ModelRc::new(VecModel::from(waveform::aggregate_peaks(
-                                    &result.peaks,
-                                ))),
+                                peaks: row.peaks,
                                 is_loading: false,
                                 comments: row.comments,
                                 differences: row.differences,
@@ -444,6 +451,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     window.show()?;
+    {
+        let window_weak = window.as_weak();
+        let audio_load_state = Arc::clone(&audio_load_state);
+        let startup_viewport_timer = slint::Timer::default();
+        startup_viewport_timer.start(
+            slint::TimerMode::SingleShot,
+            Duration::from_millis(0),
+            move || {
+                if let Some(window) = window_weak.upgrade() {
+                    request_audio_generation(
+                        &audio_load_state,
+                        window.get_audio_viewport_start().max(0) as usize,
+                        window.get_audio_visible_rows().max(1) as usize,
+                    );
+                }
+            },
+        );
+        std::mem::forget(startup_viewport_timer);
+    }
     let window_weak = window.as_weak();
     let splash_timer = slint::Timer::default();
     splash_timer.start(

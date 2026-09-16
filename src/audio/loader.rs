@@ -38,17 +38,18 @@ pub struct Result {
 pub fn request(state: &Arc<Mutex<State>>, start_index: usize, visible_rows: usize) {
     let mut state_ref = state.lock().unwrap();
     let start = start_index.min(state_ref.paths.len());
-    let end = start
-        .saturating_add(visible_rows)
-        .min(state_ref.paths.len());
+    let mut end = start;
+    let mut audio_paths = 0;
+    while end < state_ref.paths.len() && audio_paths < visible_rows {
+        if state_ref.paths[end].is_file() {
+            audio_paths += 1;
+        }
+        end += 1;
+    }
     let requested_range = (start, end);
     if state_ref.requested_range == Some(requested_range) {
         return;
     }
-    state_ref.generation += 1;
-    state_ref
-        .cancellation_generation
-        .store(state_ref.generation, Ordering::Release);
     state_ref.requested_range = Some(requested_range);
     let paths_to_load = state_ref.paths[start..end].to_vec();
     let generated = state_ref.generated.clone();
@@ -58,7 +59,7 @@ pub fn request(state: &Arc<Mutex<State>>, start_index: usize, visible_rows: usiz
     state_ref.loading.extend(
         paths_to_load
             .into_iter()
-            .filter(|path| !generated.contains(path)),
+            .filter(|path| path.is_file() && !generated.contains(path)),
     );
     if state_ref.running {
         return;
@@ -191,8 +192,10 @@ mod tests {
     use super::{request, State};
     use std::{
         collections::HashSet,
+        fs,
         path::PathBuf,
         sync::{atomic::AtomicU64, mpsc, Arc, Mutex},
+        time::{SystemTime, UNIX_EPOCH},
     };
 
     fn state(paths: Vec<PathBuf>) -> Arc<Mutex<State>> {
@@ -214,23 +217,48 @@ mod tests {
 
     #[test]
     fn request_clamps_visible_range_and_marks_ungenerated_paths_loading() {
-        let first = PathBuf::from("/workspace/one.wav");
-        let second = PathBuf::from("/workspace/two.wav");
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let first = std::env::temp_dir().join(format!("adb-studio-loader-{suffix}-one.wav"));
+        let second = std::env::temp_dir().join(format!("adb-studio-loader-{suffix}-two.wav"));
+        fs::write(&first, []).unwrap();
+        fs::write(&second, []).unwrap();
         let state = state(vec![first.clone(), second.clone()]);
 
         request(&state, 1, 10);
 
         let state_ref = state.lock().unwrap();
         assert_eq!(state_ref.requested_range, Some((1, 2)));
-        assert_eq!(state_ref.generation, 1);
+        assert_eq!(state_ref.generation, 0);
         assert_eq!(
             state_ref
                 .cancellation_generation
                 .load(std::sync::atomic::Ordering::Acquire),
-            1
+            0
         );
         assert!(!state_ref.loading.contains(&first));
         assert!(state_ref.loading.contains(&second));
+        drop(state_ref);
+        let _ = fs::remove_file(first);
+        let _ = fs::remove_file(second);
+    }
+
+    #[test]
+    fn requesting_visible_audio_skips_folder_rows() {
+        let folder = std::env::temp_dir().join("adb-studio-loader-folder-row");
+        let audio = std::env::temp_dir().join("adb-studio-loader-audio-row.wav");
+        std::fs::write(&audio, []).unwrap();
+        let state = state(vec![folder, audio.clone()]);
+
+        request(&state, 0, 1);
+
+        let state_ref = state.lock().unwrap();
+        assert_eq!(state_ref.requested_range, Some((0, 2)));
+        assert!(state_ref.loading.contains(&audio));
+        drop(state_ref);
+        let _ = std::fs::remove_file(audio);
     }
 
     #[test]
@@ -243,7 +271,7 @@ mod tests {
 
         let state_ref = state.lock().unwrap();
         assert_eq!(state_ref.requested_range, Some((0, 1)));
-        assert_eq!(state_ref.generation, 1);
+        assert_eq!(state_ref.generation, 0);
     }
 
     #[test]

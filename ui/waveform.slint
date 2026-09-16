@@ -45,7 +45,7 @@ export component Waveform inherits Rectangle {
                     height: 29px;
                     Rectangle {
                         width: 100%;
-                        height: 2px + peak * 25px;
+                        height: 2px + peak.max(0.0).min(1.0) * 25px;
                         border-radius: 1px;
                         y: parent.height - self.height;
                         background: (index / root.peaks.length) <= root.progress ? (root.light-theme ? #d46b32 : #e58a4d) : (root.light-theme ? #b8c0ca : #566171);
@@ -62,7 +62,7 @@ export component Waveform inherits Rectangle {
                     height: 29px;
                     Rectangle {
                         width: 100%;
-                        height: 2px + peak * 25px;
+                        height: 2px + peak.max(0.0).min(1.0) * 25px;
                         border-radius: 1px;
                         y: 0px;
                         opacity: 0.5;

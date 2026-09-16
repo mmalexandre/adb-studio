@@ -1,6 +1,6 @@
 use std::{
     cell::RefCell,
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
     rc::Rc,
     time::Duration,
@@ -10,6 +10,27 @@ use slint::{Model, ModelRc, VecModel};
 
 use crate::metadata;
 use crate::{AudioRow, CommentRow};
+
+thread_local! {
+    static AUDIO_ROW_INDEX: RefCell<HashMap<PathBuf, usize>> = RefCell::new(HashMap::new());
+    static ACTIVE_AUDIO_PATH: RefCell<Option<PathBuf>> = RefCell::new(None);
+}
+
+pub fn set_audio_row_index(model: &VecModel<AudioRow>) {
+    AUDIO_ROW_INDEX.with(|index| {
+        let mut index = index.borrow_mut();
+        index.clear();
+        for row_index in 0..model.row_count() {
+            if let Some(row) = model.row_data(row_index) {
+                index.insert(PathBuf::from(row.path.as_str()), row_index);
+            }
+        }
+    });
+}
+
+fn row_index(path: &Path) -> Option<usize> {
+    AUDIO_ROW_INDEX.with(|index| index.borrow().get(path).copied())
+}
 
 pub fn comment_rows(item: &metadata::AudioFileMetadata) -> ModelRc<CommentRow> {
     let duration = item.duration_seconds.max(0.001);
@@ -80,11 +101,25 @@ pub fn update_audio_rows(
     } else {
         (position.as_secs_f32() / duration.as_secs_f32()).clamp(0.0, 1.0)
     };
-    for index in 0..model.row_count() {
+    let previous_path =
+        ACTIVE_AUDIO_PATH.with(|current| current.replace(active_path.map(Path::to_path_buf)));
+    let mut paths = Vec::new();
+    if let Some(path) = previous_path.as_deref() {
+        paths.push(path);
+    }
+    if let Some(path) = active_path {
+        if previous_path.as_deref() != Some(path) {
+            paths.push(path);
+        }
+    }
+    for path in paths {
+        let Some(index) = row_index(path) else {
+            continue;
+        };
         let Some(row) = model.row_data(index) else {
             continue;
         };
-        let is_active = active_path.is_some_and(|path| path == Path::new(row.path.as_str()));
+        let is_active = active_path.is_some_and(|active| active == path);
         if row.is_active != is_active
             || row.is_playing != (is_active && is_playing)
             || (is_active && (row.progress - progress).abs() > 0.001)
@@ -122,15 +157,24 @@ pub fn update_audio_rows(
 pub fn update_audio_loading_rows(
     audio_model: &Rc<RefCell<Option<Rc<VecModel<AudioRow>>>>>,
     loading: &HashSet<PathBuf>,
+    previous_loading: &mut HashSet<PathBuf>,
 ) {
     let Some(model) = audio_model.borrow().clone() else {
         return;
     };
-    for index in 0..model.row_count() {
+    let changed_paths = loading
+        .symmetric_difference(previous_loading)
+        .cloned()
+        .collect::<Vec<_>>();
+    previous_loading.clone_from(loading);
+    for path in changed_paths {
+        let Some(index) = row_index(&path) else {
+            continue;
+        };
         let Some(row) = model.row_data(index) else {
             continue;
         };
-        let is_loading = loading.contains(Path::new(row.path.as_str()));
+        let is_loading = loading.contains(&path);
         if row.is_loading != is_loading {
             model.set_row_data(
                 index,

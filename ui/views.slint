@@ -319,6 +319,20 @@ export component AudioList inherits ListView {
     callback folder-collapse-all-requested(string);
     callback folder-expand-all-requested(string);
 
+    changed rows => {
+        root.viewport-changed(
+            (0px - root.viewport-y) / 86px,
+            (root.height / 86px) + 1
+        );
+    }
+
+    changed height => {
+        root.viewport-changed(
+            (0px - root.viewport-y) / 86px,
+            (root.height / 86px) + 1
+        );
+    }
+
     changed viewport-y => {
         root.viewport-changed(
             (0px - root.viewport-y) / 86px,

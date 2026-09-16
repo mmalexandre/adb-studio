@@ -251,6 +251,19 @@ fn refresh_audio_with_changes(
             .map(|time| time.as_secs())
             .unwrap_or_default();
         let existing_row = existing_rows.get(&entry.path);
+        if !changed_audio_paths.contains(&entry.path)
+            && existing_row.is_some_and(|row| row.modified_date == modified_date.to_string())
+        {
+            let mut row = existing_row.unwrap().clone();
+            row.name = entry.name.clone().into();
+            row.depth = depth;
+            row.is_pinned = pinned_path.as_deref() == Some(entry.path.as_path());
+            if generated_paths.contains(&entry.path) {
+                preserved_waveform_paths.insert(entry.path.clone());
+            }
+            rows.push(row);
+            continue;
+        }
         let can_reuse_waveform = existing_row.is_some_and(|row| {
             generated_paths.contains(&entry.path) && row.modified_date == modified_date.to_string()
         });
@@ -352,6 +365,7 @@ fn refresh_audio_with_changes(
         .count();
     let model = Rc::new(VecModel::from(rows));
     window.set_audio_rows(ModelRc::new(model.clone()));
+    crate::audio::view::set_audio_row_index(&model);
     *audio_model.borrow_mut() = Some(model);
     {
         let mut state = audio_load_state.lock().unwrap();
@@ -379,5 +393,9 @@ fn refresh_audio_with_changes(
         state.total = total;
         state.requested_range = None;
     }
-    loader::request(audio_load_state, 0, 1);
+    loader::request(
+        audio_load_state,
+        window.get_audio_viewport_start().max(0) as usize,
+        window.get_audio_visible_rows().max(1) as usize,
+    );
 }

@@ -47,7 +47,7 @@ pub fn load_or_generate_cancelable(
     let cache_path = cache_path(&cache_key, workspace);
     if let Ok(contents) = fs::read_to_string(&cache_path) {
         if let Ok(entry) = serde_json::from_str::<CacheEntry>(&contents) {
-            if entry.checksum == checksum {
+            if entry.checksum == checksum && !entry.peaks.is_empty() {
                 return Some((cache_key, entry.peaks));
             }
         }
@@ -56,7 +56,7 @@ pub fn load_or_generate_cancelable(
     if should_cancel() {
         return None;
     }
-    let peaks = decode_peaks(path, &should_cancel).unwrap_or_default();
+    let peaks = decode_peaks(path, &should_cancel).ok()?;
     if should_cancel() {
         return None;
     }
@@ -217,18 +217,10 @@ mod tests {
     }
 
     #[test]
-    fn failed_decode_is_cached_as_empty_peaks() {
+    fn failed_decode_is_not_cached_as_empty_peaks() {
         let temp = TempDirectory::new();
         let source = temp.0.join("missing.wav");
-        let (cache_key, peaks) = load_or_generate_cancelable(&source, &temp.0, || false).unwrap();
-        let cache_path = temp
-            .0
-            .join(".adbstudio")
-            .join("waveforms")
-            .join(format!("{cache_key}.json"));
-
-        assert!(peaks.is_empty());
-        assert!(cache_path.is_file());
-        assert!(load_or_generate_cancelable(&source, &temp.0, || true).is_some());
+        assert_eq!(load_or_generate_cancelable(&source, &temp.0, || false), None);
+        assert!(!temp.0.join(".adbstudio/waveforms").exists());
     }
 }
