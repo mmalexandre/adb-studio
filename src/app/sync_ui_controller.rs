@@ -2,7 +2,8 @@ use std::{
     cell::RefCell,
     path::{Path, PathBuf},
     rc::Rc,
-    sync::{Arc, Mutex},
+    sync::{mpsc, Arc, Mutex},
+    thread,
     time::Duration,
 };
 
@@ -26,6 +27,15 @@ use crate::{
     MainWindow,
 };
 
+pub enum SyncTestResult {
+    Completed(Result<usize, String>),
+    Save {
+        folder: PathBuf,
+        config: SyncConfig,
+        result: Result<(), String>,
+    },
+}
+
 pub fn register_sync_ui_callbacks(
     window: &MainWindow,
     settings: &Rc<RefCell<AppSettings>>,
@@ -33,9 +43,7 @@ pub fn register_sync_ui_callbacks(
     audio_folder: &Rc<RefCell<Option<PathBuf>>>,
     audio_model: &Rc<RefCell<Option<Rc<slint::VecModel<crate::AudioRow>>>>>,
     audio_load_state: &Arc<Mutex<AudioLoadState>>,
-    sync_controller: &Rc<RefCell<crate::sync::SyncController>>,
-    recreate_workflow_pending: &Rc<RefCell<bool>>,
-    edited_workflow: &Rc<RefCell<Option<serde_json::Value>>>,
+    test_sender: &mpsc::Sender<SyncTestResult>,
 ) {
     {
         let weak_window = window.as_weak();
@@ -246,6 +254,7 @@ pub fn register_sync_ui_callbacks(
     {
         let weak_window = window.as_weak();
         let audio_folder = Rc::clone(audio_folder);
+        let test_sender = test_sender.clone();
         window.on_comfyui_sync_test(move |url, remote_directory, local_directory, interval| {
             let Some(window) = weak_window.upgrade() else {
                 return;
@@ -276,28 +285,22 @@ pub fn register_sync_ui_callbacks(
                 window.set_comfyui_sync_test_message(error.to_string().into());
                 return;
             }
-            match ComfyUiClient::new().and_then(|client| client.list_files(&config)) {
-                Ok(files) => {
-                    window.set_comfyui_sync_error("".into());
-                    window.set_comfyui_sync_test_success(true);
-                    window.set_comfyui_sync_test_message(
-                        format!("Connection successful: {} file(s) found", files.len()).into(),
-                    );
-                }
-                Err(error) => {
-                    window.set_comfyui_sync_test_success(false);
-                    window.set_comfyui_sync_test_message(error.to_string().into());
-                }
-            }
+            window.set_comfyui_sync_test_message("Testing connection...".into());
+            let test_sender = test_sender.clone();
+            thread::spawn(move || {
+                let result = ComfyUiClient::new()
+                    .and_then(|client| client.list_files(&config))
+                    .map(|files| files.len())
+                    .map_err(|error| error.to_string());
+                let _ = test_sender.send(SyncTestResult::Completed(result));
+            });
         });
     }
 
     {
         let weak_window = window.as_weak();
         let audio_folder = Rc::clone(audio_folder);
-        let sync_controller = Rc::clone(sync_controller);
-        let recreate_workflow_pending = Rc::clone(recreate_workflow_pending);
-        let edited_workflow = Rc::clone(edited_workflow);
+        let test_sender = test_sender.clone();
         window.on_comfyui_sync_save(move |url, remote_directory, local_directory, interval| {
             let Some(window) = weak_window.upgrade() else {
                 return;
@@ -325,81 +328,25 @@ pub fn register_sync_ui_callbacks(
                 window.set_comfyui_sync_error(error.to_string().into());
                 return;
             }
-            sync_controller.borrow_mut().stop();
-            let test_result =
-                ComfyUiClient::new().and_then(|client| client.list_files(&config).map(|_| ()));
-            if let Err(error) = test_result {
-                if !error.is_not_found() {
-                    window.set_comfyui_sync_active(false);
-                    window.set_comfyui_sync_error_state(true);
-                    window.set_comfyui_sync_error(error.to_string().into());
-                    return;
-                }
-            }
-            if let Err(error) = sync::ensure_destination(&folder, &config) {
-                window.set_comfyui_sync_error(error.to_string().into());
-                return;
-            }
-            if let Err(error) = sync::save_config(&folder, &config) {
-                window.set_comfyui_sync_error(error.to_string().into());
-                return;
-            }
-            sync_controller.borrow_mut().start(folder, config);
-            window.set_comfyui_sync_active(true);
-            window.set_comfyui_sync_error("".into());
-            window.set_comfyui_sync_error_state(false);
-            window.set_comfyui_sync_status("Starting".into());
-            window.set_comfyui_sync_visible(false);
-            if *recreate_workflow_pending.borrow() {
-                *recreate_workflow_pending.borrow_mut() = false;
-                if let Some(folder) = audio_folder.borrow().clone() {
-                    if let Some(config) = sync::load_config(&folder) {
-                        let audio_path = window.get_selected_audio_path().to_string();
-                        if !audio_path.is_empty() {
-                            let mut workflow = if let Some(workflow) =
-                                edited_workflow.borrow().clone()
-                            {
-                                workflow
-                            } else {
-                                let Some(workflow_path) = crate::metadata::workflow_path(
-                                    &folder,
-                                    std::path::Path::new(&audio_path),
-                                ) else {
-                                    return;
-                                };
-                                let Ok(contents) = std::fs::read_to_string(workflow_path) else {
-                                    return;
-                                };
-                                let Ok(workflow) = serde_json::from_str(&contents) else {
-                                    return;
-                                };
-                                workflow
-                            };
-                            for (field, value) in [
-                                ("bpm", window.get_workflow_bpm().to_string()),
-                                (
-                                    "duration",
-                                    (window.get_workflow_duration_minutes() * 60
-                                        + window.get_workflow_duration_seconds())
-                                    .to_string(),
-                                ),
-                                ("key", window.get_workflow_key().to_string()),
-                                ("seed", window.get_workflow_seed().to_string()),
-                                ("prompt", window.get_workflow_prompt().to_string()),
-                                ("lyrics", window.get_workflow_lyrics().to_string()),
-                            ] {
-                                crate::metadata::comfyui::update_metadata(
-                                    &mut workflow,
-                                    field,
-                                    &value,
-                                );
-                            }
-                            let _ = ComfyUiClient::new()
-                                .and_then(|client| client.upload_workflow(&config, &workflow));
+            window.set_comfyui_sync_status("Testing connection...".into());
+            let test_sender = test_sender.clone();
+            thread::spawn(move || {
+                let result = ComfyUiClient::new()
+                    .and_then(|client| client.list_files(&config).map(|_| ()))
+                    .or_else(|error| {
+                        if error.is_not_found() {
+                            Ok(())
+                        } else {
+                            Err(error)
                         }
-                    }
-                }
-            }
+                    })
+                    .map_err(|error| error.to_string());
+                let _ = test_sender.send(SyncTestResult::Save {
+                    folder,
+                    config,
+                    result,
+                });
+            });
         });
     }
 
@@ -539,7 +486,54 @@ pub fn tick(
     workflow_loading: &Rc<RefCell<bool>>,
     loaded_workflow_path: &Rc<RefCell<Option<PathBuf>>>,
     sync_spinner_frame: &mut usize,
+    test_receiver: &Rc<RefCell<mpsc::Receiver<SyncTestResult>>>,
+    recreate_workflow_pending: &Rc<RefCell<bool>>,
+    edited_workflow: &Rc<RefCell<Option<serde_json::Value>>>,
 ) {
+    for result in test_receiver.borrow_mut().try_iter() {
+        match result {
+            SyncTestResult::Completed(Ok(count)) => {
+                window.set_comfyui_sync_error("".into());
+                window.set_comfyui_sync_test_success(true);
+                window.set_comfyui_sync_test_message(
+                    format!("Connection successful: {count} file(s) found").into(),
+                );
+            }
+            SyncTestResult::Completed(Err(error)) => {
+                window.set_comfyui_sync_test_success(false);
+                window.set_comfyui_sync_test_message(error.into());
+            }
+            SyncTestResult::Save { folder, config, result } => match result {
+                Ok(()) => {
+                    sync_controller.borrow_mut().stop();
+                    if let Err(error) = sync::ensure_destination(&folder, &config)
+                        .and_then(|_| sync::save_config(&folder, &config))
+                    {
+                        window.set_comfyui_sync_error(error.to_string().into());
+                        continue;
+                    }
+                    sync_controller.borrow_mut().start(folder.clone(), config.clone());
+                    window.set_comfyui_sync_active(true);
+                    window.set_comfyui_sync_error("".into());
+                    window.set_comfyui_sync_error_state(false);
+                    window.set_comfyui_sync_status("Starting".into());
+                    window.set_comfyui_sync_visible(false);
+                    finish_recreate_upload(
+                        window,
+                        &folder,
+                        &config,
+                        recreate_workflow_pending,
+                        edited_workflow,
+                    );
+                }
+                Err(error) => {
+                    window.set_comfyui_sync_active(false);
+                    window.set_comfyui_sync_error_state(true);
+                    window.set_comfyui_sync_error(error.into());
+                }
+            },
+        }
+    }
     let current_generation = sync_controller.borrow().generation();
     for event in sync_controller.borrow().events().try_iter() {
         match event {
@@ -658,4 +652,55 @@ pub fn tick(
         window.set_comfyui_sync_spinner(["|", "/", "-", "\\"][*sync_spinner_frame].into());
         *sync_spinner_frame = (*sync_spinner_frame + 1) % 4;
     }
+}
+
+fn finish_recreate_upload(
+    window: &MainWindow,
+    folder: &Path,
+    config: &SyncConfig,
+    recreate_workflow_pending: &Rc<RefCell<bool>>,
+    edited_workflow: &Rc<RefCell<Option<serde_json::Value>>>,
+) {
+    if !*recreate_workflow_pending.borrow() {
+        return;
+    }
+    *recreate_workflow_pending.borrow_mut() = false;
+    let audio_path = window.get_selected_audio_path().to_string();
+    if audio_path.is_empty() {
+        return;
+    }
+    let mut workflow = if let Some(workflow) = edited_workflow.borrow().clone() {
+        workflow
+    } else {
+        let Some(workflow_path) = crate::metadata::workflow_path(folder, Path::new(&audio_path))
+        else {
+            return;
+        };
+        let Ok(contents) = std::fs::read_to_string(workflow_path) else {
+            return;
+        };
+        let Ok(workflow) = serde_json::from_str(&contents) else {
+            return;
+        };
+        workflow
+    };
+    for (field, value) in [
+        ("bpm", window.get_workflow_bpm().to_string()),
+        (
+            "duration",
+            (window.get_workflow_duration_minutes() * 60
+                + window.get_workflow_duration_seconds())
+            .to_string(),
+        ),
+        ("key", window.get_workflow_key().to_string()),
+        ("seed", window.get_workflow_seed().to_string()),
+        ("prompt", window.get_workflow_prompt().to_string()),
+        ("lyrics", window.get_workflow_lyrics().to_string()),
+    ] {
+        crate::metadata::comfyui::update_metadata(&mut workflow, field, &value);
+    }
+    let config = config.clone();
+    thread::spawn(move || {
+        let _ = ComfyUiClient::new().and_then(|client| client.upload_workflow(&config, &workflow));
+    });
 }

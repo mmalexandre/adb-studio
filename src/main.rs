@@ -64,6 +64,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let workflow_run_receiver = state.workflow_run_receiver.clone();
     let workflow_run_cancelled = state.workflow_run_cancelled.clone();
     let audio_result_receiver = state.audio_result_receiver.clone();
+    let (sync_test_sender, sync_test_receiver) = mpsc::channel();
+    let sync_test_receiver = Rc::new(RefCell::new(sync_test_receiver));
     let (playback, playback_error) = match PlaybackEngine::new() {
         Ok(engine) => (Rc::new(RefCell::new(Some(engine))), None),
         Err(error) => (Rc::new(RefCell::new(None)), Some(error)),
@@ -217,6 +219,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let conversion_cancelled = Rc::clone(&conversion_cancelled);
         let workflow_run_receiver = Rc::clone(&workflow_run_receiver);
         let workflow_run_cancelled = Rc::clone(&workflow_run_cancelled);
+        let sync_test_receiver = Rc::clone(&sync_test_receiver);
+        let recreate_workflow_pending = Rc::clone(&recreate_workflow_pending);
+        let edited_workflow = Rc::clone(&edited_workflow);
         let tree_state_for_conversion = Rc::clone(&tree_state);
         let mut conversion_updates = 0usize;
         let mut spinner_frame = 0usize;
@@ -353,6 +358,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         &workflow_loading,
                         &loaded_workflow_path_for_timer,
                         &mut sync_spinner_frame,
+                        &sync_test_receiver,
+                        &recreate_workflow_pending,
+                        &edited_workflow,
                     );
                 }
                 let Some(model) = audio_model.borrow().clone() else {
@@ -438,9 +446,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &audio_folder,
         &audio_model,
         &audio_load_state,
-        &sync_controller,
-        &recreate_workflow_pending,
-        &edited_workflow,
+        &sync_test_sender,
     );
 
     {
