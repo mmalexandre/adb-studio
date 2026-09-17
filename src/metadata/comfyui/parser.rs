@@ -169,7 +169,7 @@ fn active_lora_ids(value: &Value) -> std::collections::HashSet<String> {
         let Some(node) = find_workflow_node(value, &node_id) else {
             continue;
         };
-        if is_lora_node(node) {
+        if is_lora_node(node) && !is_bypassed_node(node) {
             active.insert(node_id);
         }
         if let Some(upstream_id) = upstream_model_id(value, node) {
@@ -233,6 +233,10 @@ fn is_lora_node(node: &Value) -> bool {
                     .contains("loadlora")
         })
         .unwrap_or(false)
+}
+
+fn is_bypassed_node(node: &Value) -> bool {
+    node.get("mode").and_then(Value::as_i64) == Some(4)
 }
 
 fn upstream_model_id(value: &Value, node: &Value) -> Option<String> {
@@ -758,6 +762,46 @@ mod tests {
                 .map(|lora| lora.filename.as_str())
                 .collect::<Vec<_>>(),
             vec!["connected.safetensors"]
+        );
+    }
+
+    #[test]
+    fn excludes_bypassed_loras_but_keeps_enabled_upstream_loras() {
+        let workflow = parse_value(&json!({
+            "nodes": [
+                {
+                    "id": 1,
+                    "type": "LoraLoaderModelOnly",
+                    "inputs": [{"name": "model", "link": null}],
+                    "widgets_values": ["enabled.safetensors", 1.0]
+                },
+                {
+                    "id": 2,
+                    "type": "LoraLoaderModelOnly",
+                    "mode": 4,
+                    "inputs": [{"name": "model", "link": 10}],
+                    "widgets_values": ["bypassed.safetensors", 1.0],
+                    "outputs": [{"name": "MODEL", "links": [11]}]
+                },
+                {
+                    "id": 3,
+                    "type": "KSampler",
+                    "inputs": [{"name": "model", "link": 11}]
+                }
+            ],
+            "links": [
+                [10, 1, 0, 2, 0, "MODEL"],
+                [11, 2, 0, 3, 0, "MODEL"]
+            ]
+        }));
+
+        assert_eq!(
+            workflow
+                .loras
+                .iter()
+                .map(|lora| lora.filename.as_str())
+                .collect::<Vec<_>>(),
+            vec!["enabled.safetensors"]
         );
     }
 
