@@ -14,7 +14,7 @@ use crate::{
         loader::State as AudioLoadState,
         playback::PlaybackEngine,
         view::{
-            format_duration, scroll_to_path_if_needed as scroll_audio_to_path, update_audio_rows,
+            format_duration, update_audio_rows,
         },
     },
     settings::{self, AppSettings},
@@ -487,7 +487,6 @@ pub fn register_window_callbacks(
         let audio_folder = Rc::clone(audio_folder);
         let audio_model = Rc::clone(audio_model);
         let audio_load_state = Arc::clone(audio_load_state);
-        let playback = Rc::clone(playback);
         let workflow_loading = Rc::clone(workflow_loading);
         let loaded_workflow_path = Rc::clone(loaded_workflow_path);
         window.on_row_clicked(move |path, shift| {
@@ -544,31 +543,6 @@ pub fn register_window_callbacks(
                     &audio_load_state,
                     folder,
                 );
-                let mut playback_ref = playback.borrow_mut();
-                let Some(engine) = playback_ref.as_mut() else {
-                    return;
-                };
-                if let Err(error) = engine.play(&path, Duration::ZERO) {
-                    window.set_audio_error(error.into());
-                    return;
-                }
-                window.set_audio_error("".into());
-                window.set_active_audio_path(path.to_string_lossy().into_owned().into());
-                window.set_audio_file_name(
-                    path.file_name()
-                        .and_then(|name| name.to_str())
-                        .unwrap_or_default()
-                        .into(),
-                );
-                window.set_audio_playing(engine.is_playing());
-                update_audio_rows(
-                    &audio_model,
-                    engine.path(),
-                    engine.is_playing(),
-                    engine.position(),
-                    engine.duration(),
-                );
-                scroll_audio_to_path(&window, &audio_model, &path);
                 if let Some(folder) = audio_folder.borrow().clone() {
                     crate::workspace::workflow::load_workflow_for_audio(
                         &window,
@@ -578,7 +552,6 @@ pub fn register_window_callbacks(
                         &loaded_workflow_path,
                         false,
                     );
-                    crate::audio::session::save_playback_position(&folder, engine);
                 }
             }
         });
