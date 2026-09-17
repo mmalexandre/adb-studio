@@ -329,6 +329,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         );
                         workspace_change_paths.clear();
                     }
+                    workspace::library_refresh::tick(
+                        &window,
+                        &audio_folder,
+                        &audio_model,
+                        &audio_load_state,
+                    );
                     app::playback_controller::tick(
                         &window,
                         &playback,

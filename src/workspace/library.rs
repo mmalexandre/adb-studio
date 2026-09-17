@@ -22,6 +22,7 @@ use crate::{
     AudioLoadState, AudioRow, MainWindow, TrackDifference,
 };
 
+use super::library_refresh;
 use super::{pinned_track_sort, tree_nav::set_audio_breadcrumbs};
 
 fn collect_visible_entries(
@@ -109,7 +110,7 @@ pub fn refresh_audio(
     audio_load_state: &Arc<Mutex<AudioLoadState>>,
     folder: PathBuf,
 ) {
-    refresh_audio_with_changes(
+    library_refresh::enqueue(
         window,
         audio_folder,
         audio_model,
@@ -127,7 +128,7 @@ pub fn refresh_audio_for_changes(
     folder: PathBuf,
     changed_paths: &[PathBuf],
 ) {
-    refresh_audio_with_changes(
+    library_refresh::enqueue(
         window,
         audio_folder,
         audio_model,
@@ -137,6 +138,7 @@ pub fn refresh_audio_for_changes(
     );
 }
 
+#[allow(dead_code)]
 fn refresh_audio_with_changes(
     window: &MainWindow,
     audio_folder: &Rc<RefCell<Option<PathBuf>>>,
