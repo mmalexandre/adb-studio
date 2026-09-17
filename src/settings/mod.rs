@@ -34,6 +34,8 @@ pub struct AppSettings {
     pub loop_mode: i32,
     #[serde(default)]
     pub auto_play_new_tracks: bool,
+    #[serde(default = "default_notification_sound")]
+    pub notification_sound: bool,
     #[serde(default = "default_seek_seconds")]
     pub seek_seconds: f32,
     #[serde(default = "default_sort_order")]
@@ -102,6 +104,9 @@ fn default_metadata_pane_height() -> f32 {
 
 fn default_seek_seconds() -> f32 {
     5.0
+}
+fn default_notification_sound() -> bool {
+    true
 }
 fn default_sort_order() -> i32 {
     3
@@ -218,6 +223,7 @@ impl Default for AppSettings {
             light_theme: false,
             loop_mode: 0,
             auto_play_new_tracks: false,
+            notification_sound: default_notification_sound(),
             seek_seconds: default_seek_seconds(),
             sort_order: default_sort_order(),
             shortcut_fullscreen: 0,
@@ -254,7 +260,8 @@ impl AppSettings {
     pub fn create_label(&mut self, name: String, color: String) -> u64 {
         let id = self.next_label_id.max(1);
         self.next_label_id = id.saturating_add(1);
-        self.label_definitions.push(LabelDefinition { id, name, color });
+        self.label_definitions
+            .push(LabelDefinition { id, name, color });
         id
     }
 
@@ -363,8 +370,13 @@ mod tests {
         assert_eq!(first_label, 7);
         assert_eq!(second_label, 8);
         assert_eq!(first_tag, 7);
-        settings.label_definitions.retain(|label| label.id != first_label);
-        assert_eq!(settings.create_label("Recreated".into(), "#abcdef".into()), 9);
+        settings
+            .label_definitions
+            .retain(|label| label.id != first_label);
+        assert_eq!(
+            settings.create_label("Recreated".into(), "#abcdef".into()),
+            9
+        );
     }
 
     #[test]

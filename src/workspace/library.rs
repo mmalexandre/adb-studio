@@ -10,9 +10,14 @@ use std::{
 use slint::{Image, Model, ModelRc, VecModel};
 
 use crate::{
-    audio::{loader, view::{available_tag_rows, comment_rows_with_labels, label_row_fields, tag_rows, user_comment_subtitle}},
-    metadata,
-    settings,
+    audio::{
+        loader,
+        view::{
+            available_tag_rows, comment_rows_with_labels, label_row_fields, tag_rows,
+            user_comment_subtitle,
+        },
+    },
+    metadata, settings,
     workspace::{file_system, preferences},
     AudioLoadState, AudioRow, MainWindow, TrackDifference,
 };
@@ -279,18 +284,26 @@ fn refresh_audio_with_changes(
         {
             let mut row = existing_row.unwrap().clone();
             let audio_metadata = metadata::load_audio_metadata(&workspace, &entry.path);
-            let (label_id, label_name, label_color, label_known) =
-                label_row_fields(audio_metadata.label_id, &definition_settings.label_definitions);
+            let (label_id, label_name, label_color, label_known) = label_row_fields(
+                audio_metadata.label_id,
+                &definition_settings.label_definitions,
+            );
             row.name = entry.name.clone().into();
             row.subtitle = user_comment_subtitle(&audio_metadata.user_comments).into();
-            row.comments = comment_rows_with_labels(&audio_metadata, &definition_settings.label_definitions);
+            row.comments =
+                comment_rows_with_labels(&audio_metadata, &definition_settings.label_definitions);
             row.label_id = label_id;
             row.label_name = label_name;
             row.label_color = label_color;
             row.label_known = label_known;
-            row.tags = tag_rows(&audio_metadata.tag_ids, &definition_settings.tag_definitions);
-            row.available_tags =
-                available_tag_rows(&audio_metadata.tag_ids, &definition_settings.tag_definitions);
+            row.tags = tag_rows(
+                &audio_metadata.tag_ids,
+                &definition_settings.tag_definitions,
+            );
+            row.available_tags = available_tag_rows(
+                &audio_metadata.tag_ids,
+                &definition_settings.tag_definitions,
+            );
             row.depth = depth;
             row.is_pinned = pinned_path.as_deref() == Some(entry.path.as_path());
             row.is_cut = cut_paths
@@ -315,9 +328,12 @@ fn refresh_audio_with_changes(
         }
         let path_string = entry.path.to_string_lossy().into_owned();
         let audio_metadata = metadata::load_audio_metadata(&workspace, &entry.path);
-        let comments = comment_rows_with_labels(&audio_metadata, &definition_settings.label_definitions);
-        let (label_id, label_name, label_color, label_known) =
-            label_row_fields(audio_metadata.label_id, &definition_settings.label_definitions);
+        let comments =
+            comment_rows_with_labels(&audio_metadata, &definition_settings.label_definitions);
+        let (label_id, label_name, label_color, label_known) = label_row_fields(
+            audio_metadata.label_id,
+            &definition_settings.label_definitions,
+        );
         let progress = (audio_metadata.duration_seconds > 0.0)
             .then_some(audio_metadata.last_position_seconds / audio_metadata.duration_seconds)
             .map(|value| value.clamp(0.0, 1.0))
@@ -372,8 +388,14 @@ fn refresh_audio_with_changes(
             label_name,
             label_color,
             label_known,
-            tags: tag_rows(&audio_metadata.tag_ids, &definition_settings.tag_definitions),
-            available_tags: available_tag_rows(&audio_metadata.tag_ids, &definition_settings.tag_definitions),
+            tags: tag_rows(
+                &audio_metadata.tag_ids,
+                &definition_settings.tag_definitions,
+            ),
+            available_tags: available_tag_rows(
+                &audio_metadata.tag_ids,
+                &definition_settings.tag_definitions,
+            ),
             is_cut: cut_paths
                 .iter()
                 .any(|cut_path| cut_path.as_str() == entry.path.to_string_lossy()),

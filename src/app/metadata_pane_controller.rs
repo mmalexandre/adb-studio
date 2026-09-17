@@ -13,9 +13,8 @@ use crate::{
         playback::PlaybackEngine,
         session::comment_duration,
         view::{
-            available_tag_rows, comment_rows_with_labels, label_row_fields, select_comment, tag_rows,
-            update_audio_subtitle, update_comment_model,
-            user_comment_subtitle,
+            available_tag_rows, comment_rows_with_labels, label_row_fields, select_comment,
+            tag_rows, update_audio_subtitle, update_comment_model, user_comment_subtitle,
         },
     },
     metadata::{self, AudioComment},
@@ -81,47 +80,48 @@ pub fn register_metadata_pane_callbacks(
             let mut file = metadata::load_audio_metadata(&folder, &audio_path);
             file.label_id = (selected_label_id >= 0).then_some(selected_label_id as u64);
             metadata::save_audio_metadata(&folder, &audio_path, &file);
-            let (label_id, label_name, label_color, label_known) = label_row_fields(
-                file.label_id,
-                &settings.borrow().label_definitions,
-            );
+            let (label_id, label_name, label_color, label_known) =
+                label_row_fields(file.label_id, &settings.borrow().label_definitions);
             if let Some(model) = audio_model.borrow().clone() {
                 for index in 0..model.row_count() {
                     let Some(row) = model.row_data(index) else {
                         continue;
                     };
                     if row.path == path {
-                        model.set_row_data(index, crate::AudioRow {
-                            path: row.path,
-                            name: row.name,
-                            subtitle: row.subtitle,
-                            is_folder: row.is_folder,
-                            depth: row.depth,
-                            is_expanded: row.is_expanded,
-                            modified_date: row.modified_date,
-                            waveform: row.waveform,
-                            is_loading: row.is_loading,
-                            comments: row.comments,
-                            differences: row.differences,
-                            similarity: row.similarity,
-                            rating: row.rating,
-                            is_pinned: row.is_pinned,
-                            is_selected: row.is_selected,
-                            is_cut: row.is_cut,
-                            is_primary: row.is_primary,
-                            is_active: row.is_active,
-                            is_playing: row.is_playing,
-                            progress: row.progress,
-                            loop_enabled: row.loop_enabled,
-                            selected_comment_start: row.selected_comment_start,
-                            selected_comment_end: row.selected_comment_end,
-                            label_id,
-                            label_name,
-                            label_color,
-                            label_known,
-                            tags: row.tags,
-                            available_tags: row.available_tags,
-                        });
+                        model.set_row_data(
+                            index,
+                            crate::AudioRow {
+                                path: row.path,
+                                name: row.name,
+                                subtitle: row.subtitle,
+                                is_folder: row.is_folder,
+                                depth: row.depth,
+                                is_expanded: row.is_expanded,
+                                modified_date: row.modified_date,
+                                waveform: row.waveform,
+                                is_loading: row.is_loading,
+                                comments: row.comments,
+                                differences: row.differences,
+                                similarity: row.similarity,
+                                rating: row.rating,
+                                is_pinned: row.is_pinned,
+                                is_selected: row.is_selected,
+                                is_cut: row.is_cut,
+                                is_primary: row.is_primary,
+                                is_active: row.is_active,
+                                is_playing: row.is_playing,
+                                progress: row.progress,
+                                loop_enabled: row.loop_enabled,
+                                selected_comment_start: row.selected_comment_start,
+                                selected_comment_end: row.selected_comment_end,
+                                label_id,
+                                label_name,
+                                label_color,
+                                label_known,
+                                tags: row.tags,
+                                available_tags: row.available_tags,
+                            },
+                        );
                         break;
                     }
                 }
@@ -598,37 +598,40 @@ fn update_audio_tag_assignment(
         if row.path.as_str() != path {
             continue;
         }
-        model.set_row_data(index, crate::AudioRow {
-            path: row.path,
-            name: row.name,
-            subtitle: row.subtitle,
-            is_folder: row.is_folder,
-            depth: row.depth,
-            is_expanded: row.is_expanded,
-            modified_date: row.modified_date,
-            waveform: row.waveform,
-            is_loading: row.is_loading,
-            comments: row.comments,
-            differences: row.differences,
-            similarity: row.similarity,
-            rating: row.rating,
-            is_pinned: row.is_pinned,
-            is_selected: row.is_selected,
-            is_cut: row.is_cut,
-            is_primary: row.is_primary,
-            is_active: row.is_active,
-            is_playing: row.is_playing,
-            progress: row.progress,
-            loop_enabled: row.loop_enabled,
-            selected_comment_start: row.selected_comment_start,
-            selected_comment_end: row.selected_comment_end,
-            label_id: row.label_id,
-            label_name: row.label_name,
-            label_color: row.label_color,
-            label_known: row.label_known,
-            tags,
-            available_tags,
-        });
+        model.set_row_data(
+            index,
+            crate::AudioRow {
+                path: row.path,
+                name: row.name,
+                subtitle: row.subtitle,
+                is_folder: row.is_folder,
+                depth: row.depth,
+                is_expanded: row.is_expanded,
+                modified_date: row.modified_date,
+                waveform: row.waveform,
+                is_loading: row.is_loading,
+                comments: row.comments,
+                differences: row.differences,
+                similarity: row.similarity,
+                rating: row.rating,
+                is_pinned: row.is_pinned,
+                is_selected: row.is_selected,
+                is_cut: row.is_cut,
+                is_primary: row.is_primary,
+                is_active: row.is_active,
+                is_playing: row.is_playing,
+                progress: row.progress,
+                loop_enabled: row.loop_enabled,
+                selected_comment_start: row.selected_comment_start,
+                selected_comment_end: row.selected_comment_end,
+                label_id: row.label_id,
+                label_name: row.label_name,
+                label_color: row.label_color,
+                label_known: row.label_known,
+                tags,
+                available_tags,
+            },
+        );
         break;
     }
 }

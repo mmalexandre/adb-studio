@@ -29,6 +29,7 @@ export component MainWindow inherits Window {
     in-out property <bool> about-visible: false;
     in-out property <bool> settings-visible: false;
     in-out property <int> settings-tab: 0;
+    in-out property <bool> notification-sound: true;
     in-out property <[int]> label-ids: [];
     in-out property <[string]> label-names: [];
     in-out property <[string]> label-colors: [];
@@ -183,6 +184,7 @@ export component MainWindow inherits Window {
     callback tag-deleted(int);
     callback close-tips();
     callback tips-preference-changed(bool);
+    callback notification-sound-changed(bool);
     callback comfyui-sync-requested();
     callback comfyui-sync-save(string, string, string, string);
     callback comfyui-sync-test(string, string, string, string);
@@ -1836,6 +1838,19 @@ export component MainWindow inherits Window {
                                 }
                                 TouchArea { clicked => { root.settings-tab = 2; } }
                             }
+                            Rectangle {
+                                height: 38px;
+                                background: root.settings-tab == 3 ? (root.light-theme ? #d7e3f3 : #2a3546) : transparent;
+                                border-color: root.settings-tab == 3 ? (root.light-theme ? #8ea9c6 : #5d7898) : transparent;
+                                border-width: 1px;
+                                Text {
+                                    text: "Notifications";
+                                    x: 12px;
+                                    color: root.light-theme ? #202833 : #f1f4f8;
+                                    vertical-alignment: center;
+                                }
+                                TouchArea { clicked => { root.settings-tab = 3; } }
+                            }
                             Rectangle { vertical-stretch: 1; }
                         }
                     }
@@ -2015,6 +2030,26 @@ export component MainWindow inherits Window {
                                     }
                                     AppButton { text: "Delete"; clicked => { root.tag-deleted(tag-id); } }
                                 }
+                            }
+                            Rectangle { vertical-stretch: 1; }
+                            HorizontalLayout {
+                                alignment: end;
+                                spacing: 8px;
+                                AppButton { text: "Close"; clicked => { root.close-settings(); } }
+                            }
+                        }
+                        if root.settings-tab == 3 : VerticalBox {
+                            padding: 24px;
+                            spacing: 14px;
+                            Text {
+                                text: "Notifications";
+                                color: root.light-theme ? #202833 : #f1f4f8;
+                                font-size: 22px;
+                            }
+                            CheckBox {
+                                text: "Play a sound when a file is downloaded";
+                                checked: root.notification-sound;
+                                toggled => { root.notification-sound-changed(self.checked); }
                             }
                             Rectangle { vertical-stretch: 1; }
                             HorizontalLayout {

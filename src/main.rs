@@ -77,6 +77,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     window.set_theme_index(if settings.borrow().light_theme { 1 } else { 0 });
     window.set_loop_mode(settings.borrow().loop_mode);
     window.set_auto_play_new_tracks(settings.borrow().auto_play_new_tracks);
+    window.set_notification_sound(settings.borrow().notification_sound);
     window.set_seek_seconds(settings.borrow().seek_seconds.round() as i32);
     window.set_sort_order(settings.borrow().sort_order);
     window.set_shortcut_fullscreen(settings.borrow().shortcut_fullscreen);

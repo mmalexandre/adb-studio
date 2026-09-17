@@ -57,20 +57,20 @@ pub fn comment_rows_with_labels(
         .map(|(index, (start, end, text, label_id))| {
             let label = label_id.and_then(|id| labels.iter().find(|label| label.id == id));
             CommentRow {
-            start: *start,
-            end: *end,
-            bubble_end: normalized
-                .get(index + 1)
-                .map(|next| next.0)
-                .unwrap_or(1.0)
-                .max(*start),
-            text: text.clone().into(),
-            label_id: label_id.map(|id| id as i32).unwrap_or(-1),
-            label_color: label
-                .map(|label| settings::parse_color(&label.color, fallback_label_color()))
-                .unwrap_or_else(fallback_label_color),
-            label_known: label.is_some(),
-        }
+                start: *start,
+                end: *end,
+                bubble_end: normalized
+                    .get(index + 1)
+                    .map(|next| next.0)
+                    .unwrap_or(1.0)
+                    .max(*start),
+                text: text.clone().into(),
+                label_id: label_id.map(|id| id as i32).unwrap_or(-1),
+                label_color: label
+                    .map(|label| settings::parse_color(&label.color, fallback_label_color()))
+                    .unwrap_or_else(fallback_label_color),
+                label_known: label.is_some(),
+            }
         })
         .collect::<Vec<_>>();
     ModelRc::new(VecModel::from(rows))
@@ -88,7 +88,12 @@ pub fn label_row_fields(
         return (-1, "".into(), fallback_label_color(), false);
     };
     let Some(label) = labels.iter().find(|label| label.id == label_id) else {
-        return (label_id as i32, "Unknown label".into(), fallback_label_color(), false);
+        return (
+            label_id as i32,
+            "Unknown label".into(),
+            fallback_label_color(),
+            false,
+        );
     };
     (
         label_id as i32,
@@ -560,7 +565,9 @@ mod tests {
             ..Default::default()
         };
 
-        let row = comment_rows_with_labels(&metadata, &[]).row_data(0).unwrap();
+        let row = comment_rows_with_labels(&metadata, &[])
+            .row_data(0)
+            .unwrap();
 
         assert_eq!(row.start, 1.0);
         assert_eq!(row.end, 1.0);

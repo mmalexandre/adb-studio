@@ -13,9 +13,7 @@ use crate::{
     audio::{
         loader::State as AudioLoadState,
         playback::PlaybackEngine,
-        view::{
-            format_duration, update_audio_rows,
-        },
+        view::{format_duration, update_audio_rows},
     },
     settings::{self, AppSettings},
     workspace::{

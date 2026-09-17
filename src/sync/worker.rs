@@ -155,7 +155,6 @@ pub(super) fn sync_loop(
             progress: current.clone(),
         });
 
-        let mut last_downloaded_path = None;
         for file in &files {
             match command_receiver.try_recv() {
                 Ok(SyncCommand::Stop) | Err(mpsc::TryRecvError::Disconnected) => return,
@@ -218,7 +217,10 @@ pub(super) fn sync_loop(
                     generation,
                     progress: current.clone(),
                 });
-                last_downloaded_path = Some(destination.join(filename));
+                let _ = event_sender.send(SyncEvent::Downloaded {
+                    generation,
+                    audio_path: destination.join(filename).to_string_lossy().into_owned(),
+                });
             }
             let audio_path = destination.join(filename);
             if !download_index.contains_workflow_attempt(&config, file) {
@@ -254,13 +256,6 @@ pub(super) fn sync_loop(
                     }
                 }
             }
-        }
-
-        if let Some(audio_path) = last_downloaded_path {
-            let _ = event_sender.send(SyncEvent::Downloaded {
-                generation,
-                audio_path: audio_path.to_string_lossy().into_owned(),
-            });
         }
 
         match command_receiver.recv_timeout(interval) {

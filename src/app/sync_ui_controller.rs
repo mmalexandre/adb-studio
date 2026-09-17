@@ -52,11 +52,23 @@ pub fn register_sync_ui_callbacks(
     }
 
     {
+        let settings = Rc::clone(settings);
+        window.on_notification_sound_changed(move |enabled| {
+            settings.borrow_mut().notification_sound = enabled;
+            settings::save(&settings.borrow());
+        });
+    }
+
+    {
         let weak_window = window.as_weak();
         let settings = Rc::clone(settings);
         window.on_label_updated(move |id, name, color| {
             let mut settings = settings.borrow_mut();
-            if let Some(label) = settings.label_definitions.iter_mut().find(|label| label.id == id as u64) {
+            if let Some(label) = settings
+                .label_definitions
+                .iter_mut()
+                .find(|label| label.id == id as u64)
+            {
                 label.name = name.to_string();
                 label.color = color.to_string();
                 let snapshot = settings.clone();
@@ -73,7 +85,9 @@ pub fn register_sync_ui_callbacks(
         let settings = Rc::clone(settings);
         window.on_label_deleted(move |id| {
             let mut settings = settings.borrow_mut();
-            settings.label_definitions.retain(|label| label.id != id as u64);
+            settings
+                .label_definitions
+                .retain(|label| label.id != id as u64);
             let snapshot = settings.clone();
             settings::save(&snapshot);
             if let Some(window) = weak_window.upgrade() {
@@ -101,7 +115,11 @@ pub fn register_sync_ui_callbacks(
         let settings = Rc::clone(settings);
         window.on_tag_updated(move |id, name| {
             let mut settings = settings.borrow_mut();
-            if let Some(tag) = settings.tag_definitions.iter_mut().find(|tag| tag.id == id as u64) {
+            if let Some(tag) = settings
+                .tag_definitions
+                .iter_mut()
+                .find(|tag| tag.id == id as u64)
+            {
                 tag.name = name.to_string();
                 let snapshot = settings.clone();
                 settings::save(&snapshot);
@@ -486,7 +504,9 @@ pub fn refresh_definition_properties(window: &MainWindow, settings: &AppSettings
         settings
             .label_definitions
             .iter()
-            .map(|label| settings::parse_color(&label.color, slint::Color::from_argb_u8(255, 169, 216, 245)))
+            .map(|label| {
+                settings::parse_color(&label.color, slint::Color::from_argb_u8(255, 169, 216, 245))
+            })
             .collect::<Vec<_>>(),
     )));
     window.set_tag_ids(ModelRc::new(VecModel::from(
@@ -550,7 +570,13 @@ pub fn tick(
             SyncEvent::Downloaded {
                 generation,
                 audio_path,
-            } if generation == current_generation && settings.borrow().auto_play_new_tracks => {
+            } if generation == current_generation => {
+                if settings.borrow().notification_sound {
+                    crate::audio::notification::play_download_bell();
+                }
+                if !settings.borrow().auto_play_new_tracks {
+                    continue;
+                }
                 let path = PathBuf::from(&audio_path);
                 let Some(folder) = audio_folder.borrow().clone() else {
                     continue;
