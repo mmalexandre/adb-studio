@@ -77,6 +77,7 @@ export component IconButton inherits Rectangle {
     in property <bool> light-theme: true;
     in property <bool> enabled: true;
     in property <bool> active: false;
+    in property <string> tooltip: "";
     Image {
         source: root.icon;
         x: (parent.width - self.width) / 2;
@@ -90,6 +91,30 @@ export component IconButton inherits Rectangle {
         mouse-cursor: pointer;
         enabled: root.enabled;
         clicked => { root.clicked(); }
+        changed has-hover => {
+            tooltip-label.visible = self.has-hover && root.tooltip != "";
+        }
+    }
+    Rectangle {
+        x: -70px;
+        y: 43px;
+        width: 180px;
+        height: 28px;
+        visible: false;
+        z: 30;
+        background: #202832;
+        border-color: #435064;
+        border-width: 1px;
+        tooltip-label := Text {
+            text: root.tooltip;
+            x: 8px;
+            width: parent.width - 16px;
+            color: #f1f4f8;
+            font-size: 11px;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+            overflow: elide;
+        }
     }
 }
 

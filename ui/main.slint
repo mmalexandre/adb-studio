@@ -1142,6 +1142,29 @@ export component MainWindow inherits Window {
                         play-area := TouchArea {
                             enabled: root.active-audio-path != "" && root.audio-error == "";
                             clicked => { root.audio-play-pause(); }
+                            changed has-hover => {
+                                play-tooltip.visible = self.has-hover;
+                            }
+                        }
+                        Rectangle {
+                            x: -70px;
+                            y: 43px;
+                            width: 180px;
+                            height: 28px;
+                            visible: false;
+                            z: 30;
+                            background: #202832;
+                            border-color: #435064;
+                            border-width: 1px;
+                            play-tooltip := Text {
+                                text: root.audio-playing ? "Pause playback" : "Play playback";
+                                x: 8px;
+                                width: parent.width - 16px;
+                                color: #f1f4f8;
+                                font-size: 11px;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
                         }
                     }
                     IconButton {
@@ -1149,6 +1172,7 @@ export component MainWindow inherits Window {
                         light-theme: root.light-theme;
                         icon: @image-url("../assets/icons/repeat-2.svg");
                         active: root.loop-mode != 0;
+                        tooltip: root.loop-mode == 0 ? "Loop off" : root.loop-mode == 1 ? "Loop track" : "Loop comment";
                         Text {
                             visible: root.loop-mode == 1;
                             text: "1";
@@ -1170,6 +1194,7 @@ export component MainWindow inherits Window {
                         light-theme: root.light-theme;
                         icon: @image-url("../assets/icons/audio-lines.svg");
                         active: root.auto-play-new-tracks;
+                        tooltip: root.auto-play-new-tracks ? "Auto-play next track on" : "Auto-play next track off";
                         clicked => {
                             root.auto-play-new-tracks = !root.auto-play-new-tracks;
                             root.auto-play-new-tracks-changed(root.auto-play-new-tracks);
@@ -1179,6 +1204,14 @@ export component MainWindow inherits Window {
                         text: root.audio-current-time + " / " + root.audio-total-duration;
                         color: root.light-theme ? #5c6878 : #aeb8c6;
                         vertical-alignment: center;
+                    }
+                    Text {
+                        text: root.audio-file-name;
+                        color: root.light-theme ? #202833 : #f1f4f8;
+                        font-weight: 700;
+                        vertical-alignment: center;
+                        overflow: elide;
+                        width: 240px;
                     }
                     Image {
                         y: (parent.height - self.height) / 2;

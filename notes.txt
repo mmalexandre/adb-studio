@@ -1,39 +1,44 @@
 TODO:
 -----
-x Distance grade (stack of horizontal bars as a similarity indicator)
+- Filter by tag
+x Song name in main play bar
+- Labels should probably be stored in workspace instead of globally (they are project data)
+o Fix UI freeze
+- Resizing comments
+- Stem separation
+- The metadata parser doesn't work properly: it considers al LoRas as active.
+	But on garbage1_cover_0007.flac, the first lora is not.
 
-x Affichage recursif
-x Faster fluid UI
-x Ctrl+C Ctrl+X Ctrl+V
-x Cache workflow parsing to speed up application start
+- LoRas manager - give ratings, comment, metadata
 - Template ComfyUI files
+- LoRa training template + doc (important: saving the keyword)
+- Slice out function (extract audio from comment)
+- Alerte quand génération terminée / nouvelle download
 
 Mise en prod:
 -------------
 - Doc
 - License
 - Video Youtube
+- Clip de musique
 - Publier quelque chose sur Hugging Face, Civit, ComfyUI Module
+- Make it easy to use
+- Installer Windows, Mac OS, Linux
+
+Recherche:
+----------
+- Comment recreer un morceau de facon deterministe (sauver le CPU?)
+- Repaint pour ameliorer la qualite d'un existant
 
 Cerises sur le gâteau:
 ----------------------
-- Root idea + A/B comparison and grades
-- Auto-install Runpod / other server
 - Online cloud service
-- Make it easy to use
-- Slice out function (extract audio from comment)
-- Git versioning of workflows?
-- Stitch track? Studio?
 - Detect instruments and transform into FFT / Serum preset
-- LoRas manager - give ratings, comment, metadata
-- Find files by LoRa (in the LoRas manager)
-- Alerte quand génération terminée
-- Auto-download missing LoRas
-- LoRas compressor (similar in one zip to optimize compression?)
-- LoRa trainer
+- Auto-download LoRas
 - Youno = workflows and loras and audio sharing platform
-- Soundcloud, Spotify connector
-- Labels should probably be stored in workspace instead of globally (they are project data)
+- Include track length in distance comparison + num steps
+
+
 
 Avantages de cette application:
 -------------------------------
