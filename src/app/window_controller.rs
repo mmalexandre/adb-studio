@@ -7,7 +7,7 @@ use std::{
 };
 
 use notify::RecommendedWatcher;
-use slint::{ComponentHandle, Model};
+use slint::{ComponentHandle, Model, ModelRc, VecModel};
 
 use crate::{
     audio::{
@@ -19,6 +19,7 @@ use crate::{
     workspace::{
         file_system::{self, TreeState},
         lifecycle::{close_workspace, set_workspace},
+        library::refresh_audio,
         tree_nav::refresh_tree,
     },
     MainWindow,
@@ -72,6 +73,31 @@ fn update_audio_folder_expansion(
     }
     refresh_tree(window, tree_state);
     refresh_audio_view(window, audio_folder, audio_model, audio_load_state);
+}
+
+fn refresh_audio_filter_view(
+    window: &MainWindow,
+    tree_state: &Rc<RefCell<Option<TreeState>>>,
+    audio_folder: &Rc<RefCell<Option<PathBuf>>>,
+    audio_model: &Rc<RefCell<Option<Rc<slint::VecModel<crate::AudioRow>>>>>,
+    audio_load_state: &Arc<Mutex<AudioLoadState>>,
+) {
+    let folder = tree_state
+        .borrow()
+        .as_ref()
+        .and_then(|state| state.selected.as_ref())
+        .and_then(|path| {
+            if path.is_dir() {
+                Some(path.clone())
+            } else {
+                path.parent().map(Path::to_path_buf)
+            }
+        })
+        .or_else(|| audio_folder.borrow().clone());
+    if let Some(folder) = folder {
+        refresh_tree(window, tree_state);
+        refresh_audio(window, audio_folder, audio_model, audio_load_state, folder);
+    }
 }
 
 pub fn register_window_callbacks(
@@ -592,6 +618,114 @@ pub fn register_window_callbacks(
                     folder,
                 );
             }
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        let tree_state = Rc::clone(tree_state);
+        let audio_folder = Rc::clone(audio_folder);
+        let audio_model = Rc::clone(audio_model);
+        let audio_load_state = Arc::clone(audio_load_state);
+        let settings = Rc::clone(settings);
+        window.on_audio_label_filter_changed(move |label_id| {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            let label_name = settings
+                .borrow()
+                .label_definitions
+                .iter()
+                .find(|label| label.id == label_id as u64)
+                .map(|label| label.name.clone())
+                .unwrap_or_else(|| "Any label".to_string());
+            window.set_audio_label_filter(label_id);
+            window.set_audio_label_filter_name(label_name.into());
+            refresh_audio_filter_view(
+                &window,
+                &tree_state,
+                &audio_folder,
+                &audio_model,
+                &audio_load_state,
+            );
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        let tree_state = Rc::clone(tree_state);
+        let audio_folder = Rc::clone(audio_folder);
+        let audio_model = Rc::clone(audio_model);
+        let audio_load_state = Arc::clone(audio_load_state);
+        let settings = Rc::clone(settings);
+        window.on_audio_tag_filter_added(move |tag_id| {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            let mut tag_ids = window.get_audio_tag_filters().iter().collect::<Vec<_>>();
+            if tag_ids.contains(&tag_id) {
+                return;
+            }
+            tag_ids.push(tag_id);
+            let tag_names = tag_ids
+                .iter()
+                .filter_map(|id| {
+                    settings
+                        .borrow()
+                        .tag_definitions
+                        .iter()
+                        .find(|tag| tag.id == *id as u64)
+                        .map(|tag| tag.name.clone().into())
+                })
+                .collect::<Vec<_>>();
+            window.set_audio_tag_filters(ModelRc::new(VecModel::from(tag_ids)));
+            window.set_audio_tag_filter_names(ModelRc::new(VecModel::from(tag_names)));
+            refresh_audio_filter_view(
+                &window,
+                &tree_state,
+                &audio_folder,
+                &audio_model,
+                &audio_load_state,
+            );
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        let tree_state = Rc::clone(tree_state);
+        let audio_folder = Rc::clone(audio_folder);
+        let audio_model = Rc::clone(audio_model);
+        let audio_load_state = Arc::clone(audio_load_state);
+        let settings = Rc::clone(settings);
+        window.on_audio_tag_filter_removed(move |index| {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            let mut tag_ids = window.get_audio_tag_filters().iter().collect::<Vec<_>>();
+            if (index as usize) >= tag_ids.len() {
+                return;
+            }
+            tag_ids.remove(index as usize);
+            let tag_names = tag_ids
+                .iter()
+                .filter_map(|id| {
+                    settings
+                        .borrow()
+                        .tag_definitions
+                        .iter()
+                        .find(|tag| tag.id == *id as u64)
+                        .map(|tag| tag.name.clone().into())
+                })
+                .collect::<Vec<_>>();
+            window.set_audio_tag_filters(ModelRc::new(VecModel::from(tag_ids)));
+            window.set_audio_tag_filter_names(ModelRc::new(VecModel::from(tag_names)));
+            refresh_audio_filter_view(
+                &window,
+                &tree_state,
+                &audio_folder,
+                &audio_model,
+                &audio_load_state,
+            );
         });
     }
 }

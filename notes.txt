@@ -1,19 +1,19 @@
 TODO:
 -----
-- Filter by tag
 x Song name in main play bar
-- Labels should probably be stored in workspace instead of globally (they are project data)
 x Fix UI freeze
 x Resizing comments
-- Stem separation
-o The metadata parser doesn't work properly: it considers al LoRas as active.
+x The metadata parser doesn't work properly: it considers al LoRas as active.
 	But on garbage1_cover_0007.flac, the first lora is not.
+x Alerte quand génération terminée / nouvelle download
+x Labels should probably be stored in workspace instead of globally (they are project data)
 
+x Filter by tag
+- Stem separation
 - LoRas manager - give ratings, comment, metadata
 - Template ComfyUI files
 - LoRa training template + doc (important: saving the keyword)
 - Slice out function (extract audio from comment)
-x Alerte quand génération terminée / nouvelle download
 
 Mise en prod:
 -------------
@@ -33,7 +33,6 @@ Recherche:
 Cerises sur le gâteau:
 ----------------------
 - Online cloud service
-- Detect instruments and transform into FFT / Serum preset
 - Auto-download LoRas
 - Youno = workflows and loras and audio sharing platform
 - Include track length in distance comparison + num steps
@@ -50,3 +49,5 @@ Avantages de cette application:
 - Aide à trier, sélectionner
 - Aide à créer des variantes et organiser
 - Commentaires
+- Aide a conserver les LoRa
+- Comme Lightroom

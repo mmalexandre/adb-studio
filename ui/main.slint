@@ -36,6 +36,10 @@ export component MainWindow inherits Window {
     in-out property <[color]> label-color-values: [];
     in-out property <[int]> tag-ids: [];
     in-out property <[string]> tag-names: [];
+    in-out property <int> audio-label-filter: -1;
+    in-out property <string> audio-label-filter-name: "Any label";
+    in-out property <[int]> audio-tag-filters: [];
+    in-out property <[string]> audio-tag-filter-names: [];
     in-out property <string> new-label-name: "";
     in-out property <string> new-label-color: "#a9d8f5";
     in-out property <string> new-tag-name: "";
@@ -218,6 +222,9 @@ export component MainWindow inherits Window {
     callback tree-edit-accepted(string, string, int);
     callback tree-edit-cancelled();
     callback filter-changed(string);
+    callback audio-label-filter-changed(int);
+    callback audio-tag-filter-added(int);
+    callback audio-tag-filter-removed(int);
     callback audio-viewport-changed(int, int);
     callback audio-play-pause();
     callback audio-seek(string, float);
@@ -695,6 +702,7 @@ export component MainWindow inherits Window {
                         spacing: 18px;
                         Rectangle {
                             height: 28px;
+                            z: 10;
                             HorizontalLayout {
                                 spacing: 12px;
                                 HorizontalLayout {
@@ -722,6 +730,132 @@ export component MainWindow inherits Window {
                                     }
                                 }
                                 Rectangle { horizontal-stretch: 1; }
+                                Rectangle {
+                                    width: 150px;
+                                    height: 28px;
+                                    background: root.light-theme ? #e1e5ea : #252e39;
+                                    border-color: root.light-theme ? #cbd2dc : #435064;
+                                    border-width: 1px;
+                                    Text {
+                                        text: root.audio-label-filter-name;
+                                        x: 10px;
+                                        width: parent.width - 20px;
+                                        color: root.light-theme ? #35404d : #e3e8ef;
+                                        vertical-alignment: center;
+                                        overflow: elide;
+                                    }
+                                    TouchArea {
+                                        clicked => { label-filter-picker.visible = !label-filter-picker.visible; }
+                                    }
+                                    label-filter-picker := Rectangle {
+                                        y: 30px;
+                                        width: 220px;
+                                        height: ((root.label-ids.length + 1) * 26px).min(122px);
+                                        z: 100;
+                                        visible: false;
+                                        background: root.light-theme ? #ffffff : #202832;
+                                        border-color: root.light-theme ? #cbd2dc : #435064;
+                                        border-width: 1px;
+                                        ListView {
+                                            width: parent.width;
+                                            height: parent.height;
+                                            for label-index in root.label-ids.length + 1 : Rectangle {
+                                                height: 26px;
+                                                width: parent.width;
+                                                if label-index > 0 : Rectangle {
+                                                    x: 10px;
+                                                    y: 4px;
+                                                    width: 18px;
+                                                    height: 18px;
+                                                    border-radius: 9px;
+                                                    background: root.label-color-values[label-index - 1];
+                                                }
+                                                Text {
+                                                    text: label-index == 0 ? "Any label" : root.label-names[label-index - 1];
+                                                    x: label-index == 0 ? 10px : 34px;
+                                                    color: root.light-theme ? #202833 : #f1f4f8;
+                                                    vertical-alignment: center;
+                                                }
+                                                TouchArea {
+                                                    clicked => {
+                                                        root.audio-label-filter-changed(label-index == 0 ? -1 : root.label-ids[label-index - 1]);
+                                                        label-filter-picker.visible = false;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                Rectangle {
+                                    height: 28px;
+                                    horizontal-stretch: 1;
+                                    z: 1;
+                                    HorizontalLayout {
+                                        spacing: 5px;
+                                        for tag[index] in root.audio-tag-filter-names : Rectangle {
+                                            width: tag-label.preferred-width + 22px;
+                                            height: 22px;
+                                            border-radius: 5px;
+                                            background: root.light-theme ? #e1e5ea : #3b4552;
+                                            tag-label := Text {
+                                                text: tag;
+                                                x: 6px;
+                                                width: parent.width - 20px;
+                                                color: root.light-theme ? #35404d : #e3e8ef;
+                                                font-size: 10px;
+                                                vertical-alignment: center;
+                                                overflow: elide;
+                                            }
+                                            Image {
+                                                source: @image-url("../assets/icons/x.svg");
+                                                x: parent.width - 16px;
+                                                y: 5px;
+                                                width: 12px;
+                                                height: 12px;
+                                                colorize: root.light-theme ? #687586 : #aeb8c6;
+                                            }
+                                            TouchArea { clicked => { root.audio-tag-filter-removed(index); } }
+                                        }
+                                        Rectangle {
+                                            width: 54px;
+                                            height: 22px;
+                                            z: 2;
+                                            border-radius: 5px;
+                                            background: root.light-theme ? #e1e5ea : #3b4552;
+                                            Text { text: "+ Tag"; x: 7px; color: root.light-theme ? #35404d : #e3e8ef; font-size: 10px; vertical-alignment: center; }
+                                            TouchArea {
+                                                mouse-cursor: pointer;
+                                                clicked => { tag-filter-picker.visible = !tag-filter-picker.visible; }
+                                            }
+                                        }
+                                    }
+                                    tag-filter-picker := Rectangle {
+                                        x: 60px;
+                                        y: 30px;
+                                        width: 180px;
+                                        height: (root.tag-ids.length.max(1) * 24px).min(122px);
+                                        z: 100;
+                                        visible: false;
+                                        background: root.light-theme ? #ffffff : #202832;
+                                        border-color: root.light-theme ? #cbd2dc : #435064;
+                                        border-width: 1px;
+                                        ListView {
+                                            width: parent.width;
+                                            height: parent.height;
+                                            for tag-index in root.tag-ids.length : Rectangle {
+                                                height: 24px;
+                                                width: parent.width;
+                                                Text { text: root.tag-names[tag-index]; x: 8px; color: root.light-theme ? #202833 : #f1f4f8; vertical-alignment: center; }
+                                                TouchArea {
+                                                    clicked => {
+                                                        root.audio-tag-filter-added(root.tag-ids[tag-index]);
+                                                        tag-filter-picker.visible = false;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                                 LineEdit {
                                     placeholder-text: "Filter audio files...";
                                     width: 260px;

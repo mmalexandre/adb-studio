@@ -102,6 +102,8 @@ pub fn enqueue(
         .clone()
         .and_then(|workspace| preferences::pinned_track(&workspace, &folder));
     let filter = window.get_audio_filter().to_string();
+    let label_filter = window.get_audio_label_filter();
+    let tag_filters = window.get_audio_tag_filters().iter().collect::<Vec<_>>();
     let sort_order = file_system::SortOrder::from_i32(window.get_sort_order());
     let generation = queue()
         .next_generation
@@ -117,6 +119,8 @@ pub fn enqueue(
             sort_order,
             pinned_path.as_deref(),
             &filter,
+            label_filter,
+            &tag_filters,
         );
         let _ = sender.send(RefreshResult {
             generation,
@@ -139,6 +143,8 @@ fn prepare_entries(
     sort_order: file_system::SortOrder,
     pinned_path: Option<&Path>,
     filter: &str,
+    label_filter: i32,
+    tag_filters: &[i32],
 ) -> Vec<PreparedEntry> {
     let mut folders = VecDeque::from([(folder.to_path_buf(), 1)]);
     let mut entries = Vec::new();
@@ -150,8 +156,16 @@ fn prepare_entries(
             let is_audio = entry.kind == file_system::FileKind::Audio;
             let path = entry.path.clone();
             let name = entry.name;
-            let metadata = (is_audio && file_system::matches_audio_filter(&name, filter))
-                .then(|| metadata::load_audio_metadata(workspace, &path));
+            let metadata = if is_audio && file_system::matches_audio_filter(&name, filter) {
+                let audio_metadata = metadata::load_audio_metadata(workspace, &path);
+                ((label_filter < 0 || audio_metadata.label_id == Some(label_filter as u64))
+                    && tag_filters.iter().all(|tag_id| {
+                        audio_metadata.tag_ids.contains(&(*tag_id as u64))
+                    }))
+                    .then_some(audio_metadata)
+            } else {
+                None
+            };
             entries.push(PreparedEntry {
                 modified_date: fs::metadata(&path)
                     .and_then(|metadata| metadata.modified())
