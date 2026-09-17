@@ -130,6 +130,10 @@ pub fn register_window_callbacks(
                     &edited_workflow_path,
                     &loaded_workflow_path,
                 );
+                crate::app::sync_ui_controller::refresh_definition_properties(
+                    &window,
+                    &settings.borrow(),
+                );
             }
         });
     }

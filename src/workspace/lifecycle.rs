@@ -15,7 +15,7 @@ use crate::{
     workspace::{
         file_system,
         file_system::TreeState,
-        library, tree_nav,
+        library, metadata, tree_nav,
         workflow::{clear_workflow, scan_json_files},
     },
     AudioRow, MainWindow, WorkflowFileRow,
@@ -64,6 +64,7 @@ pub fn set_workspace(
         Err(_) => window.set_audio_error("Unable to watch workspace files".into()),
     }
     *audio_folder.borrow_mut() = Some(folder.clone());
+    metadata::load(&folder).apply_to_settings(&mut settings.borrow_mut());
     *edited_workflow.borrow_mut() = None;
     *edited_workflow_path.borrow_mut() = None;
     *loaded_workflow_path.borrow_mut() = None;

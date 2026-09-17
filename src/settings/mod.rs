@@ -74,13 +74,13 @@ pub struct AppSettings {
     pub comment_background_color: String,
     #[serde(default = "default_comment_text_color")]
     pub comment_text_color: String,
-    #[serde(default = "default_label_definitions")]
+    #[serde(skip, default = "default_label_definitions")]
     pub label_definitions: Vec<LabelDefinition>,
-    #[serde(default = "default_tag_definitions")]
+    #[serde(skip, default = "default_tag_definitions")]
     pub tag_definitions: Vec<TagDefinition>,
-    #[serde(default = "default_next_label_id")]
+    #[serde(skip, default = "default_next_label_id")]
     pub next_label_id: u64,
-    #[serde(default = "default_next_tag_id")]
+    #[serde(skip, default = "default_next_tag_id")]
     pub next_tag_id: u64,
     #[serde(default)]
     pub window_width: Option<u32>,
@@ -381,10 +381,16 @@ mod tests {
 
     #[test]
     fn next_ids_are_repaired_without_recycling_existing_ids() {
-        let mut settings: AppSettings = serde_json::from_str(
-            r##"{"light_theme":true,"label_definitions":[{"id":42,"name":"Saved","color":"#123456"}],"tag_definitions":[{"id":19,"name":"Saved tag"}]}"##,
-        )
-        .unwrap();
+        let mut settings = AppSettings::default();
+        settings.label_definitions = vec![super::LabelDefinition {
+            id: 42,
+            name: "Saved".into(),
+            color: "#123456".into(),
+        }];
+        settings.tag_definitions = vec![super::TagDefinition {
+            id: 19,
+            name: "Saved tag".into(),
+        }];
         settings.normalize_next_ids();
 
         assert_eq!(settings.create_label("New".into(), "#abcdef".into()), 43);

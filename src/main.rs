@@ -194,6 +194,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &edited_workflow_path,
                 &loaded_workflow_path,
             );
+            app::sync_ui_controller::refresh_definition_properties(&window, &settings.borrow());
         }
     }
 

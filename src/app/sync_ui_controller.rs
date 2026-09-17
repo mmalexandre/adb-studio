@@ -21,6 +21,7 @@ use crate::{
     workspace::{
         file_system::TreeState,
         library::refresh_audio,
+        metadata,
         tree_nav::{refresh_tree, select_tree_path},
         workflow::load_workflow_for_audio,
     },
@@ -48,11 +49,14 @@ pub fn register_sync_ui_callbacks(
     {
         let weak_window = window.as_weak();
         let settings = Rc::clone(settings);
+        let audio_folder = Rc::clone(audio_folder);
         window.on_label_created(move |name, color| {
             let mut settings = settings.borrow_mut();
             settings.create_label(name.to_string(), color.to_string());
             let snapshot = settings.clone();
-            settings::save(&snapshot);
+            if let Some(folder) = audio_folder.borrow().as_ref() {
+                metadata::save(folder, &snapshot);
+            }
             if let Some(window) = weak_window.upgrade() {
                 refresh_definition_properties(&window, &settings);
             }
@@ -70,6 +74,7 @@ pub fn register_sync_ui_callbacks(
     {
         let weak_window = window.as_weak();
         let settings = Rc::clone(settings);
+        let audio_folder = Rc::clone(audio_folder);
         window.on_label_updated(move |id, name, color| {
             let mut settings = settings.borrow_mut();
             if let Some(label) = settings
@@ -80,7 +85,9 @@ pub fn register_sync_ui_callbacks(
                 label.name = name.to_string();
                 label.color = color.to_string();
                 let snapshot = settings.clone();
-                settings::save(&snapshot);
+                if let Some(folder) = audio_folder.borrow().as_ref() {
+                    metadata::save(folder, &snapshot);
+                }
                 if let Some(window) = weak_window.upgrade() {
                     refresh_definition_properties(&window, &settings);
                 }
@@ -91,13 +98,16 @@ pub fn register_sync_ui_callbacks(
     {
         let weak_window = window.as_weak();
         let settings = Rc::clone(settings);
+        let audio_folder = Rc::clone(audio_folder);
         window.on_label_deleted(move |id| {
             let mut settings = settings.borrow_mut();
             settings
                 .label_definitions
                 .retain(|label| label.id != id as u64);
             let snapshot = settings.clone();
-            settings::save(&snapshot);
+            if let Some(folder) = audio_folder.borrow().as_ref() {
+                metadata::save(folder, &snapshot);
+            }
             if let Some(window) = weak_window.upgrade() {
                 refresh_definition_properties(&window, &settings);
             }
@@ -107,11 +117,14 @@ pub fn register_sync_ui_callbacks(
     {
         let weak_window = window.as_weak();
         let settings = Rc::clone(settings);
+        let audio_folder = Rc::clone(audio_folder);
         window.on_tag_created(move |name| {
             let mut settings = settings.borrow_mut();
             settings.create_tag(name.to_string());
             let snapshot = settings.clone();
-            settings::save(&snapshot);
+            if let Some(folder) = audio_folder.borrow().as_ref() {
+                metadata::save(folder, &snapshot);
+            }
             if let Some(window) = weak_window.upgrade() {
                 refresh_definition_properties(&window, &settings);
             }
@@ -121,6 +134,7 @@ pub fn register_sync_ui_callbacks(
     {
         let weak_window = window.as_weak();
         let settings = Rc::clone(settings);
+        let audio_folder = Rc::clone(audio_folder);
         window.on_tag_updated(move |id, name| {
             let mut settings = settings.borrow_mut();
             if let Some(tag) = settings
@@ -130,7 +144,9 @@ pub fn register_sync_ui_callbacks(
             {
                 tag.name = name.to_string();
                 let snapshot = settings.clone();
-                settings::save(&snapshot);
+                if let Some(folder) = audio_folder.borrow().as_ref() {
+                    metadata::save(folder, &snapshot);
+                }
                 if let Some(window) = weak_window.upgrade() {
                     refresh_definition_properties(&window, &settings);
                 }
@@ -141,11 +157,14 @@ pub fn register_sync_ui_callbacks(
     {
         let weak_window = window.as_weak();
         let settings = Rc::clone(settings);
+        let audio_folder = Rc::clone(audio_folder);
         window.on_tag_deleted(move |id| {
             let mut settings = settings.borrow_mut();
             settings.tag_definitions.retain(|tag| tag.id != id as u64);
             let snapshot = settings.clone();
-            settings::save(&snapshot);
+            if let Some(folder) = audio_folder.borrow().as_ref() {
+                metadata::save(folder, &snapshot);
+            }
             if let Some(window) = weak_window.upgrade() {
                 refresh_definition_properties(&window, &settings);
             }
@@ -503,7 +522,11 @@ pub fn tick(
                 window.set_comfyui_sync_test_success(false);
                 window.set_comfyui_sync_test_message(error.into());
             }
-            SyncTestResult::Save { folder, config, result } => match result {
+            SyncTestResult::Save {
+                folder,
+                config,
+                result,
+            } => match result {
                 Ok(()) => {
                     sync_controller.borrow_mut().stop();
                     if let Err(error) = sync::ensure_destination(&folder, &config)
@@ -512,7 +535,9 @@ pub fn tick(
                         window.set_comfyui_sync_error(error.to_string().into());
                         continue;
                     }
-                    sync_controller.borrow_mut().start(folder.clone(), config.clone());
+                    sync_controller
+                        .borrow_mut()
+                        .start(folder.clone(), config.clone());
                     window.set_comfyui_sync_active(true);
                     window.set_comfyui_sync_error("".into());
                     window.set_comfyui_sync_error_state(false);
@@ -688,9 +713,8 @@ fn finish_recreate_upload(
         ("bpm", window.get_workflow_bpm().to_string()),
         (
             "duration",
-            (window.get_workflow_duration_minutes() * 60
-                + window.get_workflow_duration_seconds())
-            .to_string(),
+            (window.get_workflow_duration_minutes() * 60 + window.get_workflow_duration_seconds())
+                .to_string(),
         ),
         ("key", window.get_workflow_key().to_string()),
         ("seed", window.get_workflow_seed().to_string()),
