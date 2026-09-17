@@ -145,7 +145,135 @@ fn canonical_json_hash(value: &Value) -> String {
 pub fn parse_value(value: &Value) -> ComfyUIWorkflow {
     let mut workflow = ComfyUIWorkflow::default();
     visit(value, &mut workflow, false, None);
+    let active_loras = active_lora_ids(value);
     workflow
+        .loras
+        .retain(|lora| active_loras.contains(&lora.node_id));
+    workflow
+}
+
+fn active_lora_ids(value: &Value) -> std::collections::HashSet<String> {
+    let mut active = std::collections::HashSet::new();
+    let mut pending = workflow_nodes(value)
+        .into_iter()
+        .flatten()
+        .filter(|(_, node)| is_ksampler_node(node))
+        .map(|(id, _)| id)
+        .collect::<Vec<_>>();
+    let mut visited = std::collections::HashSet::new();
+
+    while let Some(node_id) = pending.pop() {
+        if !visited.insert(node_id.clone()) {
+            continue;
+        }
+        let Some(node) = find_workflow_node(value, &node_id) else {
+            continue;
+        };
+        if is_lora_node(node) {
+            active.insert(node_id);
+        }
+        if let Some(upstream_id) = upstream_model_id(value, node) {
+            pending.push(upstream_id);
+        }
+    }
+
+    active
+}
+
+fn workflow_nodes<'a>(value: &'a Value) -> Option<Vec<(String, &'a Value)>> {
+    let object = value.as_object()?;
+    if let Some(nodes) = object.get("nodes").and_then(Value::as_array) {
+        return Some(
+            nodes
+                .iter()
+                .filter_map(|node| {
+                    let id = node
+                        .get("id")
+                        .map(scalar_text)
+                        .filter(|id| !id.is_empty())?;
+                    Some((id, node))
+                })
+                .collect(),
+        );
+    }
+    Some(
+        object
+            .iter()
+            .filter_map(|(id, node)| node.get("class_type").is_some().then(|| (id.clone(), node)))
+            .collect(),
+    )
+}
+
+fn find_workflow_node<'a>(value: &'a Value, node_id: &str) -> Option<&'a Value> {
+    workflow_nodes(value)?
+        .into_iter()
+        .find_map(|(id, node)| (id == node_id).then_some(node))
+}
+
+fn is_ksampler_node(node: &Value) -> bool {
+    node.get("class_type")
+        .or_else(|| node.get("type"))
+        .and_then(Value::as_str)
+        .map(|node_type| node_type.to_ascii_lowercase().contains("ksampler"))
+        .unwrap_or(false)
+}
+
+fn is_lora_node(node: &Value) -> bool {
+    node.get("class_type")
+        .or_else(|| node.get("type"))
+        .and_then(Value::as_str)
+        .map(|node_type| {
+            node_type
+                .to_ascii_lowercase()
+                .replace([' ', '_', '-'], "")
+                .contains("loraloader")
+                || node_type
+                    .to_ascii_lowercase()
+                    .replace([' ', '_', '-'], "")
+                    .contains("loadlora")
+        })
+        .unwrap_or(false)
+}
+
+fn upstream_model_id(value: &Value, node: &Value) -> Option<String> {
+    if let Some(inputs) = node.get("inputs").and_then(Value::as_object) {
+        return inputs.iter().find_map(|(name, reference)| {
+            (name.eq_ignore_ascii_case("model") || name.to_ascii_lowercase().starts_with("model"))
+                .then(|| {
+                    reference.as_array().and_then(|reference| {
+                        reference
+                            .first()
+                            .map(scalar_text)
+                            .filter(|id| !id.is_empty())
+                    })
+                })
+                .flatten()
+        });
+    }
+
+    let link_id = node
+        .get("inputs")
+        .and_then(Value::as_array)
+        .and_then(|inputs| {
+            inputs.iter().find_map(|input| {
+                let name = input.get("name").and_then(Value::as_str)?;
+                (name.eq_ignore_ascii_case("model")
+                    || name.to_ascii_lowercase().starts_with("model"))
+                .then(|| input.get("link").map(scalar_text))
+                .flatten()
+            })
+        })?;
+    value
+        .get("links")
+        .and_then(Value::as_array)
+        .and_then(|links| {
+            links.iter().find_map(|link| {
+                let link = link.as_array()?;
+                (link.first().map(scalar_text).as_deref() == Some(link_id.as_str()))
+                    .then(|| link.get(1).map(scalar_text))
+                    .flatten()
+            })
+        })
 }
 
 fn visit(
@@ -496,6 +624,9 @@ mod tests {
             }},
             "3": {"class_type": "Load LoRA", "inputs": {
                 "lora_name": "style.safetensors", "strength_model": 0.8
+            }},
+            "4": {"class_type": "KSampler", "inputs": {
+                "model": ["3", 0]
             }}
         }));
 
@@ -529,6 +660,7 @@ mod tests {
         let workflow = parse_value(&json!({
             "nodes": [
                 {
+                    "id": 1,
                     "type": "TextEncodeAceStepAudio1.5",
                     "inputs": [
                         {"name": "tags", "widget": {"name": "tags"}, "link": null},
@@ -540,6 +672,7 @@ mod tests {
                     "widgets_values": ["prompt", "lyrics", 31, 130, "E minor"]
                 },
                 {
+                    "id": 2,
                     "type": "CheckpointLoaderSimple",
                     "inputs": [
                         {"name": "ckpt_name", "widget": {"name": "ckpt_name"}, "link": null}
@@ -547,15 +680,23 @@ mod tests {
                     "widgets_values": ["model.safetensors"]
                 },
                 {
+                    "id": 3,
                     "type": "LoraLoaderModelOnly",
                     "inputs": [
                         {"name": "model", "link": 2},
                         {"name": "lora_name", "widget": {"name": "lora_name"}, "link": null},
                         {"name": "strength_model", "widget": {"name": "strength_model"}, "link": null}
                     ],
-                    "widgets_values": ["style.safetensors", 0.8]
+                    "widgets_values": ["style.safetensors", 0.8],
+                    "outputs": [{"name": "MODEL", "links": [10]}]
+                },
+                {
+                    "id": 4,
+                    "type": "KSampler",
+                    "inputs": [{"name": "model", "link": 10}]
                 }
-            ]
+            ],
+            "links": [[10, 3, 0, 4, 0, "MODEL"]]
         }));
 
         assert_eq!(workflow.bpm, "130");
@@ -575,8 +716,14 @@ mod tests {
                 "id": 106,
                 "type": "LoraLoaderModelOnly",
                 "inputs": [{"name": "model", "link": 291}],
-                "widgets_values": ["/remote/models/lora9_rondoveneziano_500.safetensors", 1.2]
-            }]
+                "widgets_values": ["/remote/models/lora9_rondoveneziano_500.safetensors", 1.2],
+                "outputs": [{"name": "MODEL", "links": [292]}]
+            }, {
+                "id": 107,
+                "type": "KSampler",
+                "inputs": [{"name": "model", "link": 292}]
+            }],
+            "links": [[292, 106, 0, 107, 0, "MODEL"]]
         }));
 
         assert_eq!(workflow.loras[0].node_id, "106");
@@ -585,6 +732,33 @@ mod tests {
             "lora9_rondoveneziano_500.safetensors"
         );
         assert_eq!(workflow.loras[0].strength, "1.2");
+    }
+
+    #[test]
+    fn extracts_only_loras_on_the_chain_to_a_ksampler() {
+        let workflow = parse_value(&json!({
+            "1": {"class_type": "CheckpointLoaderSimple", "inputs": {
+                "ckpt_name": "model.safetensors"
+            }},
+            "2": {"class_type": "Load LoRA", "inputs": {
+                "model": ["1", 0], "lora_name": "connected.safetensors"
+            }},
+            "3": {"class_type": "Load LoRA", "inputs": {
+                "model": ["1", 0], "lora_name": "bypassed.safetensors"
+            }},
+            "4": {"class_type": "KSampler", "inputs": {
+                "model": ["2", 0]
+            }}
+        }));
+
+        assert_eq!(
+            workflow
+                .loras
+                .iter()
+                .map(|lora| lora.filename.as_str())
+                .collect::<Vec<_>>(),
+            vec!["connected.safetensors"]
+        );
     }
 
     #[test]

@@ -3,17 +3,17 @@ TODO:
 - Filter by tag
 x Song name in main play bar
 - Labels should probably be stored in workspace instead of globally (they are project data)
-o Fix UI freeze
-- Resizing comments
+x Fix UI freeze
+x Resizing comments
 - Stem separation
-- The metadata parser doesn't work properly: it considers al LoRas as active.
+o The metadata parser doesn't work properly: it considers al LoRas as active.
 	But on garbage1_cover_0007.flac, the first lora is not.
 
 - LoRas manager - give ratings, comment, metadata
 - Template ComfyUI files
 - LoRa training template + doc (important: saving the keyword)
 - Slice out function (extract audio from comment)
-- Alerte quand génération terminée / nouvelle download
+x Alerte quand génération terminée / nouvelle download
 
 Mise en prod:
 -------------

@@ -20,6 +20,8 @@ export component Waveform inherits Rectangle {
     property <float> comment-drag-original-end: -1;
     property <int> comment-drag-index: -1;
     property <float> comment-drag-preview-start: -1;
+    property <float> comment-drag-preview-end: -1;
+    property <int> comment-drag-mode: 0;
     property <bool> comment-dragged: false;
     property <bool> click-shift: false;
     in property <float> progress: 0;
@@ -31,6 +33,10 @@ export component Waveform inherits Rectangle {
 
     function displayed-comment-start(index: int, start: float) -> float {
         return index == root.comment-drag-index ? root.comment-drag-preview-start : start;
+    }
+
+    function displayed-comment-end(index: int, end: float) -> float {
+        return index == root.comment-drag-index ? root.comment-drag-preview-end : end;
     }
 
     Image {
@@ -84,8 +90,8 @@ export component Waveform inherits Rectangle {
         }
     }
     for comment[index] in root.comments : Rectangle {
-        x: comment.start * parent.width;
-        width: (comment.end - comment.start) * parent.width;
+        x: root.displayed-comment-start(index, comment.start) * parent.width;
+        width: (root.displayed-comment-end(index, comment.end) - root.displayed-comment-start(index, comment.start)) * parent.width;
         y: 0px;
         height: parent.height;
         visible: comment.end >= comment.start;
@@ -93,6 +99,93 @@ export component Waveform inherits Rectangle {
         opacity: 0.24;
         border-color: comment.label-color;
         border-width: 1px;
+    }
+    for comment[index] in root.comments : start-handle := Rectangle {
+        x: comment.start * parent.width - 4px;
+        y: 0px;
+        width: 8px;
+        height: 38px;
+        z: 5;
+        background: transparent;
+        TouchArea {
+            mouse-cursor: ew-resize;
+            pointer-event(event) => {
+                if event.kind == PointerEventKind.down && event.button == PointerEventButton.left {
+                    root.comment-drag-start = ((self.mouse-x + start-handle.x) / root.width).max(0).min(1);
+                    root.comment-drag-original-start = comment.start;
+                    root.comment-drag-original-end = comment.end;
+                    root.comment-drag-index = index;
+                    root.comment-drag-preview-start = comment.start;
+                    root.comment-drag-preview-end = comment.end;
+                    root.comment-drag-mode = 1;
+                    root.comment-dragged = false;
+                } else if event.kind == PointerEventKind.move && root.comment-drag-start >= 0 && root.comment-drag-mode == 1 {
+                    let pointer = ((self.mouse-x + start-handle.x) / root.width).max(0).min(1);
+                    root.comment-drag-preview-start = pointer.min(root.comment-drag-original-end);
+                    root.comment-drag-preview-end = pointer.max(root.comment-drag-original-end);
+                    root.comment-dragged = root.comment-dragged || (pointer - root.comment-drag-start).abs() > 0.005;
+                } else if event.kind == PointerEventKind.up && root.comment-drag-start >= 0 && root.comment-drag-mode == 1 {
+                    let pointer = ((self.mouse-x + start-handle.x) / root.width).max(0).min(1);
+                    let start = pointer.min(root.comment-drag-original-end);
+                    let end = pointer.max(root.comment-drag-original-end);
+                    if root.comment-dragged {
+                        root.comment-range-moved(root.comment-drag-original-start, root.comment-drag-original-end, start, end, comment.text);
+                    } else {
+                        root.comment-selected(comment.start, comment.end, comment.text);
+                    }
+                    root.comment-drag-start = -1;
+                    root.comment-drag-index = -1;
+                    root.comment-drag-preview-start = -1;
+                    root.comment-drag-preview-end = -1;
+                    root.comment-drag-mode = 0;
+                    root.comment-dragged = false;
+                }
+            }
+        }
+    }
+    for comment[index] in root.comments : end-handle := Rectangle {
+        x: comment.end * parent.width - 4px;
+        y: 0px;
+        width: 8px;
+        height: 38px;
+        z: 5;
+        background: transparent;
+        visible: comment.end > comment.start;
+        TouchArea {
+            mouse-cursor: ew-resize;
+            pointer-event(event) => {
+                if event.kind == PointerEventKind.down && event.button == PointerEventButton.left {
+                    root.comment-drag-start = ((self.mouse-x + end-handle.x) / root.width).max(0).min(1);
+                    root.comment-drag-original-start = comment.start;
+                    root.comment-drag-original-end = comment.end;
+                    root.comment-drag-index = index;
+                    root.comment-drag-preview-start = comment.start;
+                    root.comment-drag-preview-end = comment.end;
+                    root.comment-drag-mode = 2;
+                    root.comment-dragged = false;
+                } else if event.kind == PointerEventKind.move && root.comment-drag-start >= 0 && root.comment-drag-mode == 2 {
+                    let pointer = ((self.mouse-x + end-handle.x) / root.width).max(0).min(1);
+                    root.comment-drag-preview-start = pointer.min(root.comment-drag-original-start);
+                    root.comment-drag-preview-end = pointer.max(root.comment-drag-original-start);
+                    root.comment-dragged = root.comment-dragged || (pointer - root.comment-drag-start).abs() > 0.005;
+                } else if event.kind == PointerEventKind.up && root.comment-drag-start >= 0 && root.comment-drag-mode == 2 {
+                    let pointer = ((self.mouse-x + end-handle.x) / root.width).max(0).min(1);
+                    let start = pointer.min(root.comment-drag-original-start);
+                    let end = pointer.max(root.comment-drag-original-start);
+                    if root.comment-dragged {
+                        root.comment-range-moved(root.comment-drag-original-start, root.comment-drag-original-end, start, end, comment.text);
+                    } else {
+                        root.comment-selected(comment.start, comment.end, comment.text);
+                    }
+                    root.comment-drag-start = -1;
+                    root.comment-drag-index = -1;
+                    root.comment-drag-preview-start = -1;
+                    root.comment-drag-preview-end = -1;
+                    root.comment-drag-mode = 0;
+                    root.comment-dragged = false;
+                }
+            }
+        }
     }
     if root.selected-comment-start >= 0 && root.selected-comment-end >= root.selected-comment-start : Rectangle {
         x: root.selected-comment-start * parent.width;
@@ -229,6 +322,8 @@ export component Waveform inherits Rectangle {
                         root.comment-drag-original-end = comment.end;
                         root.comment-drag-index = index;
                         root.comment-drag-preview-start = comment.start;
+                        root.comment-drag-preview-end = comment.end;
+                        root.comment-drag-mode = 0;
                         root.comment-dragged = false;
                     } else if event.kind == PointerEventKind.move && root.comment-drag-start >= 0 {
                         let pointer = ((self.mouse-x + comment-hit.x + comment-container.x) / root.width).max(0).min(1);
@@ -249,6 +344,8 @@ export component Waveform inherits Rectangle {
                         root.comment-drag-start = -1;
                         root.comment-drag-index = -1;
                         root.comment-drag-preview-start = -1;
+                        root.comment-drag-preview-end = -1;
+                        root.comment-drag-mode = 0;
                         root.comment-dragged = false;
                     }
                 }
