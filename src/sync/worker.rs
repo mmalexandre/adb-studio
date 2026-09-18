@@ -182,7 +182,7 @@ pub(super) fn sync_loop(
                 } else {
                     local_checksums.contains(&file.checksum)
                 };
-            if !already_present && !metadata::has_downloaded_audio(&workspace, &file.name) {
+            if !already_present {
                 if let Err(error) = client.download_file(&config, file, &destination) {
                     let _ = event_sender.send(SyncEvent::Error {
                         generation,
@@ -386,6 +386,10 @@ fn local_checksums(workspace: &Path) -> Result<HashSet<String>, SyncError> {
                 continue;
             }
             checksums.insert(metadata::checksum_for_file(workspace, &path).map_err(SyncError::Io)?);
+            let audio_metadata = metadata::load_audio_metadata(workspace, &path);
+            if !audio_metadata.original_checksum.is_empty() {
+                checksums.insert(audio_metadata.original_checksum);
+            }
         }
     }
     Ok(checksums)

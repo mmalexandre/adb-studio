@@ -95,6 +95,8 @@ pub struct AudioFileMetadata {
     #[serde(default)]
     pub checksum: String,
     #[serde(default)]
+    pub original_checksum: String,
+    #[serde(default)]
     pub original_file_name: String,
     #[serde(default)]
     pub current_file_name: String,
@@ -373,21 +375,14 @@ pub fn load_audio_metadata(folder: &Path, audio_path: &Path) -> AudioFileMetadat
     let mut index = load_index(folder);
     let sidecar_metadata = comment_path(folder, audio_path)
         .and_then(|path| fs::read_to_string(path).ok())
-        .and_then(|contents| serde_json::from_str::<AudioFileMetadata>(&contents).ok());
+        .and_then(|contents| serde_json::from_str::<AudioFileMetadata>(&contents).ok())
+        .filter(|metadata| checksum.is_empty() || metadata.checksum == checksum);
     let metadata = sidecar_metadata
         .or_else(|| {
             index
                 .audio_files
                 .iter()
                 .find(|item| !checksum.is_empty() && item.checksum == checksum)
-                .cloned()
-        })
-        .or_else(|| {
-            let path_string = audio_path.to_string_lossy();
-            index
-                .audio_files
-                .iter()
-                .find(|item| item.file_path == path_string)
                 .cloned()
         })
         .unwrap_or_default();
@@ -521,15 +516,17 @@ pub fn record_downloaded_audio(folder: &Path, original_file_name: &str, current_
     if let Some(metadata) = index.audio_files.iter_mut().find(|metadata| {
         (!checksum.is_empty() && metadata.checksum == checksum)
             || metadata.file_path == current_path_string
-            || (metadata.current_file_name == current_file_name
-                && metadata.original_file_name == original_file_name)
     }) {
+        if metadata.original_checksum.is_empty() {
+            metadata.original_checksum = metadata.checksum.clone();
+        }
         metadata.checksum = checksum;
         metadata.original_file_name = original_file_name.to_string();
         metadata.current_file_name = current_file_name;
         metadata.file_path = current_path_string;
     } else {
         index.audio_files.push(AudioFileMetadata {
+            original_checksum: checksum.clone(),
             checksum,
             original_file_name: original_file_name.to_string(),
             current_file_name,
@@ -567,9 +564,58 @@ pub fn rename_audio_metadata(folder: &Path, source: &Path, destination: &Path) {
         }
     }
     changed |= rename_comment_metadata(folder, source, destination);
+    if destination.is_file() {
+        changed |= update_converted_metadata(folder, destination);
+        index = load_index(folder);
+    }
     if changed {
         save_index(folder, &index);
     }
+}
+
+fn update_converted_metadata(folder: &Path, destination: &Path) -> bool {
+    let Ok(checksum) = checksum_for_file(folder, destination) else {
+        return false;
+    };
+    let destination_string = destination.to_string_lossy();
+    let mut changed = false;
+    let mut index = load_index(folder);
+    for metadata in &mut index.audio_files {
+        if metadata.file_path == destination_string {
+            if metadata.original_checksum.is_empty() {
+                metadata.original_checksum = metadata.checksum.clone();
+                changed = true;
+            }
+            if metadata.checksum != checksum {
+                metadata.checksum = checksum.clone();
+                changed = true;
+            }
+        }
+    }
+    if changed {
+        save_index(folder, &index);
+    }
+    if let Some(path) = comment_path(folder, destination) {
+        if let Ok(contents) = fs::read_to_string(&path) {
+            if let Ok(mut metadata) = serde_json::from_str::<AudioFileMetadata>(&contents) {
+                let mut metadata_changed = false;
+                if metadata.original_checksum.is_empty() {
+                    metadata.original_checksum = metadata.checksum.clone();
+                    metadata_changed = true;
+                }
+                if metadata.checksum != checksum {
+                    metadata.checksum = checksum;
+                    metadata_changed = true;
+                }
+                if metadata_changed {
+                    if let Ok(contents) = serde_json::to_string_pretty(&metadata) {
+                        let _ = fs::write(path, contents);
+                    }
+                }
+            }
+        }
+    }
+    changed
 }
 
 fn rename_comment_metadata(folder: &Path, source: &Path, destination: &Path) -> bool {
@@ -957,6 +1003,66 @@ mod tests {
         assert_eq!(current.comments.len(), 1);
         assert!(!comment_path(&folder, &source).unwrap().exists());
         assert!(comment_path(&folder, &destination).unwrap().exists());
+        let _ = fs::remove_dir_all(folder);
+    }
+
+    #[test]
+    fn does_not_reuse_comments_when_file_contents_change_at_same_path() {
+        let folder = test_folder("checksum-comment-isolation");
+        let audio_path = folder.join("track.wav");
+        fs::write(&audio_path, b"first audio").unwrap();
+        save_audio_metadata(
+            &folder,
+            &audio_path,
+            &AudioFileMetadata {
+                comments: vec![AudioComment {
+                    start_seconds: 1.0,
+                    end_seconds: 2.0,
+                    text: "first track".into(),
+                    label_id: None,
+                }],
+                ..Default::default()
+            },
+        );
+
+        fs::write(&audio_path, b"different audio").unwrap();
+
+        assert!(load_audio_metadata(&folder, &audio_path).comments.is_empty());
+        let _ = fs::remove_dir_all(folder);
+    }
+
+    #[test]
+    fn conversion_retains_source_and_current_checksums() {
+        let folder = test_folder("conversion-checksums");
+        let source = folder.join("track.wav");
+        let destination = folder.join("track.mp3");
+        fs::write(&source, b"source audio").unwrap();
+        save_audio_metadata(
+            &folder,
+            &source,
+            &AudioFileMetadata {
+                comments: vec![AudioComment {
+                    start_seconds: 1.0,
+                    end_seconds: 2.0,
+                    text: "keep this".into(),
+                    label_id: None,
+                }],
+                ..Default::default()
+            },
+        );
+        let source_checksum = checksum_for_file(&folder, &source).unwrap();
+        fs::write(&destination, b"converted audio").unwrap();
+        fs::remove_file(&source).unwrap();
+
+        rename_audio_metadata(&folder, &source, &destination);
+
+        let metadata = load_audio_metadata(&folder, &destination);
+        assert_eq!(metadata.original_checksum, source_checksum);
+        assert_eq!(
+            metadata.checksum,
+            checksum_for_file(&folder, &destination).unwrap()
+        );
+        assert_eq!(metadata.comments.len(), 1);
         let _ = fs::remove_dir_all(folder);
     }
 }
