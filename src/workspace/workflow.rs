@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{fs, path::Path};
 
 use slint::{ModelRc, VecModel};
 
@@ -158,6 +158,7 @@ pub fn load_workflow_for_audio(
     let Some(workflow_path) = metadata::workflow_path(folder, path) else {
         window.set_selected_workflow("".into());
         clear_workflow(window);
+        window.set_workflow_runnable(false);
         window.set_workflow_modified(false);
         window.set_workflow_loading(false);
         *workflow_loading.borrow_mut() = false;
@@ -166,12 +167,18 @@ pub fn load_workflow_for_audio(
     if !workflow_path.is_file() {
         window.set_selected_workflow("".into());
         clear_workflow(window);
+        window.set_workflow_runnable(false);
         window.set_workflow_modified(false);
         window.set_workflow_recreated(false);
         window.set_workflow_loading(false);
         *workflow_loading.borrow_mut() = false;
         return;
     }
+    let runnable = fs::read_to_string(&workflow_path)
+        .ok()
+        .and_then(|contents| serde_json::from_str::<serde_json::Value>(&contents).ok())
+        .is_some_and(|value| metadata::comfyui::is_runnable_audio_workflow(&value));
+    window.set_workflow_runnable(runnable);
     match metadata::comfyui::parse_file_cached(folder, &workflow_path) {
         Ok(workflow) => {
             apply_workflow(window, folder, &workflow_path.to_string_lossy(), workflow);

@@ -118,6 +118,8 @@ impl ComfyUiClient {
     ) -> Result<(), SyncError> {
         validate_request_config(config)?;
         fs::create_dir_all(output_directory).map_err(SyncError::Io)?;
+        let api_prompt = metadata::comfyui::workflow_to_api_prompt(workflow)
+            .map_err(SyncError::Response)?;
         let client_id = format!(
             "adb-studio-{}-{}",
             std::process::id(),
@@ -130,7 +132,7 @@ impl ComfyUiClient {
                 &prompt_url,
                 self.client
                     .post(&prompt_url)
-                    .json(&serde_json::json!({ "prompt": workflow, "client_id": client_id })),
+                    .json(&serde_json::json!({ "prompt": api_prompt, "client_id": client_id })),
             )
             .map_err(SyncError::Request)?;
         if !prompt_response.status().is_success() {
@@ -144,6 +146,7 @@ impl ComfyUiClient {
             .ok_or_else(|| SyncError::Response("ComfyUI did not return a prompt id".into()))?
             .to_string();
 
+        let mut waiting_progress = 0.05_f32;
         let history = loop {
             if cancelled.load(std::sync::atomic::Ordering::Acquire) {
                 self.interrupt(config)?;
@@ -151,11 +154,13 @@ impl ComfyUiClient {
                 return Ok(());
             }
             if let Some((progress, step)) = self.progress(config)? {
+                waiting_progress = progress;
                 let _ = updates.send(WorkflowRunUpdate::Progress { progress, step });
             } else {
+                waiting_progress = (waiting_progress + 0.01).min(0.9);
                 let _ = updates.send(WorkflowRunUpdate::Progress {
-                    progress: 0.05,
-                    step: "Waiting for ComfyUI".into(),
+                    progress: waiting_progress,
+                    step: "ComfyUI is preparing the workflow...".into(),
                 });
             }
             let history_url = format!("{}/history/{prompt_id}", config.url);
@@ -467,6 +472,7 @@ fn find_audio_output(value: &serde_json::Value) -> Option<AudioOutput> {
 fn response_error(response: reqwest::blocking::Response, prefix: &str) -> SyncError {
     let status = response.status();
     let body = response.text().unwrap_or_default();
+    println!("[sync] {prefix} ({status}) response body:\n{body}");
     let detail = body.trim();
     SyncError::Response(if detail.is_empty() {
         format!("{prefix} ({status})")

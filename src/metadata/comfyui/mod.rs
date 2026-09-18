@@ -3,7 +3,10 @@ mod parser;
 mod updater;
 
 pub use diff::compare_files;
-pub use parser::{clear_memory_cache, parse_file_cached, parse_value};
+pub use parser::{
+    clear_memory_cache, is_runnable_audio_workflow, parse_file_cached, parse_value,
+    workflow_to_api_prompt,
+};
 pub use updater::{add_lora, remove_lora, reorder_loras, set_lora_strength, update_metadata};
 
 use serde::{Deserialize, Serialize};

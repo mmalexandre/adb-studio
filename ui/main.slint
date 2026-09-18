@@ -182,6 +182,7 @@ export component MainWindow inherits Window {
     in-out property <string> lora-custom-tag: "";
     in-out property <[WorkflowLoraRow]> workflow-loras: [];
     in-out property <bool> workflow-modified: false;
+    in-out property <bool> workflow-runnable: false;
     in-out property <bool> workflow-recreated: false;
     in-out property <bool> workflow-loading: false;
     in-out property <bool> comfyui-run-visible: false;
@@ -1311,7 +1312,7 @@ export component MainWindow inherits Window {
                                     }
                                     AppButton {
                                         text: "Run in ComfyUI";
-                                        enabled: root.tree-selection-count <= 1;
+                                        enabled: root.tree-selection-count <= 1 && root.workflow-runnable;
                                         clicked => { root.run-workflow-requested(); }
                                     }
                                 }

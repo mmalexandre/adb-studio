@@ -20,7 +20,7 @@ Mise en prod:
 -------------
 - Doc
 - License
-- Video Youtube
+- Script pour la video Youtube
 - Clip de musique
 - Publier quelque chose sur Hugging Face, Civit, ComfyUI Module
 - Make it easy to use
@@ -29,8 +29,8 @@ Mise en prod:
 Recherche:
 ----------
 - Comment recreer un morceau de facon deterministe (sauver le CPU?)
-- Repaint pour ameliorer la qualite d'un existant
-- Test stem separation on ComfyUI
+x Repaint pour ameliorer la qualite d'un existant
+x Test stem separation on ComfyUI
 
 Cerises sur le gâteau:
 ----------------------
@@ -53,3 +53,7 @@ Avantages de cette application:
 - Aide a conserver les LoRa
 - Comme Lightroom
 - License Apache (avec Ace-Step 1.5)
+- Un pont entre l'IA et le DAW (stems separation, presets guessing, doc)
+	A bridge from AI to your DAW
+- Embracing AI as a new tool, but not necessarily in the traditional way
+	Fomenter de nouveaux usages

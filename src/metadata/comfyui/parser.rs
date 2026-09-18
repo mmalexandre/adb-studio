@@ -158,6 +158,140 @@ pub fn parse_value(value: &Value) -> ComfyUIWorkflow {
     workflow
 }
 
+pub fn workflow_to_api_prompt(value: &Value) -> Result<Value, String> {
+    let Some(object) = value.as_object() else {
+        return Err("workflow must be a JSON object".into());
+    };
+    if object.values().all(|node| node.get("class_type").is_some()) {
+        return Ok(value.clone());
+    }
+    let Some(nodes) = object.get("nodes").and_then(Value::as_array) else {
+        return Err("workflow is neither an API prompt nor a visual graph".into());
+    };
+    let links = object
+        .get("links")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|link| {
+            let link = link.as_array()?;
+            Some((
+                link.first()?.as_i64()?,
+                (
+                    link.get(1)?.as_i64()?.to_string(),
+                    link.get(2)?.as_i64()?,
+                ),
+            ))
+        })
+        .collect::<std::collections::HashMap<_, _>>();
+    let primitive_values = nodes
+        .iter()
+        .filter(|node| node.get("type").and_then(Value::as_str) == Some("PrimitiveNode"))
+        .filter_map(|node| {
+            let value = node
+                .get("widgets_values")
+                .and_then(Value::as_array)
+                .and_then(|values| values.first())?
+                .clone();
+            let links = node
+                .get("outputs")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .flat_map(|output| output.get("links").and_then(Value::as_array))
+                .flatten()
+                .filter_map(Value::as_i64)
+                .map(|link_id| (link_id, value.clone()));
+            Some(links.collect::<Vec<_>>())
+        })
+        .flatten()
+        .collect::<std::collections::HashMap<_, _>>();
+    let mut prompt = serde_json::Map::new();
+    for node in nodes {
+        let id = node
+            .get("id")
+            .map(scalar_text)
+            .filter(|id| !id.is_empty())
+            .ok_or_else(|| "visual workflow node has no id".to_string())?;
+        let class_type = node
+            .get("type")
+            .and_then(Value::as_str)
+            .filter(|node_type| !node_type.is_empty())
+            .ok_or_else(|| format!("workflow node {id} has no type"))?;
+        if class_type == "PrimitiveNode" || class_type == "MarkdownNote" {
+            continue;
+        }
+        let input_nodes = node.get("inputs").and_then(Value::as_array);
+        let widget_values = node.get("widgets_values").and_then(Value::as_array);
+        let widget_names = visual_widget_names(class_type);
+        let mut widget_index = 0;
+        let mut inputs = serde_json::Map::new();
+        if let Some(input_nodes) = input_nodes {
+            for input in input_nodes {
+                let name = input
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| format!("workflow node {id} has an unnamed input"))?;
+                if let Some(link_id) = input.get("link").and_then(Value::as_i64) {
+                    if let Some(value) = primitive_values.get(&link_id) {
+                        inputs.insert(name.into(), value.clone());
+                        continue;
+                    }
+                    let Some((source_id, output_index)) = links.get(&link_id) else {
+                        return Err(format!("workflow node {id} references missing link {link_id}"));
+                    };
+                    inputs.insert(name.into(), serde_json::json!([source_id, output_index]));
+                    if input.get("widget").is_some() {
+                        widget_index = widget_index.max(
+                            widget_names
+                                .iter()
+                                .position(|widget_name| *widget_name == name)
+                                .map(|index| index + 1)
+                                .unwrap_or(widget_index),
+                        );
+                    }
+                } else if input.get("widget").is_some() {
+                    let value_index = widget_names
+                        .iter()
+                        .position(|widget_name| *widget_name == name)
+                        .unwrap_or(widget_index);
+                    if let Some(value) = widget_values.and_then(|values| values.get(value_index)) {
+                        inputs.insert(name.into(), value.clone());
+                    }
+                    widget_index = widget_index.max(value_index + 1);
+                }
+            }
+        }
+        for (index, name) in widget_names.iter().enumerate() {
+            if !inputs.contains_key(*name)
+                && !input_nodes.is_some_and(|inputs| {
+                    inputs.iter().any(|input| {
+                        input.get("name").and_then(Value::as_str) == Some(name)
+                            && input.get("link").is_some()
+                    })
+                })
+            {
+                if let Some(value) = widget_values.and_then(|values| values.get(index)) {
+                    inputs.insert((*name).into(), value.clone());
+                }
+            }
+        }
+        if class_type == "PrimitiveNode" {
+            if let Some(value) = widget_values.and_then(|values| values.first()) {
+                inputs.insert("value".into(), value.clone());
+            }
+        }
+        prompt.insert(
+            id,
+            serde_json::json!({"class_type": class_type, "inputs": inputs}),
+        );
+    }
+    if prompt.is_empty() {
+        return Err("visual workflow has no nodes".into());
+    }
+    Ok(Value::Object(prompt))
+}
+
 fn active_lora_ids(value: &Value) -> std::collections::HashSet<String> {
     let mut active = std::collections::HashSet::new();
     let mut pending = workflow_nodes(value)
@@ -243,6 +377,36 @@ fn is_lora_node(node: &Value) -> bool {
 
 fn is_bypassed_node(node: &Value) -> bool {
     node.get("mode").and_then(Value::as_i64) == Some(4)
+}
+
+pub fn is_runnable_audio_workflow(value: &Value) -> bool {
+    let Some(nodes) = workflow_nodes(value) else {
+        return false;
+    };
+    let active_nodes = nodes
+        .into_iter()
+        .filter(|(_, node)| !is_bypassed_node(node))
+        .map(|(_, node)| node);
+    let mut has_sampler = false;
+    let mut has_audio_node = false;
+    for node in active_nodes {
+        let node_type = node
+            .get("class_type")
+            .or_else(|| node.get("type"))
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        if node_type.contains("trainer")
+            || node_type.contains("preprocess")
+            || node_type.contains("llmloader")
+        {
+            return false;
+        }
+        has_sampler |= node_type.contains("ksampler");
+        has_audio_node |= node_type.contains("acestep")
+            && (node_type.contains("audio") || node_type.contains("latent"));
+    }
+    has_sampler && has_audio_node
 }
 
 fn upstream_model_id(value: &Value, node: &Value) -> Option<String> {
@@ -592,9 +756,48 @@ fn scalar_text(value: &Value) -> String {
     }
 }
 
+fn visual_widget_names(node_type: &str) -> &'static [&'static str] {
+    match node_type {
+        "CheckpointLoaderSimple" => &["ckpt_name"],
+        "LoraLoaderModelOnly" => &["lora_name", "strength_model"],
+        "ModelSamplingAuraFlow" => &["shift"],
+        "EmptyAceStep1.5LatentAudio" => &["seconds", "batch_size"],
+        "KSampler" => &[
+            "seed",
+            "control_after_generate",
+            "steps",
+            "cfg",
+            "sampler_name",
+            "scheduler",
+            "denoise",
+        ],
+        "TextEncodeAceStepAudio1.5" => &[
+            "tags",
+            "lyrics",
+            "seed",
+            "control_after_generate",
+            "bpm",
+            "duration",
+            "timesignature",
+            "language",
+            "keyscale",
+            "generate_audio_codes",
+            "top_k",
+            "top_p",
+            "temperature",
+            "cfg_scale",
+            "min_p",
+        ],
+        "ADBDMusicPlayer" | "ADBMusicPlayer" => {
+            &["filename_prefix", "format", "quality", "audio_format"]
+        }
+        _ => &[],
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{memory_cache, parse_file_cached_with_hash, parse_value};
+    use super::{is_runnable_audio_workflow, memory_cache, parse_file_cached_with_hash, parse_value};
     use crate::metadata::comfyui::LoRAInfo;
     use serde_json::json;
     use std::{
@@ -654,6 +857,70 @@ mod tests {
                 strength: "0.8".into()
             }]
         );
+    }
+
+    #[test]
+    fn identifies_api_audio_generation_workflow() {
+        assert!(is_runnable_audio_workflow(&json!({
+            "1": {"class_type": "TextEncodeAceStepAudio1.5", "inputs": {}},
+            "2": {"class_type": "KSampler", "inputs": {}}
+        })));
+    }
+
+    #[test]
+    fn converts_visual_workflow_to_api_prompt() {
+        let prompt = super::workflow_to_api_prompt(&json!({
+            "nodes": [
+                {"id": 1, "type": "Source", "inputs": [], "widgets_values": []},
+                {"id": 2, "type": "KSampler", "inputs": [
+                    {"name": "model", "link": 7},
+                    {"name": "seed", "widget": {"name": "seed"}, "link": null}
+                ], "widgets_values": [42]}
+            ],
+            "links": [[7, 1, 0, 2, 0, "MODEL"]]
+        })).unwrap();
+        assert_eq!(prompt["2"]["class_type"], "KSampler");
+        assert_eq!(prompt["2"]["inputs"]["model"], json!(["1", 0]));
+        assert_eq!(prompt["2"]["inputs"]["seed"], 42);
+    }
+
+    #[test]
+    fn omits_frontend_nodes_and_inlines_primitive_values() {
+        let prompt = super::workflow_to_api_prompt(&json!({
+            "nodes": [
+                {"id": 1, "type": "PrimitiveNode", "widgets_values": [120],
+                 "outputs": [{"links": [7]}]},
+                {"id": 2, "type": "MarkdownNote", "widgets_values": ["note"]},
+                {"id": 3, "type": "EmptyAceStep1.5LatentAudio", "inputs": [
+                    {"name": "seconds", "link": 7}
+                ]}
+            ],
+            "links": [[7, 1, 0, 3, 0, "FLOAT"]]
+        })).unwrap();
+        assert!(prompt.get("1").is_none());
+        assert!(prompt.get("2").is_none());
+        assert_eq!(prompt["3"]["inputs"]["seconds"], 120);
+    }
+
+    #[test]
+    fn identifies_visual_audio_generation_workflow() {
+        assert!(is_runnable_audio_workflow(&json!({
+            "nodes": [
+                {"id": 1, "type": "EmptyAceStep1.5LatentAudio", "mode": 0},
+                {"id": 2, "type": "KSamplerAceStepAura", "mode": 0}
+            ]
+        })));
+    }
+
+    #[test]
+    fn rejects_training_workflow_even_when_it_contains_acestep_nodes() {
+        assert!(!is_runnable_audio_workflow(&json!({
+            "nodes": [
+                {"id": 1, "type": "FL_AceStep_PreprocessDataset", "mode": 0},
+                {"id": 2, "type": "FL_AceStep_LoRATrainer", "mode": 0},
+                {"id": 3, "type": "KSampler", "mode": 0}
+            ]
+        })));
     }
 
     #[test]

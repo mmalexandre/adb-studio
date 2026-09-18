@@ -479,6 +479,13 @@ pub fn register_workflow_callbacks(
                 };
                 workflow
             };
+            if !metadata::comfyui::is_runnable_audio_workflow(&workflow) {
+                window.set_workflow_runnable(false);
+                window.set_audio_error(
+                    "This workflow is not a runnable AceStep audio-generation workflow".into(),
+                );
+                return;
+            }
             let Some(config) =
                 crate::sync::load_config(&workspace).filter(|config| !config.url.is_empty())
             else {
