@@ -30,7 +30,6 @@ pub struct State {
 
 pub struct Result {
     pub generation: u64,
-    pub index: usize,
     pub path: String,
     pub raster: Vec<u8>,
 }
@@ -168,7 +167,7 @@ fn generate(state: Arc<Mutex<State>>) {
         }
         drop(worker_sender);
         for _ in 0..job_count {
-            let Ok((index, path, result)) = worker_receiver.lock().unwrap().recv() else {
+            let Ok((_index, path, result)) = worker_receiver.lock().unwrap().recv() else {
                 break;
             };
             let Some((cache_key, raster)) = result else {
@@ -187,7 +186,6 @@ fn generate(state: Arc<Mutex<State>>) {
             state_ref.completed += 1;
             let _ = state_ref.result_sender.send(Result {
                 generation,
-                index,
                 path: path_string,
                 raster,
             });

@@ -29,7 +29,7 @@ pub fn set_audio_row_index(model: &VecModel<AudioRow>) {
     });
 }
 
-fn row_index(path: &Path) -> Option<usize> {
+pub fn row_index(path: &Path) -> Option<usize> {
     AUDIO_ROW_INDEX.with(|index| index.borrow().get(path).copied())
 }
 

@@ -1,7 +1,7 @@
 use std::{
     cell::RefCell,
     env,
-    path::PathBuf,
+    path::{Path, PathBuf},
     rc::Rc,
     sync::mpsc,
     sync::Arc,
@@ -403,16 +403,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if let Some(receiver) = audio_result_receiver.borrow_mut().as_mut() {
                     for result in receiver.try_iter().take(3) {
                         let current_generation = audio_load_state.lock().unwrap().generation;
-                        if result.generation != current_generation
-                            || result.index >= model.row_count()
-                        {
+                        if result.generation != current_generation {
                             continue;
                         }
-                        let Some(row) = model.row_data(result.index) else {
+                        let Some(index) = audio::view::row_index(Path::new(&result.path)) else {
+                            continue;
+                        };
+                        let Some(row) = model.row_data(index) else {
                             continue;
                         };
                         model.set_row_data(
-                            result.index,
+                            index,
                             AudioRow {
                                 path: result.path.into(),
                                 name: row.name,
