@@ -1212,7 +1212,7 @@ export component MainWindow inherits Window {
                                             CompactIconButton {
                                                 icon: @image-url("../assets/icons/pencil.svg");
                                                 active: true;
-                                                clicked => { root.lora-edit-requested(lora.filename, lora.custom-tag); }
+                                                clicked => { root.lora-edit-requested(lora.source-filename, lora.custom-tag); }
                                             }
                                             CompactIconButton {
                                                 icon: @image-url("../assets/icons/trash-2.svg");

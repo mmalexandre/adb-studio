@@ -183,6 +183,71 @@ pub fn load_index(folder: &Path) -> MetadataIndex {
         .unwrap_or_default()
 }
 
+fn find_lora_path(folder: &Path, filename: &str) -> Option<PathBuf> {
+    let mut directories = vec![folder.to_path_buf()];
+    while let Some(directory) = directories.pop() {
+        for entry in fs::read_dir(directory).ok()?.flatten() {
+            let path = entry.path();
+            if path.file_name().is_some_and(|name| name == ".adbstudio") {
+                continue;
+            }
+            if path.is_dir() {
+                directories.push(path);
+            } else if path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| {
+                    name.eq_ignore_ascii_case(filename)
+                        || comfyui::display_lora_name(name)
+                            .eq_ignore_ascii_case(filename)
+                })
+            {
+                return Some(path);
+            }
+        }
+    }
+    None
+}
+
+pub fn load_lora_custom_tag(folder: &Path, filename: &str) -> String {
+    find_lora_path(folder, filename)
+        .map(|path| load_audio_metadata(folder, &path).custom_tag)
+        .filter(|tag| !tag.is_empty())
+        .or_else(|| {
+            load_index(folder)
+                .loras
+                .into_iter()
+                .find(|lora| {
+                    lora.filename.eq_ignore_ascii_case(filename)
+                        || comfyui::display_lora_name(&lora.filename)
+                            .eq_ignore_ascii_case(filename)
+                })
+                .map(|lora| lora.custom_tag)
+        })
+        .unwrap_or_default()
+}
+
+pub fn save_lora_custom_tag(folder: &Path, filename: &str, custom_tag: &str) {
+    let mut index = load_index(folder);
+    if let Some(lora) = index.loras.iter_mut().find(|lora| {
+        lora.filename.eq_ignore_ascii_case(filename)
+            || comfyui::display_lora_name(&lora.filename).eq_ignore_ascii_case(filename)
+    }) {
+        lora.custom_tag = custom_tag.to_owned();
+    } else {
+        index.loras.push(LoraMetadata {
+            filename: filename.to_owned(),
+            custom_tag: custom_tag.to_owned(),
+        });
+    }
+    save_index(folder, &index);
+    if let Some(path) = find_lora_path(folder, filename) {
+        let mut metadata = load_audio_metadata(folder, &path);
+        metadata.custom_tag = custom_tag.to_owned();
+        save_audio_metadata(folder, &path, &metadata);
+    }
+}
+
 pub fn checksum_for_file(folder: &Path, path: &Path) -> io::Result<String> {
     let relative_path = path
         .strip_prefix(folder)

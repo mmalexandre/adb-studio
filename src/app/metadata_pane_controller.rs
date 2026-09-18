@@ -171,9 +171,13 @@ pub fn register_metadata_pane_callbacks(
             if path.as_os_str().is_empty() {
                 return;
             }
-            let mut file = metadata::load_audio_metadata(&folder, &path);
-            file.custom_tag = tag.to_string();
-            metadata::save_audio_metadata(&folder, &path, &file);
+            metadata::save_lora_custom_tag(
+                &folder,
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or_default(),
+                tag.as_str(),
+            );
             if let Some(model) = audio_model.borrow().clone() {
                 for index in 0..model.row_count() {
                     let Some(row) = model.row_data(index) else {

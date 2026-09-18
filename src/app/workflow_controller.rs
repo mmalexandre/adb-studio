@@ -754,20 +754,19 @@ pub fn register_workflow_callbacks(
             let Some(folder) = audio_folder.borrow().clone() else {
                 return;
             };
-            let mut index = metadata::load_index(&folder);
-            if let Some(lora) = index
-                .loras
-                .iter_mut()
-                .find(|lora| lora.filename == filename.as_str())
-            {
-                lora.custom_tag = tag.to_string();
-            } else {
-                index.loras.push(metadata::LoraMetadata {
-                    filename: filename.to_string(),
-                    custom_tag: tag.to_string(),
-                });
+            metadata::save_lora_custom_tag(&folder, filename.as_str(), tag.as_str());
+            let loras = window.get_workflow_loras();
+            for index in 0..loras.row_count() {
+                let Some(lora) = loras.row_data(index) else {
+                    continue;
+                };
+                if lora.source_filename == filename || lora.filename == filename {
+                    let mut updated = lora.clone();
+                    updated.custom_tag = tag.clone();
+                    loras.set_row_data(index, updated);
+                    break;
+                }
             }
-            metadata::save_index(&folder, &index);
             window.set_lora_editor_visible(false);
             let audio_path = window.get_selected_audio_path().to_string();
             if !audio_path.is_empty() {

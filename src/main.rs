@@ -9,7 +9,7 @@ use std::{
 };
 
 use audio::playback::PlaybackEngine;
-use slint::{ComponentHandle, Model, ModelRc, VecModel};
+use slint::{ComponentHandle, Model};
 
 mod app;
 mod audio;
@@ -60,9 +60,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let conversion_temp_root = state.conversion_temp_root.clone();
     let conversion_target = state.conversion_target.clone();
     let conversion_model = state.conversion_model.clone();
-    let stem_receiver = state.stem_receiver.clone();
-    let stem_cancelled = state.stem_cancelled.clone();
-    let stem_job = state.stem_job.clone();
     let workflow_run_sender = state.workflow_run_sender.clone();
     let workflow_run_receiver = state.workflow_run_receiver.clone();
     let workflow_run_cancelled = state.workflow_run_cancelled.clone();
@@ -78,16 +75,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let audio_load_state = state.audio_load_state.clone();
     window.set_build_number(BUILD_NUMBER.into());
-    window.set_template_workflows(ModelRc::new(VecModel::from(
-        app::workflow_controller::template_workflow_rows(),
-    )));
     window.set_light_theme(settings.borrow().light_theme);
     window.set_theme_index(if settings.borrow().light_theme { 1 } else { 0 });
     window.set_loop_mode(settings.borrow().loop_mode);
     window.set_auto_play_new_tracks(settings.borrow().auto_play_new_tracks);
     window.set_notification_sound(settings.borrow().notification_sound);
     window.set_seek_seconds(settings.borrow().seek_seconds.round() as i32);
-    window.set_comment_quantization_index(settings.borrow().comment_quantization_index);
     window.set_sort_order(settings.borrow().sort_order);
     window.set_shortcut_fullscreen(settings.borrow().shortcut_fullscreen);
     window.set_shortcut_metadata(settings.borrow().shortcut_metadata);
@@ -101,8 +94,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     window.set_hide_tips_of_the_day(settings.borrow().hide_tips_of_the_day);
     window.set_tips_visible(!settings.borrow().hide_tips_of_the_day);
     window.set_audio_volume(1.0);
-    window.set_stem_format(settings.borrow().stem_format.clone().into());
-    window.set_stem_output_folder(settings.borrow().stem_output_folder.clone().into());
     window.set_left_pane_width(settings.borrow().left_pane_width.into());
     window.set_metadata_pane_height(settings.borrow().metadata_pane_height.into());
     window.set_metadata_visible(true);
@@ -183,15 +174,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &playback,
     );
 
-    app::stem_controller::register_callbacks(
-        &window,
-        &settings,
-        &audio_folder,
-        &stem_receiver,
-        &stem_cancelled,
-        &stem_job,
-    );
-
     let last_folder = settings.borrow().last_folder.clone();
     if let Some(last_folder) = last_folder {
         let folder = PathBuf::from(last_folder);
@@ -236,9 +218,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let conversion_model = Rc::clone(&conversion_model);
         let conversion_temp_root = Rc::clone(&conversion_temp_root);
         let conversion_cancelled = Rc::clone(&conversion_cancelled);
-        let stem_receiver = Rc::clone(&stem_receiver);
-        let stem_cancelled = Rc::clone(&stem_cancelled);
-        let stem_job = Rc::clone(&stem_job);
         let workflow_run_receiver = Rc::clone(&workflow_run_receiver);
         let workflow_run_cancelled = Rc::clone(&workflow_run_cancelled);
         let sync_test_receiver = Rc::clone(&sync_test_receiver);
@@ -326,7 +305,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             &tree_state_for_conversion,
                         );
                     }
-                    app::stem_controller::tick(&window, &stem_receiver, &stem_cancelled, &stem_job);
                     let mut workspace_changed = false;
                     while let Ok(paths) = workspace_change_receiver.borrow_mut().try_recv() {
                         workspace_changed = true;
@@ -414,9 +392,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 path: result.path.into(),
                                 name: row.name,
                                 subtitle: row.subtitle,
-                                custom_tag: row.custom_tag,
                                 is_folder: row.is_folder,
-                                is_lora: row.is_lora,
                                 depth: row.depth,
                                 is_expanded: row.is_expanded,
                                 modified_date: row.modified_date,
@@ -433,7 +409,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 is_active: row.is_active,
                                 is_playing: row.is_playing,
                                 progress: row.progress,
-                                duration_seconds: row.duration_seconds,
                                 loop_enabled: row.loop_enabled,
                                 selected_comment_start: row.selected_comment_start,
                                 selected_comment_end: row.selected_comment_end,

@@ -91,20 +91,14 @@ pub fn apply_workflow(
     window.set_workflow_model(display_model_name(&workflow.model).into());
     window.set_workflow_prompt(workflow.prompt.into());
     window.set_workflow_lyrics(workflow.lyrics.into());
-    let index = metadata::load_index(folder);
     window.set_workflow_loras(ModelRc::new(VecModel::from(
         workflow
             .loras
             .into_iter()
             .map(|lora| WorkflowLoraRow {
                 node_id: lora.node_id.into(),
-                custom_tag: index
-                    .loras
-                    .iter()
-                    .find(|stored| stored.filename == lora.filename)
-                    .map(|stored| stored.custom_tag.clone())
-                    .unwrap_or_default()
-                    .into(),
+                source_filename: lora.filename.clone().into(),
+                custom_tag: metadata::load_lora_custom_tag(folder, &lora.filename).into(),
                 filename: metadata::comfyui::display_lora_name(&lora.filename).into(),
                 strength: lora.strength.into(),
             })
@@ -113,20 +107,14 @@ pub fn apply_workflow(
 }
 
 pub fn refresh_workflow_loras(window: &MainWindow, folder: &Path, value: &serde_json::Value) {
-    let index = metadata::load_index(folder);
     window.set_workflow_loras(ModelRc::new(VecModel::from(
         metadata::comfyui::parse_value(value)
             .loras
             .into_iter()
             .map(|lora| WorkflowLoraRow {
                 node_id: lora.node_id.into(),
-                custom_tag: index
-                    .loras
-                    .iter()
-                    .find(|stored| stored.filename == lora.filename)
-                    .map(|stored| stored.custom_tag.clone())
-                    .unwrap_or_default()
-                    .into(),
+                source_filename: lora.filename.clone().into(),
+                custom_tag: metadata::load_lora_custom_tag(folder, &lora.filename).into(),
                 filename: metadata::comfyui::display_lora_name(&lora.filename).into(),
                 strength: lora.strength.into(),
             })
