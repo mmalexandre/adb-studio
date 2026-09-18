@@ -24,6 +24,7 @@ trash = "5"
 symphonia = { version = "0.5", default-features = false, features = ["flac", "mp3", "ogg", "vorbis", "wav"] }
 rodio = { version = "0.22.2", default-features = false, features = ["playback", "flac", "mp3", "vorbis", "wav"] }
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+tungstenite = { version = "0.24", features = ["rustls-tls-native-roots"] }
 
 [build-dependencies]
 slint-build = "1.9"

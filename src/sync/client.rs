@@ -9,6 +9,7 @@ use std::{
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
+use tungstenite::{connect, Message};
 
 use crate::metadata;
 
@@ -145,6 +146,14 @@ impl ComfyUiClient {
             .filter(|value| !value.is_empty())
             .ok_or_else(|| SyncError::Response("ComfyUI did not return a prompt id".into()))?
             .to_string();
+        let websocket_stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        spawn_progress_websocket(
+            &config.url,
+            &client_id,
+            &prompt_id,
+            &websocket_stop,
+            updates,
+        );
 
         let mut waiting_progress = 0.05_f32;
         let history = loop {
@@ -175,6 +184,7 @@ impl ComfyUiClient {
             }
             thread::sleep(API_POLL_INTERVAL);
         };
+        websocket_stop.store(true, std::sync::atomic::Ordering::Release);
 
         let output = find_audio_output(
             history
@@ -407,6 +417,92 @@ impl ComfyUiClient {
         }
         result
     }
+}
+
+fn spawn_progress_websocket(
+    base_url: &str,
+    client_id: &str,
+    prompt_id: &str,
+    stop: &std::sync::Arc<std::sync::atomic::AtomicBool>,
+    updates: &Sender<WorkflowRunUpdate>,
+) {
+    let Some(scheme) = base_url
+        .strip_prefix("http://")
+        .map(|_| "ws")
+        .or_else(|| base_url.strip_prefix("https://").map(|_| "wss"))
+    else {
+        return;
+    };
+    let host = base_url
+        .split_once("://")
+        .map(|(_, host)| host.trim_end_matches('/'))
+        .unwrap_or_default();
+    let url = format!("{scheme}://{host}/ws?clientId={client_id}");
+    let prompt_id = prompt_id.to_string();
+    let stop = std::sync::Arc::clone(stop);
+    let updates = updates.clone();
+    thread::spawn(move || {
+        let Ok((mut socket, _)) = connect(url.as_str()) else {
+            println!("[sync] ComfyUI WebSocket unavailable; using HTTP progress fallback");
+            return;
+        };
+        println!("[sync] ComfyUI WebSocket progress connected");
+        while !stop.load(std::sync::atomic::Ordering::Acquire) {
+            let Ok(message) = socket.read() else {
+                break;
+            };
+            let Message::Text(text) = message else {
+                continue;
+            };
+            let Ok(event) = serde_json::from_str::<serde_json::Value>(&text) else {
+                continue;
+            };
+            let event_prompt_id = event
+                .get("data")
+                .and_then(|data| data.get("prompt_id"))
+                .and_then(serde_json::Value::as_str);
+            if event_prompt_id.is_some_and(|value| value != prompt_id) {
+                continue;
+            }
+            let event_type = event.get("type").and_then(serde_json::Value::as_str);
+            let Some(data) = event.get("data") else {
+                continue;
+            };
+            match event_type {
+                Some("progress") | Some("execution_progress") => {
+                    let max = data
+                        .get("max")
+                        .and_then(serde_json::Value::as_f64)
+                        .unwrap_or(1.0)
+                        .max(1.0);
+                    let value = data
+                        .get("value")
+                        .and_then(serde_json::Value::as_f64)
+                        .unwrap_or(0.0);
+                    let node = data
+                        .get("node")
+                        .and_then(serde_json::Value::as_str)
+                        .map(|node| format!("Running node {node}"))
+                        .unwrap_or_else(|| "Running workflow".into());
+                    let _ = updates.send(WorkflowRunUpdate::Progress {
+                        progress: (value / max).clamp(0.0, 1.0) as f32,
+                        step: node,
+                    });
+                }
+                Some("executing") => {
+                    let node = data
+                        .get("node")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("workflow");
+                    let _ = updates.send(WorkflowRunUpdate::Progress {
+                        progress: 0.0,
+                        step: format!("Running node {node}"),
+                    });
+                }
+                _ => {}
+            }
+        }
+    });
 }
 
 #[derive(Clone, Debug)]
