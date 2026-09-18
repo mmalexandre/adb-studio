@@ -6,6 +6,7 @@ use crate::{
     app::file_controller,
     audio::loader::State as AudioLoadState,
     settings::{self, AppSettings},
+    sync::SyncController,
     workspace::{
         file_system::{self, TreeState},
         library::refresh_audio,
@@ -56,6 +57,7 @@ pub fn register_tree_callbacks(
     edited_workflow_path: &Rc<RefCell<Option<PathBuf>>>,
     workflow_loading: &Rc<RefCell<bool>>,
     loaded_workflow_path: &Rc<RefCell<Option<PathBuf>>>,
+    sync_controller: &Rc<RefCell<SyncController>>,
 ) {
     {
         let weak_window = window.as_weak();
@@ -204,6 +206,7 @@ pub fn register_tree_callbacks(
         let weak_window = window.as_weak();
         let tree_state = Rc::clone(tree_state);
         let settings = Rc::clone(settings);
+        let sync_controller = Rc::clone(sync_controller);
         window.on_tree_trash_requested(move |path| {
             let Some(window) = weak_window.upgrade() else {
                 return;
@@ -216,6 +219,7 @@ pub fn register_tree_callbacks(
                 window.set_audio_error(format!("File operation: {error}").into());
                 return;
             }
+            sync_controller.borrow().record_deleted(source.clone());
             let selection_removed = {
                 let mut state_ref = tree_state.borrow_mut();
                 let Some(state) = state_ref.as_mut() else {

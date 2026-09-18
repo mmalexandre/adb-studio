@@ -69,6 +69,21 @@ pub(super) fn sync_loop(
                     let _ = event_sender.send(SyncEvent::Disconnected { generation });
                     match command_receiver.recv_timeout(DISCONNECTED_POLL_INTERVAL) {
                         Ok(SyncCommand::Stop) | Err(mpsc::RecvTimeoutError::Disconnected) => return,
+                        Ok(SyncCommand::Delete(path)) => {
+                            if let Err(error) = record_deleted_download(
+                                &workspace,
+                                &mut download_index,
+                                &config,
+                                &destination,
+                                &path,
+                            ) {
+                                let _ = event_sender.send(SyncEvent::Error {
+                                    generation,
+                                    message: error.to_string(),
+                                });
+                            }
+                            continue;
+                        }
                         Ok(SyncCommand::RedownloadMissing) => {
                             if let Err(error) =
                                 clear_missing_downloads(&workspace, &mut download_index)
@@ -89,6 +104,21 @@ pub(super) fn sync_loop(
                 });
                 match command_receiver.recv_timeout(interval) {
                     Ok(SyncCommand::Stop) | Err(mpsc::RecvTimeoutError::Disconnected) => return,
+                    Ok(SyncCommand::Delete(path)) => {
+                        if let Err(error) = record_deleted_download(
+                            &workspace,
+                            &mut download_index,
+                            &config,
+                            &destination,
+                            &path,
+                        ) {
+                            let _ = event_sender.send(SyncEvent::Error {
+                                generation,
+                                message: error.to_string(),
+                            });
+                        }
+                        continue;
+                    }
                     Ok(SyncCommand::RedownloadMissing) => {
                         if let Err(error) = clear_missing_downloads(&workspace, &mut download_index)
                         {
@@ -136,6 +166,21 @@ pub(super) fn sync_loop(
                 });
                 match command_receiver.recv_timeout(interval) {
                     Ok(SyncCommand::Stop) | Err(mpsc::RecvTimeoutError::Disconnected) => return,
+                    Ok(SyncCommand::Delete(path)) => {
+                        if let Err(error) = record_deleted_download(
+                            &workspace,
+                            &mut download_index,
+                            &config,
+                            &destination,
+                            &path,
+                        ) {
+                            let _ = event_sender.send(SyncEvent::Error {
+                                generation,
+                                message: error.to_string(),
+                            });
+                        }
+                        continue;
+                    }
                     Ok(SyncCommand::RedownloadMissing) => {
                         if let Err(error) = clear_missing_downloads(&workspace, &mut download_index)
                         {
@@ -158,6 +203,21 @@ pub(super) fn sync_loop(
         for file in &files {
             match command_receiver.try_recv() {
                 Ok(SyncCommand::Stop) | Err(mpsc::TryRecvError::Disconnected) => return,
+                Ok(SyncCommand::Delete(path)) => {
+                    if let Err(error) = record_deleted_download(
+                        &workspace,
+                        &mut download_index,
+                        &config,
+                        &destination,
+                        &path,
+                    ) {
+                        let _ = event_sender.send(SyncEvent::Error {
+                            generation,
+                            message: error.to_string(),
+                        });
+                    }
+                    continue;
+                }
                 Ok(SyncCommand::RedownloadMissing) => {
                     if let Err(error) = clear_missing_downloads(&workspace, &mut download_index) {
                         let _ = event_sender.send(SyncEvent::Error {
@@ -260,6 +320,20 @@ pub(super) fn sync_loop(
 
         match command_receiver.recv_timeout(interval) {
             Ok(SyncCommand::Stop) | Err(mpsc::RecvTimeoutError::Disconnected) => return,
+            Ok(SyncCommand::Delete(path)) => {
+                if let Err(error) = record_deleted_download(
+                    &workspace,
+                    &mut download_index,
+                    &config,
+                    &destination,
+                    &path,
+                ) {
+                    let _ = event_sender.send(SyncEvent::Error {
+                        generation,
+                        message: error.to_string(),
+                    });
+                }
+            }
             Ok(SyncCommand::RedownloadMissing) => {
                 if let Err(error) = clear_missing_downloads(&workspace, &mut download_index) {
                     let _ = event_sender.send(SyncEvent::Error {
@@ -320,11 +394,29 @@ fn clear_missing_downloads(workspace: &Path, index: &mut DownloadIndex) -> Resul
     let checksums = local_checksums(workspace)?;
     let before = index.downloads.len();
     index.downloads.retain(|record| {
-        record.status != "completed"
-            || record.checksum.is_empty()
-            || checksums.contains(&record.checksum)
+        record.status != "deleted"
+            && (record.status != "completed"
+                || record.checksum.is_empty()
+                || checksums.contains(&record.checksum))
     });
     if index.downloads.len() != before {
+        save_download_index(workspace, index)?;
+    }
+    Ok(())
+}
+
+fn record_deleted_download(
+    workspace: &Path,
+    index: &mut DownloadIndex,
+    config: &SyncConfig,
+    destination: &Path,
+    path: &Path,
+) -> Result<(), SyncError> {
+    let Some(filename) = path.strip_prefix(destination).ok().and_then(Path::file_name) else {
+        return Ok(());
+    };
+    let filename = filename.to_string_lossy();
+    if index.record_deleted(config, &filename) {
         save_download_index(workspace, index)?;
     }
     Ok(())

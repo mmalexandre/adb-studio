@@ -112,7 +112,7 @@ pub struct DownloadIndex {
 impl DownloadIndex {
     fn contains_completed(&self, config: &SyncConfig, file: &RemoteFile) -> bool {
         self.downloads.iter().any(|record| {
-            record.status == "completed"
+            matches!(record.status.as_str(), "completed" | "deleted")
                 && record.url == config.url
                 && (record.remote_path == file.path
                     || (!file.checksum.is_empty() && record.checksum == file.checksum))
@@ -165,6 +165,20 @@ impl DownloadIndex {
             checksum: file.checksum.clone(),
         });
     }
+
+    fn record_deleted(&mut self, config: &SyncConfig, filename: &str) -> bool {
+        let mut changed = false;
+        for record in &mut self.downloads {
+            if record.url == config.url
+                && record.status == "completed"
+                && record.filename == filename
+            {
+                record.status = "deleted".to_string();
+                changed = true;
+            }
+        }
+        changed
+    }
 }
 
 fn workflow_remote_path(file: &RemoteFile) -> String {
@@ -204,6 +218,7 @@ pub enum SyncEvent {
 
 enum SyncCommand {
     Stop,
+    Delete(PathBuf),
     RedownloadMissing,
 }
 
@@ -253,6 +268,12 @@ impl SyncController {
     pub fn redownload_missing(&self) {
         if let Some(sender) = &self.command_sender {
             let _ = sender.send(SyncCommand::RedownloadMissing);
+        }
+    }
+
+    pub fn record_deleted(&self, path: PathBuf) {
+        if let Some(sender) = &self.command_sender {
+            let _ = sender.send(SyncCommand::Delete(path));
         }
     }
 

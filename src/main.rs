@@ -170,6 +170,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &edited_workflow_path,
         &workflow_loading,
         &loaded_workflow_path,
+        &sync_controller,
     );
 
     app::conversion_controller::register_conversion_callbacks(
