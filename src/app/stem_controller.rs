@@ -43,10 +43,12 @@ pub fn register_callbacks(
                 source,
                 output_folder: current.stem_output_folder,
                 format: current.stem_format,
+                overwrite: false,
             };
             match stem_separation::is_exported(&job) {
                 Ok(true) => {
-                    window.set_audio_error("Stems were already exported for this version of the file".into());
+                    *job_state.borrow_mut() = Some(job);
+                    window.set_stem_regenerate_visible(true);
                 }
                 Ok(false) => {
                     *job_state.borrow_mut() = Some(job);
@@ -56,6 +58,34 @@ pub fn register_callbacks(
                     }
                 }
                 Err(error) => window.set_audio_error(format!("Stem separation: {error}").into()),
+            }
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        let job_state = Rc::clone(job_state);
+        window.on_stem_regenerate_requested(move || {
+            let Some(window) = weak_window.upgrade() else { return; };
+            if let Some(job) = job_state.borrow_mut().as_mut() {
+                job.overwrite = true;
+            }
+            window.set_stem_regenerate_visible(false);
+            if stem_separation::demucs_python().is_none() {
+                window.set_stem_install_visible(true);
+            } else {
+                window.invoke_stem_install_started();
+            }
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        let job_state = Rc::clone(job_state);
+        window.on_stem_regenerate_cancelled(move || {
+            *job_state.borrow_mut() = None;
+            if let Some(window) = weak_window.upgrade() {
+                window.set_stem_regenerate_visible(false);
             }
         });
     }

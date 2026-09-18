@@ -1,4 +1,4 @@
-import { CheckBox, ComboBox, LineEdit, ListView, Palette, ScrollView, Slider, SpinBox, TextEdit, VerticalBox } from "std-widgets.slint";
+import { CheckBox, ComboBox, LineEdit, ListView, Palette, ProgressIndicator, ScrollView, Slider, SpinBox, TextEdit, VerticalBox } from "std-widgets.slint";
 import { AudioRow, BreadcrumbRow, CommentRow, ConversionRow, TrackDifference, TreeRow, WorkflowFileRow, WorkflowLoraRow } from "./models.slint";
 import { AppButton, CompactIconButton, IconButton, MenuButton, ModalOverlay, SortIconButton, SyncIconButton, ToolButton } from "./controls.slint";
 import { Waveform } from "./waveform.slint";
@@ -89,6 +89,13 @@ export component MainWindow inherits Window {
     property <[string]> conversion-quality-values: ["Low", "Medium", "High", "Maximum"];
     in-out property <[ConversionRow]> conversion-rows: [];
     in-out property <bool> conversion-complete: false;
+    in-out property <string> stem-format: "flac";
+    in-out property <string> stem-output-folder: "stems";
+    in-out property <bool> stem-install-visible: false;
+    in-out property <bool> stem-regenerate-visible: false;
+    in-out property <bool> stem-progress-visible: false;
+    in-out property <float> stem-progress: 0;
+    in-out property <string> stem-status: "";
     in-out property <bool> left-pane-visible: true;
     in-out property <length> left-pane-width: 280px;
     callback left-pane-width-changed(length);
@@ -213,6 +220,13 @@ export component MainWindow inherits Window {
     callback conversion-started(string, string);
     callback conversion-cancelled();
     callback conversion-closed();
+    callback stem-separation-requested(string);
+    callback stem-regenerate-requested();
+    callback stem-regenerate-cancelled();
+    callback stem-install-started();
+    callback stem-install-cancelled();
+    callback stem-separation-cancelled();
+    callback stem-settings-changed(string, string);
     callback sort-order-selected(int);
     callback tree-trash-requested(string);
     callback tree-drop-requested(string, int, float);
@@ -1621,7 +1635,7 @@ export component MainWindow inherits Window {
             x: (root.tree-menu-x + 6px).min(parent.width - self.width).max(0px);
             y: (root.tree-menu-y + 6px).min(parent.height - self.height).max(0px);
             width: 210px;
-            height: 155px;
+            height: 186px;
             z: 1000;
             background: root.light-theme ? #ffffff : #202832;
             border-color: root.light-theme ? #cbd2dc : #435064;
@@ -1725,6 +1739,29 @@ export component MainWindow inherits Window {
             Rectangle {
                 x: 0px;
                 y: 124px;
+                width: 100%;
+                height: 31px;
+                background: stems-touch.has-hover ? (root.light-theme ? #e7ebf0 : #2a3546) : transparent;
+                Text {
+                    text: "Separate stems...";
+                    color: root.light-theme ? #202833 : #f1f4f8;
+                    x: 14px;
+                    width: 196px;
+                    height: 31px;
+                    vertical-alignment: center;
+                }
+                stems-touch := TouchArea {
+                    width: 100%;
+                    height: 31px;
+                    clicked => {
+                        root.tree-menu-visible = false;
+                        root.stem-separation-requested(root.tree-menu-path);
+                    }
+                }
+            }
+            Rectangle {
+                x: 0px;
+                y: 155px;
                 width: 100%;
                 height: 31px;
                 background: trash-touch.has-hover ? (root.light-theme ? #e7ebf0 : #2a3546) : transparent;
@@ -1994,6 +2031,19 @@ export component MainWindow inherits Window {
                                 }
                                 TouchArea { clicked => { root.settings-tab = 3; } }
                             }
+                            Rectangle {
+                                height: 38px;
+                                background: root.settings-tab == 4 ? (root.light-theme ? #d7e3f3 : #2a3546) : transparent;
+                                border-color: root.settings-tab == 4 ? (root.light-theme ? #8ea9c6 : #5d7898) : transparent;
+                                border-width: 1px;
+                                Text {
+                                    text: "Stem separation";
+                                    x: 12px;
+                                    color: root.light-theme ? #202833 : #f1f4f8;
+                                    vertical-alignment: center;
+                                }
+                                TouchArea { clicked => { root.settings-tab = 4; } }
+                            }
                             Rectangle { vertical-stretch: 1; }
                         }
                     }
@@ -2201,6 +2251,96 @@ export component MainWindow inherits Window {
                                 AppButton { text: "Close"; clicked => { root.close-settings(); } }
                             }
                         }
+                        if root.settings-tab == 4 : VerticalBox {
+                            padding: 24px;
+                            spacing: 14px;
+                            Text { text: "Stem separation"; color: root.light-theme ? #202833 : #f1f4f8; font-size: 22px; }
+                            Text { text: "Demucs exports four stems from a local audio file."; color: root.light-theme ? #5c6878 : #c4ccd8; }
+                            HorizontalLayout {
+                                spacing: 12px;
+                                Text { text: "Output format"; width: 130px; color: root.light-theme ? #202833 : #e3e8ef; vertical-alignment: center; }
+                                ComboBox {
+                                    model: ["FLAC", "WAV", "MP3"];
+                                    current-index: root.stem-format == "wav" ? 1 : root.stem-format == "mp3" ? 2 : 0;
+                                    changed current-index => { root.stem-format = self.current-index == 1 ? "wav" : self.current-index == 2 ? "mp3" : "flac"; }
+                                }
+                            }
+                            HorizontalLayout {
+                                spacing: 12px;
+                                Text { text: "Output folder"; width: 130px; color: root.light-theme ? #202833 : #e3e8ef; vertical-alignment: center; }
+                                LineEdit { horizontal-stretch: 1; text <=> root.stem-output-folder; placeholder-text: "Empty means workspace root"; }
+                            }
+                            Text { text: "The folder is relative to the workspace. Default: stems"; color: root.light-theme ? #5c6878 : #aeb8c6; }
+                            Rectangle { vertical-stretch: 1; }
+                            HorizontalLayout {
+                                alignment: end;
+                                spacing: 8px;
+                                AppButton { text: "Save"; clicked => { root.stem-settings-changed(root.stem-format, root.stem-output-folder); } }
+                                AppButton { text: "Close"; clicked => { root.close-settings(); } }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if root.stem-install-visible : ModalOverlay {
+            x: 0px; y: 0px; width: parent.width; height: parent.height; z: 50;
+            Rectangle {
+                width: 500px; height: 210px;
+                x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
+                background: root.light-theme ? #ffffff : #202832;
+                border-color: root.light-theme ? #cbd2dc : #435064; border-width: 1px;
+                VerticalBox {
+                    padding: 24px; spacing: 14px;
+                    Text { text: "Install Demucs"; color: root.light-theme ? #202833 : #f1f4f8; font-size: 21px; }
+                    Text { text: "Demucs is not installed. Download it now?"; color: root.light-theme ? #5c6878 : #c4ccd8; }
+                    Rectangle { vertical-stretch: 1; }
+                    HorizontalLayout {
+                        alignment: end; spacing: 8px;
+                        AppButton { text: "Install"; clicked => { root.stem-install-started(); } }
+                        AppButton { text: "Cancel"; clicked => { root.stem-install-cancelled(); } }
+                    }
+                }
+            }
+        }
+
+        if root.stem-regenerate-visible : ModalOverlay {
+            x: 0px; y: 0px; width: parent.width; height: parent.height; z: 50;
+            Rectangle {
+                width: 500px; height: 210px;
+                x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
+                background: root.light-theme ? #ffffff : #202832;
+                border-color: root.light-theme ? #cbd2dc : #435064; border-width: 1px;
+                VerticalBox {
+                    padding: 24px; spacing: 14px;
+                    Text { text: "Stems already exist"; color: root.light-theme ? #202833 : #f1f4f8; font-size: 21px; }
+                    Text { text: "This track already has exported stems."; color: root.light-theme ? #5c6878 : #c4ccd8; }
+                    Rectangle { vertical-stretch: 1; }
+                    HorizontalLayout {
+                        alignment: end; spacing: 8px;
+                        AppButton { text: "Regenerate anyways"; clicked => { root.stem-regenerate-requested(); } }
+                        AppButton { text: "Cancel"; clicked => { root.stem-regenerate-cancelled(); } }
+                    }
+                }
+            }
+        }
+
+        if root.stem-progress-visible : ModalOverlay {
+            x: 0px; y: 0px; width: parent.width; height: parent.height; z: 50;
+            Rectangle {
+                width: 500px; height: 190px;
+                x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
+                background: root.light-theme ? #ffffff : #202832;
+                border-color: root.light-theme ? #cbd2dc : #435064; border-width: 1px;
+                VerticalBox {
+                    padding: 24px; spacing: 14px;
+                    Text { text: "Stem separation"; color: root.light-theme ? #202833 : #f1f4f8; font-size: 21px; }
+                    Text { text: root.stem-status; color: root.light-theme ? #5c6878 : #c4ccd8; }
+                    ProgressIndicator { progress: root.stem-progress; }
+                    HorizontalLayout {
+                        alignment: end;
+                        AppButton { text: "Cancel"; clicked => { root.stem-separation-cancelled(); } }
                     }
                 }
             }

@@ -135,6 +135,44 @@ pub struct MetadataIndex {
     pub loras: Vec<LoraMetadata>,
 }
 
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct StemExportManifest {
+    pub exports: Vec<StemExport>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct StemExport {
+    pub parent_path: String,
+    pub parent_hash: String,
+    pub model: String,
+    pub format: String,
+    pub output_folder: String,
+    pub stems: Vec<StemFile>,
+    pub exported_at: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct StemFile {
+    pub kind: String,
+    pub path: String,
+    pub hash: String,
+}
+
+pub fn load_stem_manifest(folder: &Path) -> StemExportManifest {
+    fs::read_to_string(folder.join(".adbstudio").join("stem_exports.json"))
+        .ok()
+        .and_then(|contents| serde_json::from_str(&contents).ok())
+        .unwrap_or_default()
+}
+
+pub fn save_stem_manifest(folder: &Path, manifest: &StemExportManifest) -> io::Result<()> {
+    let directory = folder.join(".adbstudio");
+    fs::create_dir_all(&directory)?;
+    let contents = serde_json::to_string_pretty(manifest)
+        .map_err(|error| io::Error::other(format!("serialize stem manifest: {error}")))?;
+    fs::write(directory.join("stem_exports.json"), contents)
+}
+
 pub fn load_index(folder: &Path) -> MetadataIndex {
     let path = folder.join(".adbstudio").join("index.json");
     fs::read_to_string(path)

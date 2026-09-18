@@ -7,10 +7,10 @@ x The metadata parser doesn't work properly: it considers al LoRas as active.
 	But on garbage1_cover_0007.flac, the first lora is not.
 x Alerte quand génération terminée / nouvelle download
 x Labels should probably be stored in workspace instead of globally (they are project data)
-
+revious
 x Filter by tag
-o Comment quantizing
-- Stem separation
+x Comment quantizing
+x Stem separation
 - LoRas manager - give ratings, comment, metadata
 - Template ComfyUI files
 - LoRa training template + doc (important: saving the keyword)

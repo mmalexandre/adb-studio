@@ -1,7 +1,8 @@
 use std::{
     fs,
+    io::Read,
     path::{Component, Path, PathBuf},
-    process::Command,
+    process::{Command, Stdio},
     sync::{atomic::{AtomicBool, Ordering}, mpsc::Sender, Arc},
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -27,13 +28,47 @@ pub fn demucs_python() -> Option<PathBuf> {
     } else {
         root.join("venv").join("bin").join("python")
     };
-    (python.is_file()
+    let valid = python.is_file()
         && Command::new(&python)
             .args(["-m", "demucs", "--help"])
             .status()
             .map(|status| status.success())
-            .unwrap_or(false))
-    .then_some(python)
+            .unwrap_or(false)
+        && torch_backend_matches(&python);
+    valid.then_some(python)
+}
+
+fn torch_backend_matches(python: &Path) -> bool {
+    let output = Command::new(python)
+        .args([
+            "-c",
+            "import torch, torchaudio; assert torchaudio.__version__.startswith('2.6.'); print('rocm' if torch.version.hip else 'cuda' if torch.version.cuda else 'cpu')",
+        ])
+        .output();
+    let Ok(output) = output else {
+        return false;
+    };
+    if !output.status.success() {
+        return false;
+    }
+    let backend = String::from_utf8_lossy(&output.stdout);
+    match requested_torch_backend() {
+        "rocm" => backend.trim() == "rocm",
+        _ => backend.trim() == "cpu",
+    }
+}
+
+fn requested_torch_backend() -> &'static str {
+    if cfg!(target_os = "linux")
+        && std::env::var("ADB_STUDIO_TORCH_BACKEND")
+            .ok()
+            .is_some_and(|backend| backend.eq_ignore_ascii_case("rocm"))
+        && command_available("rocminfo")
+    {
+        "rocm"
+    } else {
+        "cpu"
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -42,6 +77,7 @@ pub struct StemJob {
     pub source: PathBuf,
     pub output_folder: String,
     pub format: String,
+    pub overwrite: bool,
 }
 
 #[derive(Debug)]
@@ -122,7 +158,11 @@ fn run(job: StemJob, sender: &Sender<StemUpdate>, cancelled: &AtomicBool) -> Res
     }
     let output_directory = expected_output_directory(&job)?;
     if output_directory.exists() {
-        return Err("Stems already exist at the configured output location".into());
+        if !job.overwrite {
+            return Err("Stems already exist at the configured output location".into());
+        }
+        fs::remove_dir_all(&output_directory)
+            .map_err(|error| format!("Could not remove existing stems: {error}"))?;
     }
     let temporary = job
         .workspace
@@ -147,12 +187,29 @@ fn run_inner(
     let python = ensure_demucs(sender, cancelled)?;
     check_cancelled(cancelled)?;
     send_progress(sender, 0.35, "Separating audio with Demucs");
-    let status = Command::new(&python)
+    let mut process = Command::new(&python)
         .args(["-m", "demucs.separate", "-n", MODEL, "--out"])
         .arg(temporary)
         .arg(&job.source)
-        .status()
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .map_err(|error| format!("Could not start Demucs: {error}"))?;
+    let stdout = process.stdout.take().ok_or_else(|| "Could not read Demucs output".to_string())?;
+    let stderr = process.stderr.take().ok_or_else(|| "Could not read Demucs errors".to_string())?;
+    let stdout_thread = std::thread::spawn({
+        let sender = sender.clone();
+        move || relay_demucs_progress(stdout, sender)
+    });
+    let stderr_thread = std::thread::spawn({
+        let sender = sender.clone();
+        move || relay_demucs_progress(stderr, sender)
+    });
+    let status = process
+        .wait()
+        .map_err(|error| format!("Could not wait for Demucs: {error}"))?;
+    let _ = stdout_thread.join();
+    let _ = stderr_thread.join();
     if !status.success() {
         return Err(format!("Demucs exited with {status}"));
     }
@@ -230,6 +287,37 @@ fn codec_args(format: &str) -> Vec<&'static str> {
     }
 }
 
+fn relay_demucs_progress<R: Read>(mut reader: R, sender: Sender<StemUpdate>) {
+    let mut buffer = [0u8; 4096];
+    let mut line = String::new();
+    loop {
+        let Ok(count) = reader.read(&mut buffer) else { break };
+        if count == 0 { break; }
+        for byte in &buffer[..count] {
+            if *byte == b'\r' || *byte == b'\n' {
+                send_demucs_progress(&sender, &line);
+                line.clear();
+            } else {
+                line.push(*byte as char);
+            }
+        }
+    }
+    send_demucs_progress(&sender, &line);
+}
+
+fn send_demucs_progress(sender: &Sender<StemUpdate>, output: &str) {
+    let Some(percent) = output
+        .split('%')
+        .next()
+        .and_then(|value| value.split_whitespace().last())
+        .and_then(|value| value.parse::<f32>().ok())
+    else {
+        return;
+    };
+    let progress = 0.35 + (percent.clamp(0.0, 100.0) / 100.0) * 0.2;
+    send_progress(sender, progress, &format!("Separating audio with Demucs ({percent:.0}%)"));
+}
+
 fn ensure_demucs(sender: &Sender<StemUpdate>, cancelled: &AtomicBool) -> Result<PathBuf, String> {
     let root = dirs::data_dir()
         .ok_or_else(|| "Could not determine application data directory".to_string())?
@@ -245,12 +333,54 @@ fn ensure_demucs(sender: &Sender<StemUpdate>, cancelled: &AtomicBool) -> Result<
     let status = Command::new(system_python).args(["-m", "venv"]).arg(root.join("venv")).status().map_err(|error| format!("Python is required to install Demucs: {error}"))?;
     if !status.success() { return Err(format!("{system_python} could not create a virtual environment")); }
     check_cancelled(cancelled)?;
-    send_progress(sender, 0.2, "Downloading Demucs and PyTorch");
-    let status = Command::new(&python).args(["-m", "pip", "install", "demucs==4.0.1"]).status().map_err(|error| format!("Could not start pip: {error}"))?;
+    send_progress(sender, 0.2, "Downloading PyTorch for the detected backend");
+    let torch_index = pytorch_index_url();
+    let status = Command::new(&python)
+        .args([
+            "-m", "pip", "install", "--force-reinstall", "torch==2.6.0", "torchaudio==2.6.0",
+            "--index-url",
+        ])
+        .arg(torch_index)
+        .status()
+        .map_err(|error| format!("Could not start pip: {error}"))?;
+    if !status.success() {
+        return Err(format!("pip could not install the selected PyTorch backend ({status})"));
+    }
+    check_cancelled(cancelled)?;
+    send_progress(sender, 0.27, "Downloading Demucs");
+    let status = Command::new(&python)
+        .args(["-m", "pip", "install", "--no-deps", "demucs==4.0.1"])
+        .status()
+        .map_err(|error| format!("Could not start pip: {error}"))?;
     if !status.success() { return Err(format!("pip exited with {status}")); }
+    let status = Command::new(&python)
+        .args([
+            "-m", "pip", "install", "dora-search", "einops", "julius", "lameenc",
+            "openunmix", "pyyaml", "retrying", "soundfile", "submitit", "tqdm",
+        ])
+        .status()
+        .map_err(|error| format!("Could not start pip: {error}"))?;
+    if !status.success() {
+        return Err(format!("pip could not install Demucs dependencies ({status})"));
+    }
     check_cancelled(cancelled)?;
     send_progress(sender, 0.3, "Verifying Demucs installation");
     Ok(python)
+}
+
+fn pytorch_index_url() -> &'static str {
+    if requested_torch_backend() == "rocm" {
+        "https://download.pytorch.org/whl/rocm6.3"
+    } else {
+        "https://download.pytorch.org/whl/cpu"
+    }
+}
+
+fn command_available(command: &str) -> bool {
+    Command::new(command)
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false)
 }
 
 fn check_cancelled(cancelled: &AtomicBool) -> Result<(), String> {
@@ -277,7 +407,7 @@ mod tests {
         assert_eq!(normalized_output_folder("").unwrap(), PathBuf::new());
         assert!(normalized_output_folder("../outside").is_err());
         assert!(normalized_output_folder("/outside").is_err());
-        let job = StemJob { workspace: PathBuf::from("workspace"), source: PathBuf::from("workspace/song.wav"), output_folder: "stems".into(), format: "flac".into() };
+        let job = StemJob { workspace: PathBuf::from("workspace"), source: PathBuf::from("workspace/song.wav"), output_folder: "stems".into(), format: "flac".into(), overwrite: false };
         assert_eq!(expected_output_directory(&job).unwrap(), PathBuf::from("workspace/stems/song"));
     }
 }
