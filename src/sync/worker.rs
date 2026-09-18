@@ -61,7 +61,19 @@ pub(super) fn sync_loop(
         }
     };
 
+    let mut paused = false;
     loop {
+        if paused {
+            match command_receiver.recv() {
+                Ok(SyncCommand::Resume) => paused = false,
+                Ok(SyncCommand::Pause(ack_sender)) => {
+                    let _ = ack_sender.send(());
+                }
+                Ok(SyncCommand::Stop) | Err(_) => return,
+                Ok(SyncCommand::Delete(_)) | Ok(SyncCommand::RedownloadMissing) => {}
+            }
+            continue;
+        }
         let files = match client.list_files(&config) {
             Ok(files) => files,
             Err(error) => {
@@ -69,6 +81,12 @@ pub(super) fn sync_loop(
                     let _ = event_sender.send(SyncEvent::Disconnected { generation });
                     match command_receiver.recv_timeout(DISCONNECTED_POLL_INTERVAL) {
                         Ok(SyncCommand::Stop) | Err(mpsc::RecvTimeoutError::Disconnected) => return,
+                        Ok(SyncCommand::Pause(ack_sender)) => {
+                            paused = true;
+                            let _ = ack_sender.send(());
+                            continue;
+                        }
+                        Ok(SyncCommand::Resume) => continue,
                         Ok(SyncCommand::Delete(path)) => {
                             if let Err(error) = record_deleted_download(
                                 &workspace,
@@ -104,6 +122,12 @@ pub(super) fn sync_loop(
                 });
                 match command_receiver.recv_timeout(interval) {
                     Ok(SyncCommand::Stop) | Err(mpsc::RecvTimeoutError::Disconnected) => return,
+                    Ok(SyncCommand::Pause(ack_sender)) => {
+                        paused = true;
+                        let _ = ack_sender.send(());
+                        continue;
+                    }
+                    Ok(SyncCommand::Resume) => continue,
                     Ok(SyncCommand::Delete(path)) => {
                         if let Err(error) = record_deleted_download(
                             &workspace,
@@ -166,6 +190,12 @@ pub(super) fn sync_loop(
                 });
                 match command_receiver.recv_timeout(interval) {
                     Ok(SyncCommand::Stop) | Err(mpsc::RecvTimeoutError::Disconnected) => return,
+                    Ok(SyncCommand::Pause(ack_sender)) => {
+                        paused = true;
+                        let _ = ack_sender.send(());
+                        continue;
+                    }
+                    Ok(SyncCommand::Resume) => continue,
                     Ok(SyncCommand::Delete(path)) => {
                         if let Err(error) = record_deleted_download(
                             &workspace,
@@ -203,6 +233,12 @@ pub(super) fn sync_loop(
         for file in &files {
             match command_receiver.try_recv() {
                 Ok(SyncCommand::Stop) | Err(mpsc::TryRecvError::Disconnected) => return,
+                Ok(SyncCommand::Pause(ack_sender)) => {
+                    paused = true;
+                    let _ = ack_sender.send(());
+                    break;
+                }
+                Ok(SyncCommand::Resume) => {}
                 Ok(SyncCommand::Delete(path)) => {
                     if let Err(error) = record_deleted_download(
                         &workspace,
@@ -318,8 +354,17 @@ pub(super) fn sync_loop(
             }
         }
 
+        if paused {
+            continue;
+        }
+
         match command_receiver.recv_timeout(interval) {
             Ok(SyncCommand::Stop) | Err(mpsc::RecvTimeoutError::Disconnected) => return,
+            Ok(SyncCommand::Pause(ack_sender)) => {
+                paused = true;
+                let _ = ack_sender.send(());
+            }
+            Ok(SyncCommand::Resume) => {}
             Ok(SyncCommand::Delete(path)) => {
                 if let Err(error) = record_deleted_download(
                     &workspace,

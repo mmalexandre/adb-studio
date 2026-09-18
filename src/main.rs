@@ -144,6 +144,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &edited_workflow_path,
         &workflow_run_cancelled,
         &workflow_run_sender,
+        &sync_controller,
         &recreate_workflow_pending,
     );
 
@@ -281,18 +282,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         .into(),
                                     );
                                     window.set_comfyui_run_complete(true);
+                                    sync_controller.borrow().resume();
                                     *workflow_run_cancelled.borrow_mut() = None;
                                     refresh_tree(&window, &tree_state);
                                 }
                                 WorkflowRunUpdate::Cancelled => {
                                     window.set_comfyui_run_step("Cancelled on ComfyUI".into());
                                     window.set_comfyui_run_complete(true);
+                                    sync_controller.borrow().resume();
                                     *workflow_run_cancelled.borrow_mut() = None;
                                 }
                                 WorkflowRunUpdate::Error(message) => {
                                     window.set_comfyui_run_step(format!("Error: {message}").into());
                                     window.set_comfyui_run_complete(true);
                                     window.set_audio_error(format!("ComfyUI: {message}").into());
+                                    sync_controller.borrow().resume();
                                     *workflow_run_cancelled.borrow_mut() = None;
                                 }
                             }

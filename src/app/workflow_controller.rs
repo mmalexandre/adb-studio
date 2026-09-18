@@ -9,7 +9,7 @@ use std::{
         mpsc, Arc, Mutex,
     },
     thread,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use include_dir::{include_dir, Dir};
@@ -94,6 +94,7 @@ pub fn register_workflow_callbacks(
     edited_workflow_path: &Rc<RefCell<Option<PathBuf>>>,
     workflow_run_cancelled: &Rc<RefCell<Option<Arc<AtomicBool>>>>,
     workflow_run_sender: &mpsc::Sender<WorkflowRunUpdate>,
+    sync_controller: &Rc<RefCell<crate::sync::SyncController>>,
     recreate_workflow_pending: &Rc<RefCell<bool>>,
 ) {
     {
@@ -440,6 +441,7 @@ pub fn register_workflow_callbacks(
         let audio_folder = Rc::clone(audio_folder);
         let edited_workflow = Rc::clone(edited_workflow);
         let cancelled_state = Rc::clone(workflow_run_cancelled);
+        let sync_controller = Rc::clone(sync_controller);
         let updates = workflow_run_sender.clone();
         window.on_run_workflow_requested(move || {
             let Some(window) = weak_window.upgrade() else {
@@ -498,6 +500,7 @@ pub fn register_workflow_callbacks(
             }
             let cancelled = Arc::new(AtomicBool::new(false));
             *cancelled_state.borrow_mut() = Some(Arc::clone(&cancelled));
+            let pause_ack = sync_controller.borrow().pause();
             window.set_comfyui_run_progress(0.0);
             window.set_comfyui_run_step("Submitting workflow to ComfyUI".into());
             window.set_comfyui_run_cancel_requested(false);
@@ -505,6 +508,7 @@ pub fn register_workflow_callbacks(
             window.set_comfyui_run_visible(true);
             let worker_updates = updates.clone();
             thread::spawn(move || {
+                let _ = pause_ack.recv_timeout(Duration::from_secs(25));
                 let result = ComfyUiClient::new().and_then(|client| {
                     client.run_workflow(
                         &config,

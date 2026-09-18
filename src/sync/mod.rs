@@ -218,6 +218,8 @@ pub enum SyncEvent {
 
 enum SyncCommand {
     Stop,
+    Pause(Sender<()>),
+    Resume,
     Delete(PathBuf),
     RedownloadMissing,
 }
@@ -262,6 +264,22 @@ impl SyncController {
     pub fn stop(&mut self) {
         if let Some(sender) = self.command_sender.take() {
             let _ = sender.send(SyncCommand::Stop);
+        }
+    }
+
+    pub fn pause(&self) -> Receiver<()> {
+        let (ack_sender, ack_receiver) = mpsc::channel();
+        if let Some(sender) = &self.command_sender {
+            let _ = sender.send(SyncCommand::Pause(ack_sender));
+        } else {
+            let _ = ack_sender.send(());
+        }
+        ack_receiver
+    }
+
+    pub fn resume(&self) {
+        if let Some(sender) = &self.command_sender {
+            let _ = sender.send(SyncCommand::Resume);
         }
     }
 
