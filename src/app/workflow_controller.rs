@@ -71,15 +71,15 @@ pub fn template_workflow_rows() -> Vec<crate::TemplateWorkflowRow> {
         .collect()
 }
 
-    fn current_audio_folder(window: &MainWindow, fallback_audio_path: &Path) -> PathBuf {
-        window
+fn current_audio_folder(window: &MainWindow, fallback_audio_path: &Path) -> PathBuf {
+    window
         .get_audio_breadcrumbs()
         .iter()
         .last()
         .map(|breadcrumb| PathBuf::from(breadcrumb.path.as_str()))
         .or_else(|| fallback_audio_path.parent().map(Path::to_path_buf))
         .unwrap_or_default()
-    }
+}
 
 pub fn register_workflow_callbacks(
     window: &MainWindow,
@@ -244,7 +244,8 @@ pub fn register_workflow_callbacks(
                 window.set_audio_error("Template workflow is unavailable".into());
                 return;
             };
-            let Ok(workflow) = serde_json::from_slice::<serde_json::Value>(template.contents()) else {
+            let Ok(workflow) = serde_json::from_slice::<serde_json::Value>(template.contents())
+            else {
                 window.set_audio_error("Template workflow JSON is invalid".into());
                 return;
             };
@@ -977,7 +978,8 @@ fn assign_workflow_contents(
             return Err("Audio file is outside the workspace".to_owned());
         };
         if let Some(parent) = workflow_path.parent() {
-            fs::create_dir_all(parent).map_err(|error| format!("Create workflow directory: {error}"))?;
+            fs::create_dir_all(parent)
+                .map_err(|error| format!("Create workflow directory: {error}"))?;
         }
         fs::write(workflow_path, contents).map_err(|error| format!("Assign workflow: {error}"))?;
     }

@@ -27,7 +27,9 @@ pub fn register_callbacks(
         let audio_folder = Rc::clone(audio_folder);
         let job_state = Rc::clone(job_state);
         window.on_stem_separation_requested(move |path| {
-            let Some(window) = weak_window.upgrade() else { return; };
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
             let Some(workspace) = audio_folder.borrow().clone() else {
                 window.set_audio_error("Open a workspace before exporting stems".into());
                 return;
@@ -66,7 +68,9 @@ pub fn register_callbacks(
         let weak_window = window.as_weak();
         let job_state = Rc::clone(job_state);
         window.on_stem_regenerate_requested(move || {
-            let Some(window) = weak_window.upgrade() else { return; };
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
             if let Some(job) = job_state.borrow_mut().as_mut() {
                 job.overwrite = true;
             }
@@ -96,8 +100,12 @@ pub fn register_callbacks(
         let receiver = Rc::clone(receiver);
         let cancelled = Rc::clone(cancelled);
         window.on_stem_install_started(move || {
-            let Some(window) = weak_window.upgrade() else { return; };
-            let Some(job) = job_state.borrow().clone() else { return; };
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            let Some(job) = job_state.borrow().clone() else {
+                return;
+            };
             let (sender, new_receiver) = mpsc::channel();
             let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
             stem_separation::start(job, sender, Arc::clone(&stop));
@@ -161,7 +169,9 @@ pub fn tick(
             }
         }
     }
-    let Some(message) = finished else { return; };
+    let Some(message) = finished else {
+        return;
+    };
     *receiver.borrow_mut() = None;
     *cancelled.borrow_mut() = None;
     *job_state.borrow_mut() = None;
@@ -173,7 +183,11 @@ pub fn tick(
     }
 }
 
-pub fn save_settings(settings: &Rc<RefCell<AppSettings>>, format: &str, folder: &str) -> Result<(), String> {
+pub fn save_settings(
+    settings: &Rc<RefCell<AppSettings>>,
+    format: &str,
+    folder: &str,
+) -> Result<(), String> {
     if !matches!(format, "flac" | "wav" | "mp3") {
         return Err("Stem format must be FLAC, WAV, or MP3".into());
     }

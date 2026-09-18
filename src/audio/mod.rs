@@ -1,3 +1,4 @@
+pub mod comment_extraction;
 pub mod conversion;
 pub mod loader;
 pub mod notification;

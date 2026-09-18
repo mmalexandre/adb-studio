@@ -18,8 +18,8 @@ use crate::{
     settings::{self, AppSettings},
     workspace::{
         file_system::{self, TreeState},
-        lifecycle::{close_workspace, set_workspace},
         library::refresh_audio,
+        lifecycle::{close_workspace, set_workspace},
         tree_nav::refresh_tree,
     },
     MainWindow,

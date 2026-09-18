@@ -218,8 +218,7 @@ fn find_lora_path(folder: &Path, filename: &str) -> Option<PathBuf> {
                 .and_then(|name| name.to_str())
                 .is_some_and(|name| {
                     name.eq_ignore_ascii_case(filename)
-                        || comfyui::display_lora_name(name)
-                            .eq_ignore_ascii_case(filename)
+                        || comfyui::display_lora_name(name).eq_ignore_ascii_case(filename)
                 })
             {
                 return Some(path);
@@ -239,8 +238,7 @@ pub fn load_lora_custom_tag(folder: &Path, filename: &str) -> String {
                 .into_iter()
                 .find(|lora| {
                     lora.filename.eq_ignore_ascii_case(filename)
-                        || comfyui::display_lora_name(&lora.filename)
-                            .eq_ignore_ascii_case(filename)
+                        || comfyui::display_lora_name(&lora.filename).eq_ignore_ascii_case(filename)
                 })
                 .map(|lora| lora.custom_tag)
         })

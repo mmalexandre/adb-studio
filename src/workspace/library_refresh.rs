@@ -163,19 +163,19 @@ fn prepare_entries(
             let is_lora = entry.kind == file_system::FileKind::Safetensors;
             let path = entry.path.clone();
             let name = entry.name;
-            let metadata = if (is_audio && file_system::matches_audio_filter(&name, filter))
-                || is_lora
-            {
-                let audio_metadata = metadata::load_audio_metadata(workspace, &path);
-                ((!is_audio || label_filter < 0
-                    || audio_metadata.label_id == Some(label_filter as u64))
-                    && tag_filters.iter().all(|tag_id| {
-                        !is_audio || audio_metadata.tag_ids.contains(&(*tag_id as u64))
-                    }))
+            let metadata =
+                if (is_audio && file_system::matches_audio_filter(&name, filter)) || is_lora {
+                    let audio_metadata = metadata::load_audio_metadata(workspace, &path);
+                    ((!is_audio
+                        || label_filter < 0
+                        || audio_metadata.label_id == Some(label_filter as u64))
+                        && tag_filters.iter().all(|tag_id| {
+                            !is_audio || audio_metadata.tag_ids.contains(&(*tag_id as u64))
+                        }))
                     .then_some(audio_metadata)
-            } else {
-                None
-            };
+                } else {
+                    None
+                };
             entries.push(PreparedEntry {
                 modified_date: fs::metadata(&path)
                     .and_then(|metadata| metadata.modified())

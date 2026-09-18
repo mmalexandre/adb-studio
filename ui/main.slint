@@ -276,6 +276,7 @@ export component MainWindow inherits Window {
     callback workflow-save-confirmed(bool);
     callback workflow-save-cancelled();
     callback comment-save(string, string);
+    callback comment-extract-requested(string);
     callback comment-cancel();
     callback comment-delete(string);
     callback metadata-toggle();
@@ -304,6 +305,7 @@ export component MainWindow inherits Window {
     in-out property <string> comment-editor-path: "";
     in-out property <string> comment-editor-text: "";
     in-out property <int> comment-editor-label-id: -1;
+    in-out property <bool> comment-editor-extract-enabled: false;
     property <bool> comment-editor-label-picker-visible: false;
 
     changed left-pane-width => {
@@ -2727,7 +2729,7 @@ export component MainWindow inherits Window {
             init => { comment-text-editor.focus(); }
             Rectangle {
                 width: 430px;
-                height: 330px;
+                height: 370px;
                 x: (parent.width - self.width) / 2;
                 y: (parent.height - self.height) / 2;
                 background: root.light-theme ? #ffffff : #202832;
@@ -2838,6 +2840,7 @@ export component MainWindow inherits Window {
                     Rectangle { vertical-stretch: 1; }
                     HorizontalLayout {
                         spacing: 8px;
+                        AppButton { text: "Extract"; enabled: root.comment-editor-extract-enabled; clicked => { root.comment-extract-requested(root.comment-editor-path); } }
                         AppButton { text: "Save"; clicked => { root.comment-save(root.comment-editor-path, root.comment-editor-text); } }
                         AppButton { text: "Cancel"; clicked => { root.comment-cancel(); } }
                         AppButton { text: "Delete"; enabled: root.comment-editor-path != ""; clicked => { root.comment-delete(root.comment-editor-path); } }

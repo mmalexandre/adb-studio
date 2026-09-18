@@ -13,8 +13,8 @@ x Comment quantizing
 x Stem separation
 x Template ComfyUI files
 x LoRas manager - give ratings, comment, metadata
+x Slice out function (extract audio from comment)
 - LoRa - document training: custom tag, original files names and origin
-- Slice out function (extract audio from comment)
 
 Mise en prod:
 -------------
@@ -38,7 +38,6 @@ Cerises sur le gâteau:
 - Auto-download LoRas
 - Youno = workflows and loras and audio sharing platform
 - Include track length in distance comparison + num steps
-
 
 
 Avantages de cette application:

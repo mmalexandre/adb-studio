@@ -9,6 +9,7 @@ use slint::{ComponentHandle, Model, SharedString};
 
 use crate::{
     audio::{
+        comment_extraction,
         loader::State as AudioLoadState,
         playback::PlaybackEngine,
         session::comment_duration,
@@ -487,7 +488,47 @@ pub fn register_metadata_pane_callbacks(
             window.set_comment_editor_path(path.to_string_lossy().into_owned().into());
             window.set_comment_editor_text(original.text.into());
             window.set_comment_editor_label_id(label_id);
+            window
+                .set_comment_editor_extract_enabled(original.end_seconds > original.start_seconds);
             window.set_comment_editor_visible(true);
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        let audio_folder = Rc::clone(audio_folder);
+        let comment_editor_original = Rc::clone(comment_editor_original);
+        window.on_comment_extract_requested(move |path| {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            let Some(_workspace) = audio_folder.borrow().clone() else {
+                window.set_audio_error("Open a workspace before extracting audio".into());
+                return;
+            };
+            let Some(comment) = comment_editor_original.borrow().clone() else {
+                window.set_audio_error("Unable to determine comment range".into());
+                return;
+            };
+            let source = PathBuf::from(path.as_str());
+            let destination = match comment_extraction::destination(
+                &source,
+                comment.start_seconds,
+                comment.end_seconds,
+            ) {
+                Ok(destination) => destination,
+                Err(error) => {
+                    window.set_audio_error(error.into());
+                    return;
+                }
+            };
+            let start_seconds = comment.start_seconds;
+            let end_seconds = comment.end_seconds;
+            window.set_audio_error("Extracting audio...".into());
+            std::thread::spawn(move || {
+                let _ =
+                    comment_extraction::extract(&source, &destination, start_seconds, end_seconds);
+            });
         });
     }
 
