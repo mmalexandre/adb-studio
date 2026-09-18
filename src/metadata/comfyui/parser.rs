@@ -177,10 +177,7 @@ pub fn workflow_to_api_prompt(value: &Value) -> Result<Value, String> {
             let link = link.as_array()?;
             Some((
                 link.first()?.as_i64()?,
-                (
-                    link.get(1)?.as_i64()?.to_string(),
-                    link.get(2)?.as_i64()?,
-                ),
+                (link.get(1)?.as_i64()?.to_string(), link.get(2)?.as_i64()?),
             ))
         })
         .collect::<std::collections::HashMap<_, _>>();
@@ -238,7 +235,9 @@ pub fn workflow_to_api_prompt(value: &Value) -> Result<Value, String> {
                         continue;
                     }
                     let Some((source_id, output_index)) = links.get(&link_id) else {
-                        return Err(format!("workflow node {id} references missing link {link_id}"));
+                        return Err(format!(
+                            "workflow node {id} references missing link {link_id}"
+                        ));
                     };
                     inputs.insert(name.into(), serde_json::json!([source_id, output_index]));
                     if input.get("widget").is_some() {
@@ -782,10 +781,10 @@ fn visual_widget_names(node_type: &str) -> &'static [&'static str] {
             "language",
             "keyscale",
             "generate_audio_codes",
-            "top_k",
-            "top_p",
-            "temperature",
             "cfg_scale",
+            "temperature",
+            "top_p",
+            "top_k",
             "min_p",
         ],
         "ADBDMusicPlayer" | "ADBMusicPlayer" => {
@@ -797,7 +796,9 @@ fn visual_widget_names(node_type: &str) -> &'static [&'static str] {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_runnable_audio_workflow, memory_cache, parse_file_cached_with_hash, parse_value};
+    use super::{
+        is_runnable_audio_workflow, memory_cache, parse_file_cached_with_hash, parse_value,
+    };
     use crate::metadata::comfyui::LoRAInfo;
     use serde_json::json;
     use std::{
@@ -878,7 +879,8 @@ mod tests {
                 ], "widgets_values": [42]}
             ],
             "links": [[7, 1, 0, 2, 0, "MODEL"]]
-        })).unwrap();
+        }))
+        .unwrap();
         assert_eq!(prompt["2"]["class_type"], "KSampler");
         assert_eq!(prompt["2"]["inputs"]["model"], json!(["1", 0]));
         assert_eq!(prompt["2"]["inputs"]["seed"], 42);
@@ -896,7 +898,8 @@ mod tests {
                 ]}
             ],
             "links": [[7, 1, 0, 3, 0, "FLOAT"]]
-        })).unwrap();
+        }))
+        .unwrap();
         assert!(prompt.get("1").is_none());
         assert!(prompt.get("2").is_none());
         assert_eq!(prompt["3"]["inputs"]["seconds"], 120);
@@ -1139,6 +1142,49 @@ mod tests {
         assert_eq!(workflow.seed, "32");
         assert_eq!(workflow.prompt, "prompt text");
         assert_eq!(workflow.lyrics, "[Verse] lyrics");
+    }
+
+    #[test]
+    fn preserves_acestep_sampling_widget_order() {
+        let prompt = super::workflow_to_api_prompt(&json!({
+            "nodes": [{
+                "id": 1,
+                "type": "TextEncodeAceStepAudio1.5",
+                "inputs": [
+                    {"name": "clip", "link": 2},
+                    {"name": "tags", "widget": {}, "link": null},
+                    {"name": "lyrics", "widget": {}, "link": null},
+                    {"name": "seed", "widget": {}, "link": null},
+                    {"name": "bpm", "widget": {}, "link": null},
+                    {"name": "duration", "widget": {}, "link": null},
+                    {"name": "timesignature", "widget": {}, "link": null},
+                    {"name": "language", "widget": {}, "link": null},
+                    {"name": "keyscale", "widget": {}, "link": null},
+                    {"name": "generate_audio_codes", "widget": {}, "link": null},
+                    {"name": "cfg_scale", "widget": {}, "link": null},
+                    {"name": "temperature", "widget": {}, "link": null},
+                    {"name": "top_p", "widget": {}, "link": null},
+                    {"name": "top_k", "widget": {}, "link": null},
+                    {"name": "min_p", "widget": {}, "link": null}
+                ],
+                "widgets_values": [
+                    "tags", "lyrics", "", "fixed", 117, 240, "4", "en",
+                    "E minor", true, 2, 0.85, 0.9, 0, 0
+                ]
+            }, {
+                "id": 2,
+                "type": "CLIPLoader",
+                "widgets_values": []
+            }],
+            "links": [[2, 2, 0, 1, 0, "CLIP"]]
+        }))
+        .unwrap();
+        let inputs = &prompt["1"]["inputs"];
+        assert_eq!(inputs["cfg_scale"], json!(2));
+        assert_eq!(inputs["temperature"], json!(0.85));
+        assert_eq!(inputs["top_p"], json!(0.9));
+        assert_eq!(inputs["top_k"], json!(0));
+        assert_eq!(inputs["min_p"], json!(0));
     }
 
     #[test]

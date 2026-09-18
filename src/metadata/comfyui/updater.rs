@@ -1,4 +1,4 @@
-use serde_json::Value;
+use serde_json::{json, Value};
 
 fn is_lora_node(node: &Value) -> bool {
     node.get("class_type")
@@ -344,6 +344,9 @@ pub fn reorder_loras(value: &mut Value, ordered_ids: &[String]) -> bool {
 }
 
 pub fn remove_lora(value: &mut Value, node_id: &str) -> bool {
+    if value.get("nodes").is_some() {
+        return remove_visual_lora(value, node_id);
+    }
     let mut ids = node_ids(value);
     if !ids.iter().any(|id| id == node_id) {
         return false;
@@ -370,6 +373,137 @@ pub fn remove_lora(value: &mut Value, node_id: &str) -> bool {
         }
     }
     reorder_loras(value, &ids)
+}
+
+fn remove_visual_lora(value: &mut Value, node_id: &str) -> bool {
+    let Some(object) = value.as_object_mut() else {
+        return false;
+    };
+    let Some(nodes) = object.get("nodes").and_then(Value::as_array) else {
+        return false;
+    };
+    let Some(node_index) = nodes.iter().position(|node| {
+        node.get("id")
+            .and_then(Value::as_i64)
+            .is_some_and(|id| id.to_string() == node_id)
+    }) else {
+        return false;
+    };
+    let node = &nodes[node_index];
+    let incoming_link = node
+        .get("inputs")
+        .and_then(Value::as_array)
+        .and_then(|inputs| {
+            inputs.iter().find_map(|input| {
+                input
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .filter(|name| name.eq_ignore_ascii_case("model"))
+                    .and_then(|_| input.get("link"))
+                    .and_then(Value::as_i64)
+            })
+        });
+    let outgoing_link = node
+        .get("outputs")
+        .and_then(Value::as_array)
+        .and_then(|outputs| outputs.first())
+        .and_then(|output| output.get("links"))
+        .and_then(Value::as_array)
+        .and_then(|links| links.first())
+        .and_then(Value::as_i64);
+
+    let Some(incoming_link) = incoming_link else {
+        return false;
+    };
+    let successor_id = outgoing_link.and_then(|link_id| {
+        object
+            .get("links")
+            .and_then(Value::as_array)
+            .and_then(|links| {
+                links
+                    .iter()
+                    .find(|link| link.get(0) == Some(&json!(link_id)))
+            })
+            .and_then(|link| link.get(3))
+            .and_then(Value::as_i64)
+    });
+
+    if let Some(successor_id) = successor_id {
+        let Some(successor) = object
+            .get_mut("nodes")
+            .and_then(Value::as_array_mut)
+            .and_then(|nodes| {
+                nodes
+                    .iter_mut()
+                    .find(|candidate| candidate.get("id") == Some(&json!(successor_id)))
+            })
+        else {
+            return false;
+        };
+        let Some(model_input) = successor
+            .get_mut("inputs")
+            .and_then(Value::as_array_mut)
+            .and_then(|inputs| {
+                inputs.iter_mut().find(|input| {
+                    input
+                        .get("name")
+                        .and_then(Value::as_str)
+                        .is_some_and(|name| name.eq_ignore_ascii_case("model"))
+                })
+            })
+        else {
+            return false;
+        };
+        model_input["link"] = json!(incoming_link);
+        if let Some(links) = object.get_mut("links").and_then(Value::as_array_mut) {
+            if let Some(link) = links
+                .iter_mut()
+                .find(|link| link.get(0) == Some(&json!(incoming_link)))
+            {
+                link[3] = json!(successor_id);
+            }
+            if let Some(outgoing_link) = outgoing_link {
+                links.retain(|link| link.get(0) != Some(&json!(outgoing_link)));
+            }
+        }
+    } else {
+        let Some(links) = object.get_mut("links").and_then(Value::as_array_mut) else {
+            return false;
+        };
+        let predecessor_id = links
+            .iter()
+            .find(|link| link.get(0) == Some(&json!(incoming_link)))
+            .and_then(|link| link.get(1))
+            .and_then(Value::as_i64);
+        links.retain(|link| link.get(0) != Some(&json!(incoming_link)));
+        if let Some(predecessor_id) = predecessor_id {
+            if let Some(predecessor) = object
+                .get_mut("nodes")
+                .and_then(Value::as_array_mut)
+                .and_then(|nodes| {
+                    nodes
+                        .iter_mut()
+                        .find(|node| node.get("id") == Some(&json!(predecessor_id)))
+                })
+            {
+                if let Some(links) = predecessor
+                    .get_mut("outputs")
+                    .and_then(Value::as_array_mut)
+                    .and_then(|outputs| outputs.first_mut())
+                    .and_then(|output| output.get_mut("links"))
+                    .and_then(Value::as_array_mut)
+                {
+                    links.retain(|link| link.as_i64() != Some(incoming_link));
+                }
+            }
+        }
+    }
+
+    object
+        .get_mut("nodes")
+        .and_then(Value::as_array_mut)
+        .map(|nodes| nodes.remove(node_index));
+    true
 }
 
 pub fn update_metadata(value: &mut Value, field: &str, new_value: &str) -> bool {
@@ -569,6 +703,46 @@ mod tests {
         assert_eq!(value["nodes"][2]["inputs"][0]["link"], json!(293));
         assert_eq!(value["links"][0], json!([292, 107, 0, 78, 0, "MODEL"]));
         assert_eq!(value["links"][1], json!([293, 106, 0, 107, 0, "MODEL"]));
+    }
+
+    #[test]
+    fn removes_lora_from_visual_model_chain() {
+        let mut value = json!({
+            "nodes": [
+                {"id": 1, "type": "CheckpointLoaderSimple", "outputs": [{"links": [10]}]},
+                {"id": 2, "type": "LoraLoaderModelOnly", "inputs": [{"name": "model", "link": 10}], "outputs": [{"links": [11]}]},
+                {"id": 3, "type": "LoraLoaderModelOnly", "inputs": [{"name": "model", "link": 11}], "outputs": [{"links": [12]}]},
+                {"id": 4, "type": "ModelSamplingAuraFlow", "inputs": [{"name": "model", "link": 12}]}
+            ],
+            "links": [
+                [10, 1, 0, 2, 0, "MODEL"],
+                [11, 2, 0, 3, 0, "MODEL"],
+                [12, 3, 0, 4, 0, "MODEL"]
+            ]
+        });
+
+        assert!(super::remove_lora(&mut value, "2"));
+        assert_eq!(value["nodes"].as_array().unwrap().len(), 3);
+        assert_eq!(value["nodes"][1]["inputs"][0]["link"], json!(10));
+        assert_eq!(
+            value["links"],
+            json!([[10, 1, 0, 3, 0, "MODEL"], [12, 3, 0, 4, 0, "MODEL"]])
+        );
+    }
+
+    #[test]
+    fn removes_last_lora_and_its_predecessor_link() {
+        let mut value = json!({
+            "nodes": [
+                {"id": 1, "type": "CheckpointLoaderSimple", "outputs": [{"links": [10]}]},
+                {"id": 2, "type": "LoraLoaderModelOnly", "inputs": [{"name": "model", "link": 10}], "outputs": [{"links": []}]}
+            ],
+            "links": [[10, 1, 0, 2, 0, "MODEL"]]
+        });
+
+        assert!(super::remove_lora(&mut value, "2"));
+        assert_eq!(value["nodes"][0]["outputs"][0]["links"], json!([]));
+        assert_eq!(value["links"], json!([]));
     }
 
     #[test]
