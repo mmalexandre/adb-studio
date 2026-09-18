@@ -90,11 +90,21 @@ pub fn register_tree_callbacks(
                     window.set_workflow_loading(false);
                     window.set_user_comments(lora_metadata.user_comments.into());
                     window.set_lora_custom_tag(lora_metadata.custom_tag.into());
+                    window.set_lora_custom_path(
+                        crate::metadata::load_lora_custom_path(
+                            &folder,
+                            path.file_name()
+                                .and_then(|name| name.to_str())
+                                .unwrap_or_default(),
+                        )
+                        .into(),
+                    );
                     *workflow_loading.borrow_mut() = false;
                     *loaded_workflow_path.borrow_mut() = None;
                     return;
                 }
                 window.set_lora_custom_tag("".into());
+                window.set_lora_custom_path("".into());
                 load_workflow_for_audio(
                     &window,
                     &folder,

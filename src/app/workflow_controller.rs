@@ -462,7 +462,7 @@ pub fn register_workflow_callbacks(
                 window.set_audio_error("Selected audio file has no usable name".into());
                 return;
             };
-            let workflow = if let Some(workflow) = edited_workflow.borrow().clone() {
+            let mut workflow = if let Some(workflow) = edited_workflow.borrow().clone() {
                 workflow
             } else {
                 let Some(workflow_path) = metadata::workflow_path(&workspace, &audio_path) else {
@@ -479,6 +479,7 @@ pub fn register_workflow_callbacks(
                 };
                 workflow
             };
+            metadata::apply_lora_custom_paths(&workspace, &mut workflow);
             if !metadata::comfyui::is_runnable_audio_workflow(&workflow) {
                 window.set_workflow_runnable(false);
                 window.set_audio_error(
@@ -653,18 +654,6 @@ pub fn register_workflow_callbacks(
 
     {
         let weak_window = window.as_weak();
-        window.on_lora_edit_requested(move |filename, tag| {
-            let Some(window) = weak_window.upgrade() else {
-                return;
-            };
-            window.set_lora_editor_filename(filename);
-            window.set_lora_editor_tag(tag);
-            window.set_lora_editor_visible(true);
-        });
-    }
-
-    {
-        let weak_window = window.as_weak();
         let audio_folder = Rc::clone(audio_folder);
         let edited_workflow = Rc::clone(edited_workflow);
         let edited_workflow_path = Rc::clone(edited_workflow_path);
@@ -786,54 +775,6 @@ pub fn register_workflow_callbacks(
         });
     }
 
-    {
-        let weak_window = window.as_weak();
-        let audio_folder = Rc::clone(audio_folder);
-        let workflow_loading = Rc::clone(workflow_loading);
-        let loaded_workflow_path = Rc::clone(loaded_workflow_path);
-        window.on_lora_save(move |filename, tag| {
-            let Some(window) = weak_window.upgrade() else {
-                return;
-            };
-            let Some(folder) = audio_folder.borrow().clone() else {
-                return;
-            };
-            metadata::save_lora_custom_tag(&folder, filename.as_str(), tag.as_str());
-            let loras = window.get_workflow_loras();
-            for index in 0..loras.row_count() {
-                let Some(lora) = loras.row_data(index) else {
-                    continue;
-                };
-                if lora.source_filename == filename || lora.filename == filename {
-                    let mut updated = lora.clone();
-                    updated.custom_tag = tag.clone();
-                    loras.set_row_data(index, updated);
-                    break;
-                }
-            }
-            window.set_lora_editor_visible(false);
-            let audio_path = window.get_selected_audio_path().to_string();
-            if !audio_path.is_empty() {
-                load_workflow_for_audio(
-                    &window,
-                    &folder,
-                    Path::new(&audio_path),
-                    &workflow_loading,
-                    &loaded_workflow_path,
-                    false,
-                );
-            }
-        });
-    }
-
-    {
-        let weak_window = window.as_weak();
-        window.on_lora_cancel(move || {
-            if let Some(window) = weak_window.upgrade() {
-                window.set_lora_editor_visible(false);
-            }
-        });
-    }
 }
 
 fn recreate_workflow(
@@ -876,6 +817,7 @@ fn recreate_workflow(
             }
         }
     };
+    metadata::apply_lora_custom_paths(folder, &mut workflow);
     for (field, value) in [
         ("bpm", window.get_workflow_bpm().to_string()),
         (

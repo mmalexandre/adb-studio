@@ -481,15 +481,19 @@ fn visit(
                 if let Some(filename) =
                     find_string(inputs, &["lora_name", "filename", "file_name", "name"])
                 {
+                    let filename_basename = basename(&filename);
                     let strength = find_scalar(inputs, &["strength_model", "strength", "weight"])
                         .unwrap_or_else(|| "".to_string());
                     workflow.loras.push(LoRAInfo {
                         node_id: node_id.unwrap_or_default().to_string(),
-                        filename: basename(&filename),
+                        filename: filename_basename.clone(),
+                        custom_path: (filename != filename_basename)
+                            .then_some(filename)
+                            .unwrap_or_default(),
                         strength,
                     });
                 }
-            }
+                }
 
             if workflow.model.is_empty() {
                 let inputs = object
@@ -708,6 +712,7 @@ fn parse_visual_node(node: &Value, workflow: &mut ComfyUIWorkflow) {
             .map(scalar_text)
             .or_else(|| widget_values.first().map(scalar_text));
         if let Some(filename) = filename {
+            let filename_basename = basename(&filename);
             let strength = values
                 .get("strength_model")
                 .or_else(|| values.get("strength"))
@@ -717,7 +722,10 @@ fn parse_visual_node(node: &Value, workflow: &mut ComfyUIWorkflow) {
                 .unwrap_or_default();
             workflow.loras.push(LoRAInfo {
                 node_id: object.get("id").map(scalar_text).unwrap_or_default(),
-                filename: basename(&filename),
+                filename: filename_basename.clone(),
+                custom_path: (filename != filename_basename)
+                    .then_some(filename)
+                    .unwrap_or_default(),
                 strength,
             });
         }
@@ -855,6 +863,7 @@ mod tests {
             vec![LoRAInfo {
                 node_id: "3".into(),
                 filename: "style.safetensors".into(),
+                custom_path: String::new(),
                 strength: "0.8".into()
             }]
         );

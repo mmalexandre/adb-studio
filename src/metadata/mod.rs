@@ -124,6 +124,8 @@ pub struct LoraMetadata {
     pub filename: String,
     #[serde(default)]
     pub custom_tag: String,
+    #[serde(default)]
+    pub custom_path: String,
 }
 
 impl AudioFileMetadata {
@@ -247,6 +249,18 @@ pub fn load_lora_custom_tag(folder: &Path, filename: &str) -> String {
         .unwrap_or_default()
 }
 
+pub fn load_lora_custom_path(folder: &Path, filename: &str) -> String {
+    load_index(folder)
+        .loras
+        .into_iter()
+        .find(|lora| {
+            lora.filename.eq_ignore_ascii_case(filename)
+                || comfyui::display_lora_name(&lora.filename).eq_ignore_ascii_case(filename)
+        })
+        .map(|lora| lora.custom_path)
+        .unwrap_or_default()
+}
+
 pub fn save_lora_custom_tag(folder: &Path, filename: &str, custom_tag: &str) {
     let mut index = load_index(folder);
     if let Some(lora) = index.loras.iter_mut().find(|lora| {
@@ -258,6 +272,7 @@ pub fn save_lora_custom_tag(folder: &Path, filename: &str, custom_tag: &str) {
         index.loras.push(LoraMetadata {
             filename: filename.to_owned(),
             custom_tag: custom_tag.to_owned(),
+            custom_path: String::new(),
         });
     }
     save_index(folder, &index);
@@ -265,6 +280,33 @@ pub fn save_lora_custom_tag(folder: &Path, filename: &str, custom_tag: &str) {
         let mut metadata = load_audio_metadata(folder, &path);
         metadata.custom_tag = custom_tag.to_owned();
         save_audio_metadata(folder, &path, &metadata);
+    }
+}
+
+pub fn save_lora_custom_path(folder: &Path, filename: &str, custom_path: &str) {
+    let mut index = load_index(folder);
+    if let Some(lora) = index.loras.iter_mut().find(|lora| {
+        lora.filename.eq_ignore_ascii_case(filename)
+            || comfyui::display_lora_name(&lora.filename).eq_ignore_ascii_case(filename)
+    }) {
+        lora.custom_path = custom_path.to_owned();
+    } else {
+        index.loras.push(LoraMetadata {
+            filename: filename.to_owned(),
+            custom_tag: String::new(),
+            custom_path: custom_path.to_owned(),
+        });
+    }
+    save_index(folder, &index);
+}
+
+pub fn apply_lora_custom_paths(folder: &Path, workflow: &mut serde_json::Value) {
+    let loras = comfyui::parse_value(workflow).loras;
+    for lora in loras {
+        let custom_path = load_lora_custom_path(folder, &lora.filename);
+        if !custom_path.is_empty() {
+            comfyui::set_lora_path(workflow, &lora.node_id, &custom_path);
+        }
     }
 }
 

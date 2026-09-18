@@ -7,7 +7,9 @@ pub use parser::{
     clear_memory_cache, is_runnable_audio_workflow, parse_file_cached, parse_value,
     workflow_to_api_prompt,
 };
-pub use updater::{add_lora, remove_lora, reorder_loras, set_lora_strength, update_metadata};
+pub use updater::{
+    add_lora, remove_lora, reorder_loras, set_lora_path, set_lora_strength, update_metadata,
+};
 
 use serde::{Deserialize, Serialize};
 
@@ -34,6 +36,7 @@ pub struct ComfyUIWorkflow {
 pub struct LoRAInfo {
     pub node_id: String,
     pub filename: String,
+    pub custom_path: String,
     pub strength: String,
 }
 

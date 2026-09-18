@@ -98,6 +98,7 @@ pub fn apply_workflow(
             .map(|lora| WorkflowLoraRow {
                 node_id: lora.node_id.into(),
                 source_filename: lora.filename.clone().into(),
+                custom_path: lora.custom_path.into(),
                 custom_tag: metadata::load_lora_custom_tag(folder, &lora.filename).into(),
                 filename: metadata::comfyui::display_lora_name(&lora.filename).into(),
                 strength: lora.strength.into(),
@@ -114,6 +115,7 @@ pub fn refresh_workflow_loras(window: &MainWindow, folder: &Path, value: &serde_
             .map(|lora| WorkflowLoraRow {
                 node_id: lora.node_id.into(),
                 source_filename: lora.filename.clone().into(),
+                custom_path: lora.custom_path.into(),
                 custom_tag: metadata::load_lora_custom_tag(folder, &lora.filename).into(),
                 filename: metadata::comfyui::display_lora_name(&lora.filename).into(),
                 strength: lora.strength.into(),
@@ -179,12 +181,21 @@ pub fn load_workflow_for_audio(
         .and_then(|contents| serde_json::from_str::<serde_json::Value>(&contents).ok())
         .is_some_and(|value| metadata::comfyui::is_runnable_audio_workflow(&value));
     window.set_workflow_runnable(runnable);
-    match metadata::comfyui::parse_file_cached(folder, &workflow_path) {
-        Ok(workflow) => {
-            apply_workflow(window, folder, &workflow_path.to_string_lossy(), workflow);
+    match fs::read_to_string(&workflow_path)
+        .ok()
+        .and_then(|contents| serde_json::from_str::<serde_json::Value>(&contents).ok())
+    {
+        Some(mut value) => {
+            metadata::apply_lora_custom_paths(folder, &mut value);
+            apply_workflow(
+                window,
+                folder,
+                &workflow_path.to_string_lossy(),
+                metadata::comfyui::parse_value(&value),
+            );
             metadata::clear_workflow_recreated(folder, path);
         }
-        Err(error) => window.set_audio_error(format!("Workflow JSON: {error}").into()),
+        None => window.set_audio_error("Workflow JSON is invalid".into()),
     }
     window.set_workflow_recreated(false);
     window.set_workflow_modified(false);

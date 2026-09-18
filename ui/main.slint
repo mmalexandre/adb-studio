@@ -180,6 +180,7 @@ export component MainWindow inherits Window {
     in-out property <string> workflow-lyrics: "";
     in-out property <string> user-comments: "";
     in-out property <string> lora-custom-tag: "";
+    in-out property <string> lora-custom-path: "";
     in-out property <[WorkflowLoraRow]> workflow-loras: [];
     in-out property <bool> workflow-modified: false;
     in-out property <bool> workflow-runnable: false;
@@ -190,9 +191,6 @@ export component MainWindow inherits Window {
     in-out property <string> comfyui-run-step: "";
     in-out property <bool> comfyui-run-cancel-requested: false;
     in-out property <bool> comfyui-run-complete: false;
-    in-out property <bool> lora-editor-visible: false;
-    in-out property <string> lora-editor-filename: "";
-    in-out property <string> lora-editor-tag: "";
     in-out property <bool> splash-visible: true;
     callback open-folder();
     callback clear-caches();
@@ -295,9 +293,7 @@ export component MainWindow inherits Window {
     callback workflow-number-changed(string, int);
     callback user-comments-changed(string);
     callback lora-custom-tag-changed(string);
-    callback lora-edit-requested(string, string);
-    callback lora-save(string, string);
-    callback lora-cancel();
+    callback lora-custom-path-changed(string);
     callback lora-add-requested();
     callback lora-remove-requested(string);
     callback lora-strength-changed(string, string);
@@ -1202,23 +1198,11 @@ export component MainWindow inherits Window {
                                                     }
                                                 }
                                             }
-                                            if lora.custom-tag != "" : Text {
-                                                text: lora.custom-tag;
-                                                color: root.light-theme ? #5c6878 : #aeb8c6;
-                                                max-width: 80px;
-                                                overflow: elide;
-                                                vertical-alignment: center;
-                                            }
                                             LineEdit {
-                                                width: 55px;
+                                                width: 70px;
                                                 text: lora.strength;
                                                 edited(value) => { root.lora-strength-changed(lora.node-id, value); }
                                                 changed has-focus => { root.text-input-focused = self.has-focus; }
-                                            }
-                                            CompactIconButton {
-                                                icon: @image-url("../assets/icons/pencil.svg");
-                                                active: true;
-                                                clicked => { root.lora-edit-requested(lora.source-filename, lora.custom-tag); }
                                             }
                                             CompactIconButton {
                                                 icon: @image-url("../assets/icons/trash-2.svg");
@@ -1251,6 +1235,13 @@ export component MainWindow inherits Window {
                                     text: root.selected-name;
                                     color: root.light-theme ? #5c6878 : #aeb8c6;
                                     overflow: elide;
+                                }
+                                Text { text: "Custom LoRA path"; color: root.light-theme ? #202833 : #e3e8ef; }
+                                LineEdit {
+                                    width: 100%;
+                                    text <=> root.lora-custom-path;
+                                    edited(value) => { root.lora-custom-path-changed(value); }
+                                    changed has-focus => { root.text-input-focused = self.has-focus; }
                                 }
                                 Text { text: "Custom Tag"; color: root.light-theme ? #202833 : #e3e8ef; }
                                 LineEdit {
@@ -2863,35 +2854,6 @@ export component MainWindow inherits Window {
                         AppButton { text: "Save"; clicked => { root.comment-save(root.comment-editor-path, root.comment-editor-text); } }
                         AppButton { text: "Cancel"; clicked => { root.comment-cancel(); } }
                         AppButton { text: "Delete"; enabled: root.comment-editor-path != ""; clicked => { root.comment-delete(root.comment-editor-path); } }
-                    }
-                }
-            }
-        }
-
-        if root.lora-editor-visible : ModalOverlay {
-            x: 0px;
-            y: 0px;
-            width: parent.width;
-            height: parent.height;
-            Rectangle {
-                width: 430px;
-                height: 210px;
-                x: (parent.width - self.width) / 2;
-                y: (parent.height - self.height) / 2;
-                background: root.light-theme ? #ffffff : #202832;
-                border-color: root.light-theme ? #cbd2dc : #435064;
-                border-width: 1px;
-                VerticalBox {
-                    padding: 24px;
-                    spacing: 12px;
-                    Text { text: "LoRA Info"; color: root.light-theme ? #202833 : #f1f4f8; font-size: 22px; }
-                    Text { text: root.lora-editor-filename; color: root.light-theme ? #5c6878 : #c4ccd8; overflow: elide; }
-                    LineEdit { placeholder-text: "Custom tag"; text <=> root.lora-editor-tag; changed has-focus => { root.text-input-focused = self.has-focus; } }
-                    Rectangle { vertical-stretch: 1; }
-                    HorizontalLayout {
-                        spacing: 8px;
-                        AppButton { text: "Save"; clicked => { root.lora-save(root.lora-editor-filename, root.lora-editor-tag); } }
-                        AppButton { text: "Cancel"; clicked => { root.lora-cancel(); } }
                     }
                 }
             }

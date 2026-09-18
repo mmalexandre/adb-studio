@@ -253,6 +253,7 @@ mod tests {
             loras: vec![LoRAInfo {
                 node_id: "1".into(),
                 filename: "voice.safetensors".into(),
+                custom_path: String::new(),
                 strength: "0.50".into(),
             }],
         };
@@ -268,11 +269,13 @@ mod tests {
                 LoRAInfo {
                     node_id: "1".into(),
                     filename: "voice.safetensors".into(),
+                    custom_path: String::new(),
                     strength: "0.75".into(),
                 },
                 LoRAInfo {
                     node_id: "2".into(),
                     filename: "drums.safetensors".into(),
+                    custom_path: String::new(),
                     strength: "0.25".into(),
                 },
             ],

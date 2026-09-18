@@ -117,6 +117,39 @@ fn set_lora_input(node: &mut Value, key_name: &str, value: Value) -> bool {
     true
 }
 
+pub fn set_lora_path(value: &mut Value, node_id: &str, path: &str) -> bool {
+    let Some(node) = find_node_mut(value, node_id) else {
+        return false;
+    };
+    let replacement = Value::String(path.to_string());
+    if let Some(values) = node.get_mut("widgets_values").and_then(Value::as_array_mut) {
+        let Some(target) = values.first_mut() else {
+            return false;
+        };
+        if *target == replacement {
+            return false;
+        }
+        *target = replacement;
+        return true;
+    }
+    let Some(inputs) = node_inputs_mut(node) else {
+        return false;
+    };
+    let Some((_, target)) = inputs.iter_mut().find(|(key, _)| {
+        key.eq_ignore_ascii_case("lora_name")
+            || key.eq_ignore_ascii_case("filename")
+            || key.eq_ignore_ascii_case("file_name")
+            || key.eq_ignore_ascii_case("name")
+    }) else {
+        return false;
+    };
+    if *target == replacement {
+        return false;
+    }
+    *target = replacement;
+    true
+}
+
 pub fn add_lora(value: &mut Value, filename: &str) -> Option<String> {
     let ids = node_ids(value);
     let template_id = ids.last()?;
@@ -765,6 +798,46 @@ mod tests {
         assert_eq!(
             value["3"]["inputs"]["lora_name"],
             json!("style.safetensors")
+        );
+    }
+
+    #[test]
+    fn sets_custom_path_in_api_lora_node() {
+        let mut value = json!({
+            "3": {"class_type": "Load LoRA", "inputs": {
+                "lora_name": "style.safetensors"
+            }}
+        });
+
+        assert!(super::set_lora_path(
+            &mut value,
+            "3",
+            "subfolder/style.safetensors"
+        ));
+        assert_eq!(
+            value["3"]["inputs"]["lora_name"],
+            json!("subfolder/style.safetensors")
+        );
+    }
+
+    #[test]
+    fn sets_custom_path_in_visual_lora_node() {
+        let mut value = json!({
+            "nodes": [{
+                "id": 7,
+                "type": "LoraLoaderModelOnly",
+                "widgets_values": ["style.safetensors", 1.0]
+            }]
+        });
+
+        assert!(super::set_lora_path(
+            &mut value,
+            "7",
+            "/models/loras/style.safetensors"
+        ));
+        assert_eq!(
+            value["nodes"][0]["widgets_values"][0],
+            json!("/models/loras/style.safetensors")
         );
     }
 
