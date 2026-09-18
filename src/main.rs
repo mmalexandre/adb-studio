@@ -409,6 +409,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 is_active: row.is_active,
                                 is_playing: row.is_playing,
                                 progress: row.progress,
+                                duration_seconds: row.duration_seconds,
                                 loop_enabled: row.loop_enabled,
                                 selected_comment_start: row.selected_comment_start,
                                 selected_comment_end: row.selected_comment_end,

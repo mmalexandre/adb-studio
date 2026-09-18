@@ -11,6 +11,9 @@ component AudioRowView inherits Rectangle {
     in property <bool> light-theme;
     in property <color> comment-background-color: #000000;
     in property <color> comment-text-color: #ffffff;
+    in property <float> duration-seconds: 0;
+    in property <int> bpm: 0;
+    in property <int> comment-quantization-index: 0;
     in property <string> name;
     in property <string> subtitle;
     in property <string> modified-date;
@@ -341,6 +344,9 @@ component AudioRowView inherits Rectangle {
                 comments: root.comments;
                 selected-comment-start: root.selected-comment-start;
                 selected-comment-end: root.selected-comment-end;
+                duration-seconds: root.duration-seconds;
+                bpm: root.bpm;
+                comment-quantization-index: root.comment-quantization-index;
                 progress: root.progress;
                 y: -15px;
                 seek-requested(progress, shift) => { if shift { root.row-clicked(shift); } else { root.seek-requested(progress); } }
@@ -515,6 +521,8 @@ export component AudioList inherits ListView {
     in property <bool> light-theme;
     in property <color> comment-background-color: #000000;
     in property <color> comment-text-color: #ffffff;
+    in property <int> bpm: 0;
+    in property <int> comment-quantization-index: 0;
     in property <[AudioRow]> rows;
     in property <[int]> label-ids: [];
     in property <[string]> label-names: [];
@@ -640,6 +648,9 @@ export component AudioList inherits ListView {
             loop-enabled: row.loop-enabled;
             selected-comment-start: row.selected-comment-start;
             selected-comment-end: row.selected-comment-end;
+            duration-seconds: row.duration-seconds;
+            bpm: root.bpm;
+            comment-quantization-index: root.comment-quantization-index;
             label-id: row.label-id;
             label-name: row.label-name;
             label-color: row.label-color;

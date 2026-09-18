@@ -112,6 +112,8 @@ export component MainWindow inherits Window {
     in-out property <int> audio-viewport-start: 0;
     in-out property <int> audio-visible-rows: 0;
     in-out property <string> audio-filter: "";
+    in-out property <int> comment-quantization-index: 0;
+    property <[string]> comment-quantization-options: ["No quantization", "1 beat", "2 beats", "3 beats", "4 beats", "8 beats", "16 beats"];
     in-out property <string> selected-name: "";
     in-out property <bool> audio-loading: false;
     in-out property <int> audio-completed: 0;
@@ -730,6 +732,11 @@ export component MainWindow inherits Window {
                                     }
                                 }
                                 Rectangle { horizontal-stretch: 1; }
+                                ComboBox {
+                                    width: 130px;
+                                    model: root.comment-quantization-options;
+                                    current-index <=> root.comment-quantization-index;
+                                }
                                 Rectangle {
                                     width: 150px;
                                     height: 28px;
@@ -885,6 +892,8 @@ export component MainWindow inherits Window {
                                 light-theme: root.light-theme;
                                 comment-background-color: root.comment-background-color;
                                 comment-text-color: root.comment-text-color;
+                                bpm: root.workflow-bpm-number;
+                                comment-quantization-index: root.comment-quantization-index;
                                 rows: root.audio-rows;
                                 label-ids: root.label-ids;
                                 label-names: root.label-names;

@@ -111,6 +111,7 @@ pub fn register_metadata_pane_callbacks(
                                 is_active: row.is_active,
                                 is_playing: row.is_playing,
                                 progress: row.progress,
+                                duration_seconds: row.duration_seconds,
                                 loop_enabled: row.loop_enabled,
                                 selected_comment_start: row.selected_comment_start,
                                 selected_comment_end: row.selected_comment_end,
@@ -227,6 +228,7 @@ pub fn register_metadata_pane_callbacks(
                                 is_active: row.is_active,
                                 is_playing: row.is_playing,
                                 progress: row.progress,
+                                duration_seconds: row.duration_seconds,
                                 loop_enabled: row.loop_enabled,
                                 selected_comment_start: row.selected_comment_start,
                                 selected_comment_end: row.selected_comment_end,
@@ -247,11 +249,14 @@ pub fn register_metadata_pane_callbacks(
     }
 
     {
-        let _weak_window = window.as_weak();
+        let weak_window = window.as_weak();
         let audio_folder = Rc::clone(audio_folder);
         let audio_model = Rc::clone(audio_model);
         let settings = Rc::clone(settings);
         window.on_comment_range_moved(move |path, old_start, old_end, start, end, text| {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
             let Some(folder) = audio_folder.borrow().clone() else {
                 return;
             };
@@ -265,6 +270,13 @@ pub fn register_metadata_pane_callbacks(
             if duration <= 0.0 {
                 return;
             }
+            let (start, end) = metadata::quantize_comment_range(
+                start,
+                end,
+                duration,
+                window.get_workflow_bpm().as_str(),
+                window.get_comment_quantization_index(),
+            );
             if let Some(comment) = file.comments.iter_mut().find(|comment| {
                 (comment.start_seconds / duration - old_start).abs() < 0.001
                     && (comment.end_seconds / duration - old_end).abs() < 0.001
@@ -621,6 +633,7 @@ fn update_audio_tag_assignment(
                 is_active: row.is_active,
                 is_playing: row.is_playing,
                 progress: row.progress,
+                duration_seconds: row.duration_seconds,
                 loop_enabled: row.loop_enabled,
                 selected_comment_start: row.selected_comment_start,
                 selected_comment_end: row.selected_comment_end,

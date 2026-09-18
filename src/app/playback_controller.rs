@@ -16,7 +16,7 @@ use crate::{
             select_comment, update_audio_rows,
         },
     },
-    metadata::AudioComment,
+    metadata::{self, AudioComment},
     workspace::{file_system::TreeState, tree_nav::select_tree_path},
     MainWindow,
 };
@@ -129,6 +129,13 @@ pub fn register_playback_callbacks(
                 window.set_audio_error("Unable to determine audio duration".into());
                 return;
             }
+            let (start, end) = metadata::quantize_comment_range(
+                start,
+                end,
+                duration,
+                window.get_workflow_bpm().as_str(),
+                window.get_comment_quantization_index(),
+            );
             select_comment(&audio_model, &path, start, end);
             *comment_editor_original.borrow_mut() = Some(AudioComment {
                 start_seconds: (start * duration).clamp(0.0, duration),

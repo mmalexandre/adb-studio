@@ -45,6 +45,51 @@ impl AudioComment {
     }
 }
 
+pub fn comment_quantization_beats(index: i32) -> f32 {
+    match index {
+        1..=4 => index as f32,
+        5 => 8.0,
+        6 => 16.0,
+        _ => 0.0,
+    }
+}
+
+pub fn quantize_comment_range(
+    start: f32,
+    end: f32,
+    duration_seconds: f32,
+    bpm: &str,
+    quantization_index: i32,
+) -> (f32, f32) {
+    let duration = duration_seconds.max(0.0);
+    if duration <= 0.0 {
+        return (0.0, 0.0);
+    }
+    let start_seconds = (start * duration).clamp(0.0, duration);
+    let end_seconds = (end * duration).clamp(0.0, duration);
+    let beats = comment_quantization_beats(quantization_index);
+    let Some(bpm) = bpm.parse::<f32>().ok().filter(|value| *value > 0.0) else {
+        return (
+            start_seconds.min(end_seconds) / duration,
+            start_seconds.max(end_seconds) / duration,
+        );
+    };
+    if beats <= 0.0 {
+        return (
+            start_seconds.min(end_seconds) / duration,
+            start_seconds.max(end_seconds) / duration,
+        );
+    }
+    let interval = 60.0 / bpm * beats;
+    let snap = |seconds: f32| (seconds / interval).round() * interval;
+    let snapped_start = snap(start_seconds).clamp(0.0, duration);
+    let snapped_end = snap(end_seconds).clamp(0.0, duration);
+    (
+        snapped_start.min(snapped_end) / duration,
+        snapped_start.max(snapped_end) / duration,
+    )
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct AudioFileMetadata {
     #[serde(default)]
@@ -481,8 +526,9 @@ mod tests {
 
     use super::{
         checksum_for_file, comment_path, has_downloaded_audio, load_audio_metadata, load_index,
-        record_downloaded_audio, rename_associated_workflow, rename_audio_metadata,
-        save_audio_metadata, save_index, AudioComment, AudioFileMetadata, MetadataIndex,
+        quantize_comment_range, record_downloaded_audio, rename_associated_workflow,
+        rename_audio_metadata, save_audio_metadata, save_index, AudioComment, AudioFileMetadata,
+        MetadataIndex,
     };
 
     fn test_folder(name: &str) -> std::path::PathBuf {
@@ -490,6 +536,22 @@ mod tests {
         let _ = fs::remove_dir_all(&folder);
         fs::create_dir_all(&folder).unwrap();
         folder
+    }
+
+    #[test]
+    fn quantizes_comment_endpoints_to_bpm_grid() {
+        let (start, end) = quantize_comment_range(0.13, 0.36, 10.0, "120", 1);
+
+        assert!((start - 0.15).abs() < 0.0001);
+        assert!((end - 0.35).abs() < 0.0001);
+    }
+
+    #[test]
+    fn leaves_comment_endpoints_unchanged_without_quantization() {
+        let range = quantize_comment_range(0.36, 0.13, 10.0, "120", 0);
+
+        assert!((range.0 - 0.13).abs() < 0.0001);
+        assert!((range.1 - 0.36).abs() < 0.0001);
     }
 
     #[test]

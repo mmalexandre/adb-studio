@@ -9,6 +9,7 @@ x Alerte quand génération terminée / nouvelle download
 x Labels should probably be stored in workspace instead of globally (they are project data)
 
 x Filter by tag
+o Comment quantizing
 - Stem separation
 - LoRas manager - give ratings, comment, metadata
 - Template ComfyUI files

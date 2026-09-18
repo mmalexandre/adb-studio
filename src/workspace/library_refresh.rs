@@ -318,6 +318,7 @@ fn apply(
                     .map(|value| value.clamp(0.0, 1.0))
                     .unwrap_or(0.0)
             }),
+            duration_seconds: audio_metadata.duration_seconds,
             loop_enabled: existing_row.is_some_and(|row| row.loop_enabled),
             selected_comment_start: existing_row
                 .map(|row| row.selected_comment_start)
@@ -430,6 +431,7 @@ fn folder_row(
         is_primary: false,
         is_playing: false,
         progress: 0.0,
+        duration_seconds: 0.0,
         loop_enabled: false,
         selected_comment_start: -1.0,
         selected_comment_end: -1.0,
