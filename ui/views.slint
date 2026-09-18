@@ -290,7 +290,7 @@ component AudioRowView inherits Rectangle {
                     clicked => { root.trash-requested(); }
                 }
             }
-            Rectangle {
+            if !root.is-lora : Rectangle {
                 width: 40px;
                 height: 40px;
                 y: 34px;
@@ -308,7 +308,7 @@ component AudioRowView inherits Rectangle {
                     clicked => { root.pin-requested(); }
                 }
             }
-            Rectangle {
+            if !root.is-lora : Rectangle {
                 width: 40px;
                 y: 24px;
                 height: 40px;
