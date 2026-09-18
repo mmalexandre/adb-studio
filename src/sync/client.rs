@@ -659,6 +659,7 @@ fn temporary_download_path(destination: &Path, filename: &str) -> PathBuf {
 
 fn generated_audio_path(directory: &Path, source_stem: &str, extension: &str) -> PathBuf {
     let timestamp = Local::now().format("%Y%m%d_%H%M%S");
+    let source_stem = strip_generated_timestamp(source_stem).unwrap_or(source_stem);
     let base_name = format!("{source_stem}__generated_{timestamp}");
     let first_path = directory.join(format!("{base_name}.{extension}"));
     if !first_path.exists() {
@@ -672,6 +673,29 @@ fn generated_audio_path(directory: &Path, source_stem: &str, extension: &str) ->
         }
         suffix += 1;
     }
+}
+
+fn strip_generated_timestamp(source_stem: &str) -> Option<&str> {
+    let marker = "__generated_";
+    let (base, timestamp) = source_stem.rsplit_once(marker)?;
+    let mut parts = timestamp.split('_');
+    let date = parts.next()?;
+    let time = parts.next()?;
+    let (time, collision_suffix) = time
+        .split_once('-')
+        .map_or((time, None), |(time, suffix)| (time, Some(suffix)));
+    if parts.next().is_some()
+        || date.len() != 8
+        || time.len() != 6
+        || !date.bytes().all(|byte| byte.is_ascii_digit())
+        || !time.bytes().all(|byte| byte.is_ascii_digit())
+        || collision_suffix.is_some_and(|suffix| {
+            suffix.is_empty() || !suffix.bytes().all(|byte| byte.is_ascii_digit())
+        })
+    {
+        return None;
+    }
+    Some(base)
 }
 
 fn sort_remote_files(files: &mut [RemoteFile]) {
@@ -720,6 +744,31 @@ mod tests {
         let filename = path.file_name().unwrap().to_string_lossy();
         assert!(filename.starts_with("song__generated_"));
         assert!(filename.ends_with(".flac"));
+    }
+
+    #[test]
+    fn generated_audio_name_replaces_existing_generated_timestamp() {
+        let path = generated_audio_path(
+            Path::new("/workspace"),
+            "song__generated_20260101_010203",
+            "flac",
+        );
+        let filename = path.file_name().unwrap().to_string_lossy();
+        assert!(filename.starts_with("song__generated_"));
+        assert!(!filename.starts_with("song__generated_20260101_010203__generated_"));
+        assert!(filename.ends_with(".flac"));
+    }
+
+    #[test]
+    fn generated_audio_name_replaces_existing_collision_suffix() {
+        let path = generated_audio_path(
+            Path::new("/workspace"),
+            "song__generated_20260101_010203-2",
+            "flac",
+        );
+        let filename = path.file_name().unwrap().to_string_lossy();
+        assert!(filename.starts_with("song__generated_"));
+        assert!(!filename.contains("010203-2__generated_"));
     }
 
     #[test]
