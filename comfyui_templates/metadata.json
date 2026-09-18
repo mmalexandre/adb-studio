@@ -10,5 +10,11 @@
     "title": "ACE-Step 1.5 LoRA training",
     "description": "Train a LoRA with the ACE-Step 1.5 Turbo workflow.",
     "picture": "comfyui-acestep-1-5-lora-training-template.png"
+  },
+  {
+    "filename": "demucs-stem-separation.json",
+    "title": "Demucs Stem Separation",
+    "description": "Separate audio stems using the Demucs multi models.",
+    "picture": "comfyui-acestep-1-5-lora-training-template.png"
   }
 ]

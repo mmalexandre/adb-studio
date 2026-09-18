@@ -52,3 +52,4 @@ Avantages de cette application:
 - Commentaires
 - Aide a conserver les LoRa
 - Comme Lightroom
+- License Apache (avec Ace-Step 1.5)

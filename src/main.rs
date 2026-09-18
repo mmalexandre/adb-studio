@@ -9,7 +9,7 @@ use std::{
 };
 
 use audio::playback::PlaybackEngine;
-use slint::{ComponentHandle, Model};
+use slint::{ComponentHandle, Model, ModelRc, VecModel};
 
 mod app;
 mod audio;
@@ -78,6 +78,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let audio_load_state = state.audio_load_state.clone();
     window.set_build_number(BUILD_NUMBER.into());
+    window.set_template_workflows(ModelRc::new(VecModel::from(
+        app::workflow_controller::template_workflow_rows(),
+    )));
     window.set_light_theme(settings.borrow().light_theme);
     window.set_theme_index(if settings.borrow().light_theme { 1 } else { 0 });
     window.set_loop_mode(settings.borrow().loop_mode);
