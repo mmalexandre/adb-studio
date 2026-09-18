@@ -175,6 +175,26 @@ pub fn save_stem_manifest(folder: &Path, manifest: &StemExportManifest) -> io::R
     fs::write(directory.join("stem_exports.json"), contents)
 }
 
+pub fn clear_caches(folder: &Path) -> io::Result<()> {
+    for path in [
+        folder.join(".adbstudio").join("waveforms"),
+        folder.join(".adbstudio").join("workflow-cache"),
+    ] {
+        match fs::remove_dir_all(path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error),
+        }
+    }
+    match fs::remove_file(folder.join(".adbstudio").join("checksums.json")) {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error),
+    }
+    comfyui::clear_memory_cache();
+    Ok(())
+}
+
 pub fn load_index(folder: &Path) -> MetadataIndex {
     let path = folder.join(".adbstudio").join("index.json");
     fs::read_to_string(path)

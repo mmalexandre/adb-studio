@@ -21,6 +21,12 @@ struct CachedWorkflow {
 
 static MEMORY_CACHE: OnceLock<Mutex<HashMap<PathBuf, CachedWorkflow>>> = OnceLock::new();
 
+pub fn clear_memory_cache() {
+    if let Some(cache) = MEMORY_CACHE.get() {
+        cache.lock().expect("workflow cache mutex poisoned").clear();
+    }
+}
+
 pub fn parse_file_cached(folder: &Path, path: &Path) -> Result<ComfyUIWorkflow, String> {
     parse_file_cached_with_hash(folder, path).map(|(workflow, _)| workflow)
 }

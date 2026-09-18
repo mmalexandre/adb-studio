@@ -193,6 +193,7 @@ export component MainWindow inherits Window {
     in-out property <string> lora-editor-tag: "";
     in-out property <bool> splash-visible: true;
     callback open-folder();
+    callback clear-caches();
     callback redownload-missing-files();
     callback close-folder();
     callback close-about();
@@ -1521,7 +1522,7 @@ export component MainWindow inherits Window {
             x: 0px;
             y: 40px;
             width: 210px;
-            height: 84px;
+            height: 126px;
             background: root.light-theme ? #ffffff : #202832;
             border-color: root.light-theme ? #cbd2dc : #435064;
             border-width: 1px;
@@ -1557,6 +1558,24 @@ export component MainWindow inherits Window {
                 clicked => {
                     root.file-menu-visible = false;
                     root.redownload-missing-files();
+                }
+            }
+            Text {
+                text: "Clear caches";
+                color: root.light-theme ? #202833 : #f1f4f8;
+                x: 14px;
+                y: 84px;
+                width: parent.width - 14px;
+                height: 42px;
+                vertical-alignment: center;
+            }
+            TouchArea {
+                y: 84px;
+                width: parent.width;
+                height: 42px;
+                clicked => {
+                    root.file-menu-visible = false;
+                    root.clear-caches();
                 }
             }
         }

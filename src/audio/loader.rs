@@ -35,6 +35,17 @@ pub struct Result {
     pub raster: Vec<u8>,
 }
 
+pub fn clear_cache(state: &Arc<Mutex<State>>) {
+    let mut state_ref = state.lock().unwrap();
+    state_ref.generation = state_ref.generation.wrapping_add(1);
+    state_ref
+        .cancellation_generation
+        .fetch_add(1, Ordering::Release);
+    state_ref.generated.clear();
+    state_ref.loading.clear();
+    state_ref.requested_range = None;
+}
+
 pub fn request(state: &Arc<Mutex<State>>, start_index: usize, visible_rows: usize) {
     let mut state_ref = state.lock().unwrap();
     let start = start_index.min(state_ref.paths.len());

@@ -240,6 +240,29 @@ pub fn register_window_callbacks(
 
     {
         let weak_window = window.as_weak();
+        let audio_folder = Rc::clone(audio_folder);
+        let audio_model = Rc::clone(audio_model);
+        let audio_load_state = Arc::clone(audio_load_state);
+        window.on_clear_caches(move || {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            let Some(workspace) = audio_folder.borrow().clone() else {
+                window.set_audio_error("Open a workspace before clearing caches".into());
+                return;
+            };
+            if let Err(error) = crate::metadata::clear_caches(&workspace) {
+                window.set_audio_error(format!("Clear caches: {error}").into());
+                return;
+            }
+            crate::audio::loader::clear_cache(&audio_load_state);
+            refresh_audio_view(&window, &audio_folder, &audio_model, &audio_load_state);
+            window.set_audio_error("Caches cleared".into());
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
         let settings = Rc::clone(settings);
         let tree_state = Rc::clone(tree_state);
         let audio_folder = Rc::clone(audio_folder);
