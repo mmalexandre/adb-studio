@@ -24,6 +24,14 @@ slint::include_modules!();
 
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 const BUILD_NUMBER: &str = env!("ADB_BUILD_NUMBER");
+
+fn log_slow_ui_stage(name: &str, started: Instant) {
+    let elapsed = started.elapsed();
+    if elapsed >= Duration::from_millis(20) {
+        eprintln!("[ui] slow stage: {name}: {} ms", elapsed.as_millis());
+    }
+}
+
 use audio::loader::State as AudioLoadState;
 use audio::view::update_audio_loading_rows;
 use sync::WorkflowRunUpdate;
@@ -261,6 +269,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             slint::TimerMode::Repeated,
             Duration::from_millis(40),
             move || {
+                let timer_started = Instant::now();
                 if let Some(window) = weak_window.upgrade() {
                     if let Some(receiver) = workflow_run_receiver.borrow_mut().as_mut() {
                         while let Ok(update) = receiver.try_recv() {
@@ -363,6 +372,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     {
                         workspace_change_pending = false;
                         last_workspace_refresh = Instant::now();
+                        let refresh_started = Instant::now();
+                        let changed_path_count = workspace_change_paths.len();
                         lifecycle::refresh_workspace(
                             &window,
                             &audio_folder,
@@ -372,14 +383,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             &workflow_files,
                             &workspace_change_paths,
                         );
+                        let refresh_elapsed = refresh_started.elapsed();
+                        if refresh_elapsed >= Duration::from_millis(100) {
+                            eprintln!(
+                                "[ui] slow workspace refresh: {} ms, changed_paths={changed_path_count}",
+                                refresh_elapsed.as_millis()
+                            );
+                        }
                         workspace_change_paths.clear();
                     }
+                    let stage_started = Instant::now();
                     workspace::library_refresh::tick(
                         &window,
                         &audio_folder,
                         &audio_model,
                         &audio_load_state,
                     );
+                    log_slow_ui_stage("library refresh", stage_started);
+                    let stage_started = Instant::now();
                     app::playback_controller::tick(
                         &window,
                         &playback,
@@ -388,6 +409,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         &settings,
                         &last_persisted_position_for_timer,
                     );
+                    log_slow_ui_stage("playback", stage_started);
                     let state = audio_load_state.lock().unwrap();
                     window.set_audio_loading(state.running);
                     window.set_audio_completed(state.completed as i32);
@@ -397,6 +419,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         spinner_frame = (spinner_frame + 1) % 4;
                     }
                     drop(state);
+                    let stage_started = Instant::now();
                     app::sync_ui_controller::tick(
                         &window,
                         &settings,
@@ -413,12 +436,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         &recreate_workflow_pending,
                         &edited_workflow,
                     );
+                    log_slow_ui_stage("sync ui", stage_started);
                 }
                 let Some(model) = audio_model.borrow().clone() else {
                     return;
                 };
                 let loading = audio_load_state.lock().unwrap().loading.clone();
+                let stage_started = Instant::now();
                 update_audio_loading_rows(&audio_model, &loading, &mut previous_loading);
+                log_slow_ui_stage("audio loading rows", stage_started);
+                let stage_started = Instant::now();
                 if let Some(receiver) = audio_result_receiver.borrow_mut().as_mut() {
                     for result in receiver.try_iter().take(3) {
                         let current_generation = audio_load_state.lock().unwrap().generation;
@@ -470,6 +497,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             },
                         );
                     }
+                }
+                log_slow_ui_stage("waveform result rows", stage_started);
+                let timer_elapsed = timer_started.elapsed();
+                if timer_elapsed >= Duration::from_millis(100) {
+                    eprintln!("[ui] slow timer tick: {} ms", timer_elapsed.as_millis());
                 }
             },
         );

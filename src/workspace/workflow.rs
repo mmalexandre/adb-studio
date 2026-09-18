@@ -54,6 +54,9 @@ pub fn clear_workflow(window: &MainWindow) {
     window.set_workflow_key_index(-1);
     window.set_workflow_seed("".into());
     window.set_workflow_seed_number(0);
+    window.set_workflow_ksampler_cfg("".into());
+    window.set_workflow_ksampler_steps("".into());
+    window.set_workflow_reference_audio("".into());
     window.set_workflow_model("".into());
     window.set_workflow_prompt("".into());
     window.set_workflow_lyrics("".into());
@@ -88,6 +91,9 @@ pub fn apply_workflow(
     let seed_number = workflow.seed.parse().unwrap_or(0);
     window.set_workflow_seed(workflow.seed.into());
     window.set_workflow_seed_number(seed_number);
+    window.set_workflow_ksampler_cfg(workflow.ksampler_cfg.into());
+    window.set_workflow_ksampler_steps(workflow.ksampler_steps.into());
+    window.set_workflow_reference_audio(workflow.reference_audio.into());
     window.set_workflow_model(display_model_name(&workflow.model).into());
     window.set_workflow_prompt(workflow.prompt.into());
     window.set_workflow_lyrics(workflow.lyrics.into());

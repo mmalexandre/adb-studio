@@ -1,6 +1,6 @@
 use std::{
     cell::RefCell,
-    path::Path,
+    path::{Path, PathBuf},
     rc::Rc,
     sync::{Arc, Mutex},
     time::Duration,
@@ -40,10 +40,24 @@ pub fn save_playback_position(folder: &Path, engine: &PlaybackEngine) {
     let Some(path) = engine.path() else {
         return;
     };
-    let mut stored = metadata::load_audio_metadata(folder, path);
-    stored.last_position_seconds = engine.position().as_secs_f32();
-    stored.duration_seconds = engine.duration().as_secs_f32();
-    metadata::save_audio_metadata(folder, path, &stored);
+    save_playback_position_values(
+        folder.to_path_buf(),
+        path.to_path_buf(),
+        engine.position().as_secs_f32(),
+        engine.duration().as_secs_f32(),
+    );
+}
+
+pub fn save_playback_position_values(
+    folder: PathBuf,
+    path: PathBuf,
+    position_seconds: f32,
+    duration_seconds: f32,
+) {
+    let mut stored = metadata::load_audio_metadata(&folder, &path);
+    stored.last_position_seconds = position_seconds;
+    stored.duration_seconds = duration_seconds;
+    metadata::save_audio_metadata(&folder, &path, &stored);
 }
 
 pub fn request_audio_generation(

@@ -151,10 +151,18 @@ fn canonical_json_hash(value: &Value) -> String {
 pub fn parse_value(value: &Value) -> ComfyUIWorkflow {
     let mut workflow = ComfyUIWorkflow::default();
     visit(value, &mut workflow, false, None);
+    if value.get("nodes").is_some() {
+        if let Ok(prompt) = workflow_to_api_prompt(value) {
+            visit(&prompt, &mut workflow, false, None);
+        }
+    }
     let active_loras = active_lora_ids(value);
+    let mut seen_loras = std::collections::HashSet::new();
     workflow
         .loras
-        .retain(|lora| active_loras.contains(&lora.node_id));
+        .retain(|lora| {
+            active_loras.contains(&lora.node_id) && seen_loras.insert(lora.node_id.clone())
+        });
     workflow
 }
 
@@ -181,7 +189,7 @@ pub fn workflow_to_api_prompt(value: &Value) -> Result<Value, String> {
             ))
         })
         .collect::<std::collections::HashMap<_, _>>();
-    let primitive_values = nodes
+    let mut primitive_values = nodes
         .iter()
         .filter(|node| node.get("type").and_then(Value::as_str) == Some("PrimitiveNode"))
         .filter_map(|node| {
@@ -203,6 +211,35 @@ pub fn workflow_to_api_prompt(value: &Value) -> Result<Value, String> {
         })
         .flatten()
         .collect::<std::collections::HashMap<_, _>>();
+    for link in object
+        .get("links")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        let Some(link) = link.as_array() else {
+            continue;
+        };
+        let Some(link_id) = link.first().and_then(Value::as_i64) else {
+            continue;
+        };
+        let Some(source_id) = link.get(1).map(scalar_text) else {
+            continue;
+        };
+        let Some(source) = nodes.iter().find(|node| {
+            node.get("id").map(scalar_text).as_deref() == Some(source_id.as_str())
+                && node.get("type").and_then(Value::as_str) == Some("PrimitiveNode")
+        }) else {
+            continue;
+        };
+        if let Some(value) = source
+            .get("widgets_values")
+            .and_then(Value::as_array)
+            .and_then(|values| values.first())
+        {
+            primitive_values.insert(link_id, value.clone());
+        }
+    }
     let mut prompt = serde_json::Map::new();
     for node in nodes {
         let id = node
@@ -495,6 +532,41 @@ fn visit(
                 }
             }
 
+            if class_lower.contains("ksampler") {
+                let inputs = object
+                    .get("inputs")
+                    .and_then(Value::as_object)
+                    .unwrap_or(object);
+                if workflow.ksampler_cfg.is_empty() {
+                    workflow.ksampler_cfg = find_scalar(inputs, &["cfg"]).unwrap_or_default();
+                }
+                if workflow.ksampler_steps.is_empty() {
+                    workflow.ksampler_steps =
+                        find_scalar(inputs, &["steps"]).unwrap_or_default();
+                }
+            }
+
+            if class_lower.replace([' ', '_', '-'], "").contains("loadaudio") {
+                let inputs = object
+                    .get("inputs")
+                    .and_then(Value::as_object)
+                    .unwrap_or(object);
+                if workflow.reference_audio.is_empty() {
+                    workflow.reference_audio = find_string(
+                        inputs,
+                        &["audio", "audio_name", "filename", "file_name", "name"],
+                    )
+                    .or_else(|| {
+                        inputs
+                            .values()
+                            .find(|value| value.is_string())
+                            .map(scalar_text)
+                    })
+                    .map(|value| basename(&value))
+                    .unwrap_or_default();
+                }
+            }
+
             if workflow.model.is_empty() {
                 let inputs = object
                     .get("inputs")
@@ -583,7 +655,17 @@ fn parse_visual_node(node: &Value, workflow: &mut ComfyUIWorkflow) {
         .get("type")
         .and_then(Value::as_str)
         .unwrap_or_default();
-    let node_lower = node_type.to_ascii_lowercase();
+    let node_lower = format!(
+        "{} {}",
+        node_type,
+        object
+            .get("properties")
+            .and_then(Value::as_object)
+            .and_then(|properties| properties.get("Node name for S&R"))
+            .map(scalar_text)
+            .unwrap_or_default()
+    )
+    .to_ascii_lowercase();
     let widget_values = object
         .get("widgets_values")
         .and_then(Value::as_array)
@@ -674,6 +756,36 @@ fn parse_visual_node(node: &Value, workflow: &mut ComfyUIWorkflow) {
                 workflow.key = positional(8);
             }
         }
+    }
+
+    if node_lower.contains("ksampler") {
+        if workflow.ksampler_steps.is_empty() {
+            workflow.ksampler_steps = values
+                .get("steps")
+                .or_else(|| widget_values.get(2))
+                .map(scalar_text)
+                .unwrap_or_default();
+        }
+        if workflow.ksampler_cfg.is_empty() {
+            workflow.ksampler_cfg = values
+                .get("cfg")
+                .or_else(|| widget_values.get(3))
+                .map(scalar_text)
+                .unwrap_or_default();
+        }
+    }
+
+    if node_lower.replace([' ', '_', '-'], "").contains("loadaudio")
+        && workflow.reference_audio.is_empty()
+    {
+        workflow.reference_audio = values
+            .get("audio")
+            .or_else(|| values.get("audio_name"))
+            .or_else(|| values.get("filename"))
+            .or_else(|| widget_values.first())
+            .map(scalar_text)
+            .map(|value| basename(&value))
+            .unwrap_or_default();
     }
 
     if workflow.model.is_empty()
@@ -996,6 +1108,21 @@ mod tests {
         assert_eq!(workflow.model, "model.safetensors");
         assert_eq!(workflow.loras[0].filename, "style.safetensors");
         assert_eq!(workflow.loras[0].strength, "0.8");
+    }
+
+    #[test]
+    fn extracts_ksampler_values_from_corrected_example_template() {
+        let value: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../comfyui_templates/acestep-1-5-generate-with-lora.json"
+        ))
+        .unwrap();
+        let workflow = parse_value(&value);
+
+        assert_eq!(workflow.ksampler_steps, "8");
+        assert_eq!(workflow.ksampler_cfg, "1");
+        assert_eq!(workflow.seed, "33");
+        assert_eq!(workflow.bpm, "140");
+        assert_eq!(workflow.key, "D minor");
     }
 
     #[test]

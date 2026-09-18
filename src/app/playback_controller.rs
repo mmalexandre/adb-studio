@@ -2,6 +2,7 @@ use std::{
     cell::RefCell,
     path::{Path, PathBuf},
     rc::Rc,
+    thread,
     time::{Duration, Instant},
 };
 
@@ -243,7 +244,6 @@ pub fn register_playback_callbacks(
                     &loaded_workflow_path,
                     false,
                 );
-                save_playback_position(&folder, engine);
             }
         });
     }
@@ -305,7 +305,6 @@ pub fn register_playback_callbacks(
                     &loaded_workflow_path,
                     false,
                 );
-                save_playback_position(&folder, engine);
             }
         });
     }
@@ -458,7 +457,18 @@ pub fn tick(
         update_audio_rows(audio_model, engine.path(), playing, position, duration);
         if last_persisted_position.borrow().elapsed() >= Duration::from_millis(500) {
             if let Some(folder) = audio_folder.borrow().clone() {
-                save_playback_position(&folder, engine);
+                if let Some(path) = engine.path().map(Path::to_path_buf) {
+                    let position_seconds = position.as_secs_f32();
+                    let duration_seconds = duration.as_secs_f32();
+                    thread::spawn(move || {
+                        crate::audio::session::save_playback_position_values(
+                            folder,
+                            path,
+                            position_seconds,
+                            duration_seconds,
+                        );
+                    });
+                }
             }
             *last_persisted_position.borrow_mut() = Instant::now();
         }

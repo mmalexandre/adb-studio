@@ -86,24 +86,7 @@ fn generate(state: Arc<Mutex<State>>) {
             let mut state_ref = state.lock().unwrap();
             let paths = state_ref.paths.clone();
             let requested_range = state_ref.requested_range.take();
-            let idle_jobs = if requested_range.is_none() {
-                let idle_jobs = paths
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, path)| {
-                        path.is_file()
-                            && !state_ref.generated.contains(*path)
-                            && !state_ref.loading.contains(*path)
-                    })
-                    .map(|(index, path)| (index, path.clone()))
-                    .collect::<Vec<_>>();
-                state_ref
-                    .loading
-                    .extend(idle_jobs.iter().map(|(_, path)| path.clone()));
-                idle_jobs
-            } else {
-                Vec::new()
-            };
+            let idle_jobs = Vec::new();
             (
                 state_ref.folder.clone(),
                 paths,
