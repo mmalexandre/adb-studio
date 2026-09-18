@@ -12,7 +12,9 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use slint::{ComponentHandle, Model};
+use include_dir::{include_dir, Dir};
+use serde::Deserialize;
+use slint::{ComponentHandle, Image, Model, Rgba8Pixel, SharedPixelBuffer};
 
 use crate::{
     metadata::{self},
@@ -21,6 +23,50 @@ use crate::{
     workspace::workflow::{load_workflow_for_audio, refresh_workflow_loras},
     MainWindow,
 };
+
+static TEMPLATE_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/comfyui_templates");
+
+#[derive(Deserialize)]
+struct TemplateMetadata {
+    filename: String,
+    title: String,
+    description: String,
+    picture: String,
+}
+
+pub fn template_workflow_rows() -> Vec<crate::TemplateWorkflowRow> {
+    let metadata = TEMPLATE_DIR
+        .get_file("metadata.json")
+        .and_then(|file| serde_json::from_slice::<Vec<TemplateMetadata>>(file.contents()).ok())
+        .unwrap_or_default();
+    metadata
+        .into_iter()
+        .filter(|entry| TEMPLATE_DIR.get_file(&entry.filename).is_some())
+        .map(|entry| {
+            let picture = TEMPLATE_DIR
+                .get_file(&entry.picture)
+                .and_then(|file| image::load_from_memory(file.contents()).ok())
+                .map(|picture| {
+                    let picture = picture.to_rgba8();
+                    let (width, height) = picture.dimensions();
+                    let pixels = SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(
+                        picture.as_raw(),
+                        width,
+                        height,
+                    );
+                    Image::from_rgba8(pixels)
+                });
+            let has_picture = picture.is_some();
+            crate::TemplateWorkflowRow {
+                filename: entry.filename.into(),
+                title: entry.title.into(),
+                description: entry.description.into(),
+                picture: picture.unwrap_or_default(),
+                has_picture,
+            }
+        })
+        .collect()
+}
 
 pub fn register_workflow_callbacks(
     window: &MainWindow,
@@ -144,6 +190,59 @@ pub fn register_workflow_callbacks(
                 true,
             );
             window.set_audio_error("Workflow assigned".into());
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        let audio_folder = Rc::clone(audio_folder);
+        let tree_state = Rc::clone(tree_state);
+        let workflow_loading = Rc::clone(workflow_loading);
+        let loaded_workflow_path = Rc::clone(loaded_workflow_path);
+        let edited_workflow = Rc::clone(edited_workflow);
+        let edited_workflow_path = Rc::clone(edited_workflow_path);
+        window.on_assign_template_workflow_requested(move |filename| {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            let Some(folder) = audio_folder.borrow().clone() else {
+                window.set_audio_error("Open a workspace before assigning a workflow".into());
+                return;
+            };
+            let selected_paths = selected_audio_paths(&tree_state, &window);
+            if selected_paths.is_empty() {
+                window.set_audio_error("Select an audio file before assigning a workflow".into());
+                return;
+            }
+            let Some(template) = TEMPLATE_DIR.get_file(filename.as_str()) else {
+                window.set_audio_error("Template workflow is unavailable".into());
+                return;
+            };
+            let Ok(workflow) = serde_json::from_slice::<serde_json::Value>(template.contents()) else {
+                window.set_audio_error("Template workflow JSON is invalid".into());
+                return;
+            };
+            let Ok(contents) = serde_json::to_string_pretty(&workflow) else {
+                window.set_audio_error("Serialize template workflow failed".into());
+                return;
+            };
+            if assign_workflow_contents(&folder, &selected_paths, &contents).is_err() {
+                window.set_audio_error("Assign template workflow failed".into());
+                return;
+            }
+            let audio_path = PathBuf::from(window.get_selected_audio_path().as_str());
+            *edited_workflow.borrow_mut() = None;
+            *edited_workflow_path.borrow_mut() = None;
+            load_workflow_for_audio(
+                &window,
+                &folder,
+                &audio_path,
+                &workflow_loading,
+                &loaded_workflow_path,
+                true,
+            );
+            window.set_workflow_dropdown_visible(false);
+            window.set_audio_error("Template workflow assigned".into());
         });
     }
 
@@ -831,6 +930,26 @@ fn save_workflow(
     *edited_workflow_path.borrow_mut() = None;
     window.set_workflow_modified(false);
     window.set_audio_error("Workflow saved".into());
+}
+
+fn assign_workflow_contents(
+    folder: &Path,
+    selected_paths: &[PathBuf],
+    contents: &str,
+) -> Result<(), String> {
+    if selected_paths.is_empty() {
+        return Err("Select an audio file before assigning a workflow".to_owned());
+    }
+    for audio_path in selected_paths {
+        let Some(workflow_path) = metadata::workflow_path(folder, audio_path) else {
+            return Err("Audio file is outside the workspace".to_owned());
+        };
+        if let Some(parent) = workflow_path.parent() {
+            fs::create_dir_all(parent).map_err(|error| format!("Create workflow directory: {error}"))?;
+        }
+        fs::write(workflow_path, contents).map_err(|error| format!("Assign workflow: {error}"))?;
+    }
+    Ok(())
 }
 
 fn selected_audio_paths(

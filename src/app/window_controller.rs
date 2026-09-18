@@ -344,6 +344,19 @@ pub fn register_window_callbacks(
     {
         let weak_window = window.as_weak();
         let settings = Rc::clone(settings);
+        window.on_comment_quantization_index_changed(move |index| {
+            let index = index.clamp(0, 6);
+            settings.borrow_mut().comment_quantization_index = index;
+            settings::save(&settings.borrow());
+            if let Some(window) = weak_window.upgrade() {
+                window.set_comment_quantization_index(index);
+            }
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        let settings = Rc::clone(settings);
         window.on_shortcut_changed(move |action, key| {
             let mut settings = settings.borrow_mut();
             match action {

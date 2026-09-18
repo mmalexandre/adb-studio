@@ -38,6 +38,8 @@ pub struct AppSettings {
     pub notification_sound: bool,
     #[serde(default = "default_seek_seconds")]
     pub seek_seconds: f32,
+    #[serde(default)]
+    pub comment_quantization_index: i32,
     #[serde(default = "default_sort_order")]
     pub sort_order: i32,
     #[serde(default)]
@@ -237,6 +239,7 @@ impl Default for AppSettings {
             auto_play_new_tracks: false,
             notification_sound: default_notification_sound(),
             seek_seconds: default_seek_seconds(),
+            comment_quantization_index: 0,
             sort_order: default_sort_order(),
             shortcut_fullscreen: 0,
             shortcut_metadata: default_shortcut_metadata(),

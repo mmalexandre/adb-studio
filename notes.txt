@@ -11,8 +11,8 @@ revious
 x Filter by tag
 x Comment quantizing
 x Stem separation
+x Template ComfyUI files
 - LoRas manager - give ratings, comment, metadata
-- Template ComfyUI files
 - LoRa training template + doc (important: saving the keyword)
 - Slice out function (extract audio from comment)
 
@@ -30,6 +30,7 @@ Recherche:
 ----------
 - Comment recreer un morceau de facon deterministe (sauver le CPU?)
 - Repaint pour ameliorer la qualite d'un existant
+- Test stem separation on ComfyUI
 
 Cerises sur le gâteau:
 ----------------------

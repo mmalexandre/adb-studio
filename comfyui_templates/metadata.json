@@ -1,0 +1,14 @@
+[
+  {
+    "filename": "acestep-1-5-generate-with-lora.json",
+    "title": "ACE-Step 1.5 with LoRA",
+    "description": "Generate audio with the ACE-Step 1.5 model and a LoRA.",
+    "picture": "comfyui-acestep-1-5-audio-generation-template.png"
+  },
+  {
+    "filename": "acestep-1-5-turbo-lora-training.json",
+    "title": "ACE-Step 1.5 LoRA training",
+    "description": "Train a LoRA with the ACE-Step 1.5 Turbo workflow.",
+    "picture": "comfyui-acestep-1-5-lora-training-template.png"
+  }
+]
