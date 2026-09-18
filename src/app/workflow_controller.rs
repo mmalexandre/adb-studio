@@ -6,7 +6,7 @@ use std::{
     rc::Rc,
     sync::{
         atomic::{AtomicBool, Ordering},
-        mpsc, Arc,
+        mpsc, Arc, Mutex,
     },
     thread,
     time::{SystemTime, UNIX_EPOCH},
@@ -20,7 +20,10 @@ use crate::{
     metadata::{self},
     settings::{self, AppSettings},
     sync::{ComfyUiClient, SyncConfig, WorkflowRunUpdate},
-    workspace::workflow::{load_workflow_for_audio, refresh_workflow_loras},
+    workspace::{
+        library::refresh_audio,
+        workflow::{load_workflow_for_audio, refresh_workflow_loras},
+    },
     MainWindow,
 };
 
@@ -68,11 +71,23 @@ pub fn template_workflow_rows() -> Vec<crate::TemplateWorkflowRow> {
         .collect()
 }
 
+    fn current_audio_folder(window: &MainWindow, fallback_audio_path: &Path) -> PathBuf {
+        window
+        .get_audio_breadcrumbs()
+        .iter()
+        .last()
+        .map(|breadcrumb| PathBuf::from(breadcrumb.path.as_str()))
+        .or_else(|| fallback_audio_path.parent().map(Path::to_path_buf))
+        .unwrap_or_default()
+    }
+
 pub fn register_workflow_callbacks(
     window: &MainWindow,
     settings: &Rc<RefCell<AppSettings>>,
     tree_state: &Rc<RefCell<Option<crate::workspace::file_system::TreeState>>>,
     audio_folder: &Rc<RefCell<Option<PathBuf>>>,
+    audio_model: &Rc<RefCell<Option<Rc<slint::VecModel<crate::AudioRow>>>>>,
+    audio_load_state: &Arc<Mutex<crate::AudioLoadState>>,
     workflow_loading: &Rc<RefCell<bool>>,
     loaded_workflow_path: &Rc<RefCell<Option<PathBuf>>>,
     edited_workflow: &Rc<RefCell<Option<serde_json::Value>>>,
@@ -125,6 +140,8 @@ pub fn register_workflow_callbacks(
     {
         let weak_window = window.as_weak();
         let audio_folder = Rc::clone(audio_folder);
+        let audio_model = Rc::clone(audio_model);
+        let audio_load_state = Arc::clone(audio_load_state);
         let tree_state = Rc::clone(tree_state);
         let workflow_loading = Rc::clone(workflow_loading);
         let loaded_workflow_path = Rc::clone(loaded_workflow_path);
@@ -189,6 +206,13 @@ pub fn register_workflow_callbacks(
                 &loaded_workflow_path,
                 true,
             );
+            refresh_audio(
+                &window,
+                &audio_folder,
+                &audio_model,
+                &audio_load_state,
+                current_audio_folder(&window, &audio_path),
+            );
             window.set_audio_error("Workflow assigned".into());
         });
     }
@@ -196,6 +220,8 @@ pub fn register_workflow_callbacks(
     {
         let weak_window = window.as_weak();
         let audio_folder = Rc::clone(audio_folder);
+        let audio_model = Rc::clone(audio_model);
+        let audio_load_state = Arc::clone(audio_load_state);
         let tree_state = Rc::clone(tree_state);
         let workflow_loading = Rc::clone(workflow_loading);
         let loaded_workflow_path = Rc::clone(loaded_workflow_path);
@@ -240,6 +266,13 @@ pub fn register_workflow_callbacks(
                 &workflow_loading,
                 &loaded_workflow_path,
                 true,
+            );
+            refresh_audio(
+                &window,
+                &audio_folder,
+                &audio_model,
+                &audio_load_state,
+                current_audio_folder(&window, &audio_path),
             );
             window.set_workflow_dropdown_visible(false);
             window.set_audio_error("Template workflow assigned".into());

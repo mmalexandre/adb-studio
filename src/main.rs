@@ -128,6 +128,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &settings,
         &tree_state,
         &audio_folder,
+        &audio_model,
+        &audio_load_state,
         &workflow_loading,
         &loaded_workflow_path,
         &edited_workflow,
