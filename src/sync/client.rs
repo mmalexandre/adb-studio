@@ -1,5 +1,7 @@
+use chrono::Local;
 use reqwest::blocking::{Client, RequestBuilder, Response};
 use std::{
+    collections::HashMap,
     fs,
     io::Write,
     path::{Path, PathBuf},
@@ -10,7 +12,6 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tungstenite::{connect, Message};
-use chrono::Local;
 
 use crate::metadata;
 
@@ -120,8 +121,9 @@ impl ComfyUiClient {
     ) -> Result<(), SyncError> {
         validate_request_config(config)?;
         fs::create_dir_all(output_directory).map_err(SyncError::Io)?;
-        let api_prompt = metadata::comfyui::workflow_to_api_prompt(workflow)
-            .map_err(SyncError::Response)?;
+        let api_prompt =
+            metadata::comfyui::workflow_to_api_prompt(workflow).map_err(SyncError::Response)?;
+        let node_names = workflow_node_names(workflow);
         let client_id = format!(
             "adb-studio-{}-{}",
             std::process::id(),
@@ -154,6 +156,7 @@ impl ComfyUiClient {
             &prompt_id,
             &websocket_stop,
             updates,
+            &node_names,
         );
 
         let mut waiting_progress = 0.05_f32;
@@ -163,7 +166,7 @@ impl ComfyUiClient {
                 let _ = updates.send(WorkflowRunUpdate::Cancelled);
                 return Ok(());
             }
-            if let Some((progress, step)) = self.progress(config)? {
+            if let Some((progress, step)) = self.progress(config, &node_names)? {
                 waiting_progress = progress;
                 let _ = updates.send(WorkflowRunUpdate::Progress { progress, step });
             } else {
@@ -230,7 +233,11 @@ impl ComfyUiClient {
         }
     }
 
-    fn progress(&self, config: &SyncConfig) -> Result<Option<(f32, String)>, SyncError> {
+    fn progress(
+        &self,
+        config: &SyncConfig,
+        node_names: &HashMap<String, String>,
+    ) -> Result<Option<(f32, String)>, SyncError> {
         let url = format!("{}/progress", config.url);
         let response = self
             .send_request("GET", &url, self.client.get(&url))
@@ -251,7 +258,7 @@ impl ComfyUiClient {
         let step = value
             .get("node")
             .and_then(serde_json::Value::as_str)
-            .map(|node| format!("Running node {node}"))
+            .map(|node| format_running_node(node, node_names))
             .unwrap_or_else(|| "Running workflow".into());
         Ok(Some(((current / max).clamp(0.0, 1.0) as f32, step)))
     }
@@ -429,6 +436,7 @@ fn spawn_progress_websocket(
     prompt_id: &str,
     stop: &std::sync::Arc<std::sync::atomic::AtomicBool>,
     updates: &Sender<WorkflowRunUpdate>,
+    node_names: &HashMap<String, String>,
 ) {
     let Some(scheme) = base_url
         .strip_prefix("http://")
@@ -445,6 +453,7 @@ fn spawn_progress_websocket(
     let prompt_id = prompt_id.to_string();
     let stop = std::sync::Arc::clone(stop);
     let updates = updates.clone();
+    let node_names = node_names.clone();
     thread::spawn(move || {
         let Ok((mut socket, _)) = connect(url.as_str()) else {
             println!("[sync] ComfyUI WebSocket unavailable; using HTTP progress fallback");
@@ -486,7 +495,7 @@ fn spawn_progress_websocket(
                     let node = data
                         .get("node")
                         .and_then(serde_json::Value::as_str)
-                        .map(|node| format!("Running node {node}"))
+                        .map(|node| format_running_node(node, &node_names))
                         .unwrap_or_else(|| "Running workflow".into());
                     let _ = updates.send(WorkflowRunUpdate::Progress {
                         progress: (value / max).clamp(0.0, 1.0) as f32,
@@ -500,13 +509,68 @@ fn spawn_progress_websocket(
                         .unwrap_or("workflow");
                     let _ = updates.send(WorkflowRunUpdate::Progress {
                         progress: 0.0,
-                        step: format!("Running node {node}"),
+                        step: format_running_node(node, &node_names),
                     });
                 }
                 _ => {}
             }
         }
     });
+}
+
+fn workflow_node_names(workflow: &serde_json::Value) -> HashMap<String, String> {
+    let Some(object) = workflow.as_object() else {
+        return HashMap::new();
+    };
+    if let Some(nodes) = object.get("nodes").and_then(serde_json::Value::as_array) {
+        return nodes
+            .iter()
+            .filter_map(|node| {
+                let id = node.get("id").map(scalar_text)?;
+                let name = node
+                    .get("title")
+                    .and_then(serde_json::Value::as_str)
+                    .filter(|title| !title.is_empty())
+                    .or_else(|| {
+                        node.get("type")
+                            .and_then(serde_json::Value::as_str)
+                            .filter(|node_type| !node_type.is_empty())
+                    })?;
+                Some((id, name.to_string()))
+            })
+            .collect();
+    }
+    object
+        .iter()
+        .filter_map(|(id, node)| {
+            Some((
+                id.clone(),
+                node.get("_meta")
+                    .and_then(|meta| meta.get("title"))
+                    .and_then(serde_json::Value::as_str)
+                    .filter(|title| !title.is_empty())
+                    .or_else(|| node.get("class_type").and_then(serde_json::Value::as_str))?
+                    .to_string(),
+            ))
+        })
+        .collect()
+}
+
+fn format_running_node(node_id: &str, node_names: &HashMap<String, String>) -> String {
+    let name = node_names
+        .get(node_id)
+        .map(String::as_str)
+        .unwrap_or(node_id);
+    format!("Running node {name}")
+}
+
+fn scalar_text(value: &serde_json::Value) -> String {
+    value
+        .as_str()
+        .map(str::to_string)
+        .or_else(|| value.as_i64().map(|number| number.to_string()))
+        .or_else(|| value.as_u64().map(|number| number.to_string()))
+        .unwrap_or_default()
 }
 
 #[derive(Clone, Debug)]
@@ -635,7 +699,10 @@ fn validate_request_config(config: &SyncConfig) -> Result<(), SyncError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{generated_audio_path, sort_remote_files, temporary_download_path};
+    use super::{
+        format_running_node, generated_audio_path, sort_remote_files, temporary_download_path,
+        workflow_node_names,
+    };
     use crate::sync::RemoteFile;
     use std::path::Path;
 
@@ -653,6 +720,23 @@ mod tests {
         let filename = path.file_name().unwrap().to_string_lossy();
         assert!(filename.starts_with("song__generated_"));
         assert!(filename.ends_with(".flac"));
+    }
+
+    #[test]
+    fn progress_uses_workflow_node_names() {
+        let workflow = serde_json::json!({
+            "nodes": [
+                {"id": 4, "type": "KSampler"},
+                {"id": 7, "type": "SaveAudio", "title": "Export result"}
+            ]
+        });
+        let names = workflow_node_names(&workflow);
+        assert_eq!(format_running_node("4", &names), "Running node KSampler");
+        assert_eq!(
+            format_running_node("7", &names),
+            "Running node Export result"
+        );
+        assert_eq!(format_running_node("99", &names), "Running node 99");
     }
 
     #[test]
