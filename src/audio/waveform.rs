@@ -235,7 +235,10 @@ fn decode_peaks(
         symphonia::default::get_codecs().make(&codec_params, &DecoderOptions::default())?;
     let mut samples = Vec::new();
     let sample_rate = codec_params.sample_rate.unwrap_or(44_100) as f32;
-    let channels = codec_params.channels.map(|value| value.count()).unwrap_or(1);
+    let channels = codec_params
+        .channels
+        .map(|value| value.count())
+        .unwrap_or(1);
 
     while let Ok(packet) = format.next_packet() {
         if should_cancel() {
@@ -257,15 +260,15 @@ fn decode_peaks(
     let bpm = estimate_bpm(&samples, sample_rate, channels);
     Ok((
         (0..PEAK_COUNT)
-        .map(|bucket| {
-            samples
-                .iter()
-                .skip(bucket * bucket_size)
-                .take(bucket_size)
-                .copied()
-                .fold(0.0, f32::max)
-        })
-        .collect(),
+            .map(|bucket| {
+                samples
+                    .iter()
+                    .skip(bucket * bucket_size)
+                    .take(bucket_size)
+                    .copied()
+                    .fold(0.0, f32::max)
+            })
+            .collect(),
         bpm,
     ))
 }

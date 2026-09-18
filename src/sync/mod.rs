@@ -18,6 +18,10 @@ pub const DEFAULT_INTERVAL_MS: u64 = 4000;
 
 #[derive(Clone, Debug)]
 pub enum WorkflowRunUpdate {
+    WorkflowUploaded {
+        config: SyncConfig,
+    },
+    WorkflowUploadError(String),
     Progress {
         progress: f32,
         step: String,

@@ -247,6 +247,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let sync_test_receiver = Rc::clone(&sync_test_receiver);
         let recreate_workflow_pending = Rc::clone(&recreate_workflow_pending);
         let edited_workflow = Rc::clone(&edited_workflow);
+        let edited_workflow_path = Rc::clone(&edited_workflow_path);
         let tree_state_for_conversion = Rc::clone(&tree_state);
         let mut conversion_updates = 0usize;
         let mut spinner_frame = 0usize;
@@ -264,6 +265,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if let Some(receiver) = workflow_run_receiver.borrow_mut().as_mut() {
                         while let Ok(update) = receiver.try_recv() {
                             match update {
+                                WorkflowRunUpdate::WorkflowUploaded { config } => {
+                                    *edited_workflow.borrow_mut() = None;
+                                    *edited_workflow_path.borrow_mut() = None;
+                                    window.set_workflow_modified(false);
+                                    match app::workflow_controller::open_comfyui_workflow(&config) {
+                                        Ok(()) => window
+                                            .set_audio_error("Workflow opened in ComfyUI".into()),
+                                        Err(error) => window.set_audio_error(
+                                            format!("ComfyUI opened upload failed: {error}").into(),
+                                        ),
+                                    }
+                                }
+                                WorkflowRunUpdate::WorkflowUploadError(message) => {
+                                    window.set_audio_error(format!("ComfyUI: {message}").into());
+                                }
                                 WorkflowRunUpdate::Progress { progress, step } => {
                                     window.set_comfyui_run_progress(progress);
                                     window.set_comfyui_run_step(step.into());
@@ -332,12 +348,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             &tree_state_for_conversion,
                         );
                     }
-                    app::stem_controller::tick(
-                        &window,
-                        &stem_receiver,
-                        &stem_cancelled,
-                        &stem_job,
-                    );
+                    app::stem_controller::tick(&window, &stem_receiver, &stem_cancelled, &stem_job);
                     let mut workspace_changed = false;
                     while let Ok(paths) = workspace_change_receiver.borrow_mut().try_recv() {
                         workspace_changed = true;

@@ -103,6 +103,7 @@ pub fn register_workflow_callbacks(
         let recreate_workflow_pending = Rc::clone(recreate_workflow_pending);
         let edited_workflow = Rc::clone(edited_workflow);
         let edited_workflow_path = Rc::clone(edited_workflow_path);
+        let workflow_run_sender = workflow_run_sender.clone();
         window.on_recreate_workflow_requested(move || {
             let Some(window) = weak_window.upgrade() else {
                 return;
@@ -134,6 +135,7 @@ pub fn register_workflow_callbacks(
                 &config,
                 &edited_workflow,
                 &edited_workflow_path,
+                &workflow_run_sender,
             );
         });
     }
@@ -778,7 +780,6 @@ pub fn register_workflow_callbacks(
             }
         });
     }
-
 }
 
 fn recreate_workflow(
@@ -787,6 +788,7 @@ fn recreate_workflow(
     config: &SyncConfig,
     edited_workflow: &Rc<RefCell<Option<serde_json::Value>>>,
     edited_workflow_path: &Rc<RefCell<Option<PathBuf>>>,
+    workflow_run_sender: &mpsc::Sender<WorkflowRunUpdate>,
 ) {
     let audio_path = window.get_selected_audio_path().to_string();
     if audio_path.is_empty() {
@@ -836,20 +838,18 @@ fn recreate_workflow(
     ] {
         metadata::comfyui::update_metadata(&mut workflow, field, &value);
     }
-    match ComfyUiClient::new().and_then(|client| client.upload_workflow(config, &workflow)) {
-        Ok(()) => {
-            *edited_workflow.borrow_mut() = None;
-            *edited_workflow_path.borrow_mut() = None;
-            window.set_workflow_modified(false);
-            match open_comfyui_workflow(config) {
-                Ok(()) => window.set_audio_error("Workflow opened in ComfyUI".into()),
-                Err(error) => {
-                    window.set_audio_error(format!("ComfyUI opened upload failed: {error}").into())
-                }
-            }
-        }
-        Err(error) => window.set_audio_error(format!("ComfyUI: {error}").into()),
-    }
+    let config = config.clone();
+    let workflow_run_sender = workflow_run_sender.clone();
+    window.set_audio_error("Uploading workflow to ComfyUI...".into());
+    thread::spawn(move || {
+        let result =
+            ComfyUiClient::new().and_then(|client| client.upload_workflow(&config, &workflow));
+        let update = match result {
+            Ok(()) => WorkflowRunUpdate::WorkflowUploaded { config },
+            Err(error) => WorkflowRunUpdate::WorkflowUploadError(error.to_string()),
+        };
+        let _ = workflow_run_sender.send(update);
+    });
 }
 
 fn save_workflow(
@@ -1018,7 +1018,7 @@ fn write_modified_workflow(
     Ok(modified_path)
 }
 
-fn open_comfyui_workflow(config: &SyncConfig) -> Result<(), String> {
+pub(crate) fn open_comfyui_workflow(config: &SyncConfig) -> Result<(), String> {
     let url = format!("{}/?adb-music-player=open-workflow", config.url);
     #[cfg(target_os = "linux")]
     let mut command = Command::new("xdg-open");

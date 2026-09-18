@@ -4,11 +4,7 @@ use std::{
     process::Command,
 };
 
-pub fn destination(
-    source: &Path,
-    start_seconds: f32,
-    end_seconds: f32,
-) -> Result<PathBuf, String> {
+pub fn destination(source: &Path, start_seconds: f32, end_seconds: f32) -> Result<PathBuf, String> {
     validate_range(start_seconds, end_seconds)?;
     let stem = source
         .file_stem()
