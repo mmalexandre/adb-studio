@@ -74,6 +74,10 @@ pub struct AppSettings {
     pub comment_background_color: String,
     #[serde(default = "default_comment_text_color")]
     pub comment_text_color: String,
+    #[serde(default = "default_stem_format")]
+    pub stem_format: String,
+    #[serde(default = "default_stem_output_folder")]
+    pub stem_output_folder: String,
     #[serde(skip, default = "default_label_definitions")]
     pub label_definitions: Vec<LabelDefinition>,
     #[serde(skip, default = "default_tag_definitions")]
@@ -142,6 +146,14 @@ fn default_comment_background_color() -> String {
 
 fn default_comment_text_color() -> String {
     "#ffffff".to_owned()
+}
+
+fn default_stem_format() -> String {
+    "flac".to_owned()
+}
+
+fn default_stem_output_folder() -> String {
+    "stems".to_owned()
 }
 
 fn default_label_definitions() -> Vec<LabelDefinition> {
@@ -243,6 +255,8 @@ impl Default for AppSettings {
             hide_tips_of_the_day: false,
             comment_background_color: default_comment_background_color(),
             comment_text_color: default_comment_text_color(),
+            stem_format: default_stem_format(),
+            stem_output_folder: default_stem_output_folder(),
             label_definitions: default_label_definitions(),
             tag_definitions: default_tag_definitions(),
             next_label_id: default_next_label_id(),

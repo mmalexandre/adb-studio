@@ -12,6 +12,7 @@ use crate::{
     audio::{
         conversion::{ConversionJob, ConversionUpdate},
         loader::{Result as AudioLoadResult, State as AudioLoadState},
+        stem_separation::{StemJob, StemUpdate},
     },
     settings::AppSettings,
     sync::WorkflowRunUpdate,
@@ -24,6 +25,7 @@ pub mod file_controller;
 pub mod metadata_pane_controller;
 pub mod playback_controller;
 pub mod sync_ui_controller;
+pub mod stem_controller;
 pub mod tree_controller;
 pub mod window_controller;
 pub mod workflow_controller;
@@ -57,6 +59,9 @@ pub struct AppState {
     pub conversion_temp_root: Rc<RefCell<Option<PathBuf>>>,
     pub conversion_target: Rc<RefCell<Option<PathBuf>>>,
     pub conversion_model: Rc<RefCell<Option<Rc<VecModel<crate::ConversionRow>>>>>,
+    pub stem_receiver: Rc<RefCell<Option<mpsc::Receiver<StemUpdate>>>>,
+    pub stem_cancelled: Rc<RefCell<Option<Arc<std::sync::atomic::AtomicBool>>>>,
+    pub stem_job: Rc<RefCell<Option<StemJob>>>,
     pub workflow_run_sender: mpsc::Sender<WorkflowRunUpdate>,
     pub workflow_run_receiver: Rc<RefCell<Option<mpsc::Receiver<WorkflowRunUpdate>>>>,
     pub workflow_run_cancelled: Rc<RefCell<Option<Arc<std::sync::atomic::AtomicBool>>>>,
@@ -111,6 +116,9 @@ impl AppState {
             conversion_temp_root: Rc::new(RefCell::new(None)),
             conversion_target: Rc::new(RefCell::new(None)),
             conversion_model: Rc::new(RefCell::new(None)),
+            stem_receiver: Rc::new(RefCell::new(None)),
+            stem_cancelled: Rc::new(RefCell::new(None)),
+            stem_job: Rc::new(RefCell::new(None)),
             workflow_run_sender,
             workflow_run_receiver: Rc::new(RefCell::new(Some(workflow_run_receiver))),
             workflow_run_cancelled: Rc::new(RefCell::new(None)),
