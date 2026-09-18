@@ -492,6 +492,9 @@ pub fn register_workflow_callbacks(
                 window.set_audio_error("Configure ComfyUI sync before running a workflow".into());
                 return;
             };
+            if cancelled_state.borrow().is_some() {
+                return;
+            }
             let cancelled = Arc::new(AtomicBool::new(false));
             *cancelled_state.borrow_mut() = Some(Arc::clone(&cancelled));
             window.set_comfyui_run_progress(0.0);

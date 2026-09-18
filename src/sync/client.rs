@@ -17,7 +17,7 @@ use crate::metadata;
 use super::{RemoteFile, SyncConfig, SyncError, WorkflowRunUpdate};
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
-const API_POLL_INTERVAL: Duration = Duration::from_millis(500);
+const API_POLL_INTERVAL: Duration = Duration::from_secs(4);
 static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 pub struct ComfyUiClient {
