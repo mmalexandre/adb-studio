@@ -10,7 +10,7 @@ use crate::{
         file_system::{self, TreeState},
         library::refresh_audio,
         tree_nav::{refresh_tree, select_tree_path},
-        workflow::load_workflow_for_audio,
+        workflow::{clear_workflow, load_workflow_for_audio},
     },
     AudioRow, MainWindow,
 };
@@ -73,12 +73,26 @@ pub fn register_tree_callbacks(
             };
             window.set_selected_audio_path(path.clone());
             let path = std::path::Path::new(path.as_str());
+            let is_lora =
+                file_system::FileKind::from_path(path) == file_system::FileKind::Safetensors;
+            window.set_selected_is_lora(is_lora);
             *edited_workflow.borrow_mut() = None;
             *edited_workflow_path.borrow_mut() = None;
             window.set_workflow_modified(false);
             crate::audio::view::select_audio_path(&audio_model, path);
             select_tree_path(&window, &tree_state, &settings, path);
             if let Some(folder) = audio_folder.borrow().clone() {
+                if is_lora {
+                    let lora_metadata = crate::metadata::load_audio_metadata(&folder, path);
+                    clear_workflow(&window);
+                    window.set_workflow_loading(false);
+                    window.set_user_comments(lora_metadata.user_comments.into());
+                    window.set_lora_custom_tag(lora_metadata.custom_tag.into());
+                    *workflow_loading.borrow_mut() = false;
+                    *loaded_workflow_path.borrow_mut() = None;
+                    return;
+                }
+                window.set_lora_custom_tag("".into());
                 load_workflow_for_audio(
                     &window,
                     &folder,

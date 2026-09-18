@@ -12,8 +12,7 @@ x Filter by tag
 x Comment quantizing
 x Stem separation
 x Template ComfyUI files
-- LoRas manager - give ratings, comment, metadata
-- LoRa training template + doc (important: saving the keyword)
+o LoRas manager - give ratings, comment, metadata
 - Slice out function (extract audio from comment)
 
 Mise en prod:

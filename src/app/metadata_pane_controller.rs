@@ -94,7 +94,9 @@ pub fn register_metadata_pane_callbacks(
                                 path: row.path,
                                 name: row.name,
                                 subtitle: row.subtitle,
+                                custom_tag: row.custom_tag,
                                 is_folder: row.is_folder,
+                                is_lora: row.is_lora,
                                 depth: row.depth,
                                 is_expanded: row.is_expanded,
                                 modified_date: row.modified_date,
@@ -156,6 +158,40 @@ pub fn register_metadata_pane_callbacks(
 
     {
         let weak_window = window.as_weak();
+        let audio_folder = Rc::clone(audio_folder);
+        let audio_model = Rc::clone(audio_model);
+        window.on_lora_custom_tag_changed(move |tag| {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            let Some(folder) = audio_folder.borrow().clone() else {
+                return;
+            };
+            let path = PathBuf::from(window.get_selected_audio_path().as_str());
+            if path.as_os_str().is_empty() {
+                return;
+            }
+            let mut file = metadata::load_audio_metadata(&folder, &path);
+            file.custom_tag = tag.to_string();
+            metadata::save_audio_metadata(&folder, &path, &file);
+            if let Some(model) = audio_model.borrow().clone() {
+                for index in 0..model.row_count() {
+                    let Some(row) = model.row_data(index) else {
+                        continue;
+                    };
+                    if row.path == path.to_string_lossy().as_ref() {
+                        let mut updated = row.clone();
+                        updated.custom_tag = tag.clone();
+                        model.set_row_data(index, updated);
+                        break;
+                    }
+                }
+            }
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
         let settings = Rc::clone(settings);
         window.on_comment_colors_selected(move |background, text| {
             let background = background.to_string();
@@ -211,7 +247,9 @@ pub fn register_metadata_pane_callbacks(
                                 path: row.path,
                                 name: row.name,
                                 subtitle: row.subtitle,
+                                custom_tag: row.custom_tag,
                                 is_folder: row.is_folder,
+                                is_lora: row.is_lora,
                                 depth: row.depth,
                                 is_expanded: row.is_expanded,
                                 modified_date: row.modified_date,
@@ -616,7 +654,9 @@ fn update_audio_tag_assignment(
                 path: row.path,
                 name: row.name,
                 subtitle: row.subtitle,
+                custom_tag: row.custom_tag,
                 is_folder: row.is_folder,
+                is_lora: row.is_lora,
                 depth: row.depth,
                 is_expanded: row.is_expanded,
                 modified_date: row.modified_date,

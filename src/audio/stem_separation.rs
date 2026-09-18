@@ -3,7 +3,11 @@ use std::{
     io::Read,
     path::{Component, Path, PathBuf},
     process::{Command, Stdio},
-    sync::{atomic::{AtomicBool, Ordering}, mpsc::Sender, Arc},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc::Sender,
+        Arc,
+    },
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -96,7 +100,10 @@ pub fn normalized_output_folder(value: &str) -> Result<PathBuf, String> {
     let path = Path::new(value);
     if path.is_absolute()
         || path.components().any(|component| {
-            matches!(component, Component::ParentDir | Component::RootDir | Component::Prefix(_))
+            matches!(
+                component,
+                Component::ParentDir | Component::RootDir | Component::Prefix(_)
+            )
         })
     {
         return Err("Stem output folder must be inside the workspace".into());
@@ -145,9 +152,15 @@ pub fn start(job: StemJob, sender: Sender<StemUpdate>, cancelled: Arc<AtomicBool
     std::thread::spawn(move || {
         let result = run(job, &sender, &cancelled);
         match result {
-            Ok(()) => { let _ = sender.send(StemUpdate::Complete); }
-            Err(error) if error == "cancelled" => { let _ = sender.send(StemUpdate::Cancelled); }
-            Err(error) => { let _ = sender.send(StemUpdate::Error(error)); }
+            Ok(()) => {
+                let _ = sender.send(StemUpdate::Complete);
+            }
+            Err(error) if error == "cancelled" => {
+                let _ = sender.send(StemUpdate::Cancelled);
+            }
+            Err(error) => {
+                let _ = sender.send(StemUpdate::Error(error));
+            }
         }
     });
 }
@@ -168,7 +181,8 @@ fn run(job: StemJob, sender: &Sender<StemUpdate>, cancelled: &AtomicBool) -> Res
         .workspace
         .join(".adbstudio")
         .join(format!("stems-{}", std::process::id()));
-    fs::create_dir_all(&temporary).map_err(|error| format!("Could not create temporary directory: {error}"))?;
+    fs::create_dir_all(&temporary)
+        .map_err(|error| format!("Could not create temporary directory: {error}"))?;
     let result = run_inner(&job, &output_directory, &temporary, sender, cancelled);
     if result.is_err() {
         let _ = fs::remove_dir_all(&temporary);
@@ -195,8 +209,14 @@ fn run_inner(
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|error| format!("Could not start Demucs: {error}"))?;
-    let stdout = process.stdout.take().ok_or_else(|| "Could not read Demucs output".to_string())?;
-    let stderr = process.stderr.take().ok_or_else(|| "Could not read Demucs errors".to_string())?;
+    let stdout = process
+        .stdout
+        .take()
+        .ok_or_else(|| "Could not read Demucs output".to_string())?;
+    let stderr = process
+        .stderr
+        .take()
+        .ok_or_else(|| "Could not read Demucs errors".to_string())?;
     let stdout_thread = std::thread::spawn({
         let sender = sender.clone();
         move || relay_demucs_progress(stdout, sender)
@@ -215,10 +235,15 @@ fn run_inner(
     }
     check_cancelled(cancelled)?;
 
-    let source_stem = job.source.file_stem().and_then(|name| name.to_str()).unwrap_or("track");
+    let source_stem = job
+        .source
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .unwrap_or("track");
     let demucs_directory = temporary.join(MODEL).join(source_stem);
     let stem_names = ["vocals", "drums", "bass", "other"];
-    fs::create_dir_all(output_directory).map_err(|error| format!("Could not create output directory: {error}"))?;
+    fs::create_dir_all(output_directory)
+        .map_err(|error| format!("Could not create output directory: {error}"))?;
     let mut stems = Vec::new();
     for (index, kind) in stem_names.iter().enumerate() {
         check_cancelled(cancelled)?;
@@ -226,7 +251,11 @@ fn run_inner(
         if !source.is_file() {
             return Err(format!("Demucs did not produce {kind}.wav"));
         }
-        send_progress(sender, 0.55 + index as f32 * 0.09, &format!("Exporting {kind} stem"));
+        send_progress(
+            sender,
+            0.55 + index as f32 * 0.09,
+            &format!("Exporting {kind} stem"),
+        );
         let destination = output_directory.join(format!("{kind}.{}", job.format));
         let status = Command::new("ffmpeg")
             .args(["-y", "-hide_banner", "-loglevel", "error", "-i"])
@@ -249,17 +278,19 @@ fn run_inner(
         .replace('\\', "/");
     let manifest_stems = stems
         .into_iter()
-        .map(|(kind, path)| Ok(StemFile {
-            kind,
-            path: relative_path(&job.workspace, &path)?,
-            hash: metadata::checksum_for_file(&job.workspace, &path)
-                .map_err(|error| format!("Could not hash generated stem: {error}"))?,
-        }))
+        .map(|(kind, path)| {
+            Ok(StemFile {
+                kind,
+                path: relative_path(&job.workspace, &path)?,
+                hash: metadata::checksum_for_file(&job.workspace, &path)
+                    .map_err(|error| format!("Could not hash generated stem: {error}"))?,
+            })
+        })
         .collect::<Result<Vec<_>, String>>()?;
     let mut manifest = metadata::load_stem_manifest(&job.workspace);
-    manifest.exports.retain(|export| {
-        !(export.parent_path == parent_path && export.parent_hash == parent_hash)
-    });
+    manifest
+        .exports
+        .retain(|export| !(export.parent_path == parent_path && export.parent_hash == parent_hash));
     manifest.exports.push(StemExport {
         parent_path,
         parent_hash,
@@ -291,8 +322,12 @@ fn relay_demucs_progress<R: Read>(mut reader: R, sender: Sender<StemUpdate>) {
     let mut buffer = [0u8; 4096];
     let mut line = String::new();
     loop {
-        let Ok(count) = reader.read(&mut buffer) else { break };
-        if count == 0 { break; }
+        let Ok(count) = reader.read(&mut buffer) else {
+            break;
+        };
+        if count == 0 {
+            break;
+        }
         for byte in &buffer[..count] {
             if *byte == b'\r' || *byte == b'\n' {
                 send_demucs_progress(&sender, &line);
@@ -315,7 +350,11 @@ fn send_demucs_progress(sender: &Sender<StemUpdate>, output: &str) {
         return;
     };
     let progress = 0.35 + (percent.clamp(0.0, 100.0) / 100.0) * 0.2;
-    send_progress(sender, progress, &format!("Separating audio with Demucs ({percent:.0}%)"));
+    send_progress(
+        sender,
+        progress,
+        &format!("Separating audio with Demucs ({percent:.0}%)"),
+    );
 }
 
 fn ensure_demucs(sender: &Sender<StemUpdate>, cancelled: &AtomicBool) -> Result<PathBuf, String> {
@@ -326,25 +365,45 @@ fn ensure_demucs(sender: &Sender<StemUpdate>, cancelled: &AtomicBool) -> Result<
     if let Some(python) = demucs_python() {
         return Ok(python);
     }
-    let python = if cfg!(windows) { root.join("venv").join("Scripts").join("python.exe") } else { root.join("venv").join("bin").join("python") };
+    let python = if cfg!(windows) {
+        root.join("venv").join("Scripts").join("python.exe")
+    } else {
+        root.join("venv").join("bin").join("python")
+    };
     send_progress(sender, 0.05, "Creating Demucs environment");
-    fs::create_dir_all(&root).map_err(|error| format!("Could not create Demucs directory: {error}"))?;
+    fs::create_dir_all(&root)
+        .map_err(|error| format!("Could not create Demucs directory: {error}"))?;
     let system_python = if cfg!(windows) { "python" } else { "python3" };
-    let status = Command::new(system_python).args(["-m", "venv"]).arg(root.join("venv")).status().map_err(|error| format!("Python is required to install Demucs: {error}"))?;
-    if !status.success() { return Err(format!("{system_python} could not create a virtual environment")); }
+    let status = Command::new(system_python)
+        .args(["-m", "venv"])
+        .arg(root.join("venv"))
+        .status()
+        .map_err(|error| format!("Python is required to install Demucs: {error}"))?;
+    if !status.success() {
+        return Err(format!(
+            "{system_python} could not create a virtual environment"
+        ));
+    }
     check_cancelled(cancelled)?;
     send_progress(sender, 0.2, "Downloading PyTorch for the detected backend");
     let torch_index = pytorch_index_url();
     let status = Command::new(&python)
         .args([
-            "-m", "pip", "install", "--force-reinstall", "torch==2.6.0", "torchaudio==2.6.0",
+            "-m",
+            "pip",
+            "install",
+            "--force-reinstall",
+            "torch==2.6.0",
+            "torchaudio==2.6.0",
             "--index-url",
         ])
         .arg(torch_index)
         .status()
         .map_err(|error| format!("Could not start pip: {error}"))?;
     if !status.success() {
-        return Err(format!("pip could not install the selected PyTorch backend ({status})"));
+        return Err(format!(
+            "pip could not install the selected PyTorch backend ({status})"
+        ));
     }
     check_cancelled(cancelled)?;
     send_progress(sender, 0.27, "Downloading Demucs");
@@ -352,16 +411,31 @@ fn ensure_demucs(sender: &Sender<StemUpdate>, cancelled: &AtomicBool) -> Result<
         .args(["-m", "pip", "install", "--no-deps", "demucs==4.0.1"])
         .status()
         .map_err(|error| format!("Could not start pip: {error}"))?;
-    if !status.success() { return Err(format!("pip exited with {status}")); }
+    if !status.success() {
+        return Err(format!("pip exited with {status}"));
+    }
     let status = Command::new(&python)
         .args([
-            "-m", "pip", "install", "dora-search", "einops", "julius", "lameenc",
-            "openunmix", "pyyaml", "retrying", "soundfile", "submitit", "tqdm",
+            "-m",
+            "pip",
+            "install",
+            "dora-search",
+            "einops",
+            "julius",
+            "lameenc",
+            "openunmix",
+            "pyyaml",
+            "retrying",
+            "soundfile",
+            "submitit",
+            "tqdm",
         ])
         .status()
         .map_err(|error| format!("Could not start pip: {error}"))?;
     if !status.success() {
-        return Err(format!("pip could not install Demucs dependencies ({status})"));
+        return Err(format!(
+            "pip could not install Demucs dependencies ({status})"
+        ));
     }
     check_cancelled(cancelled)?;
     send_progress(sender, 0.3, "Verifying Demucs installation");
@@ -384,11 +458,18 @@ fn command_available(command: &str) -> bool {
 }
 
 fn check_cancelled(cancelled: &AtomicBool) -> Result<(), String> {
-    if cancelled.load(Ordering::Acquire) { Err("cancelled".into()) } else { Ok(()) }
+    if cancelled.load(Ordering::Acquire) {
+        Err("cancelled".into())
+    } else {
+        Ok(())
+    }
 }
 
 fn send_progress(sender: &Sender<StemUpdate>, progress: f32, status: &str) {
-    let _ = sender.send(StemUpdate::Progress { progress, status: status.into() });
+    let _ = sender.send(StemUpdate::Progress {
+        progress,
+        status: status.into(),
+    });
 }
 
 fn relative_path(workspace: &Path, path: &Path) -> Result<String, String> {
@@ -407,7 +488,16 @@ mod tests {
         assert_eq!(normalized_output_folder("").unwrap(), PathBuf::new());
         assert!(normalized_output_folder("../outside").is_err());
         assert!(normalized_output_folder("/outside").is_err());
-        let job = StemJob { workspace: PathBuf::from("workspace"), source: PathBuf::from("workspace/song.wav"), output_folder: "stems".into(), format: "flac".into(), overwrite: false };
-        assert_eq!(expected_output_directory(&job).unwrap(), PathBuf::from("workspace/stems/song"));
+        let job = StemJob {
+            workspace: PathBuf::from("workspace"),
+            source: PathBuf::from("workspace/song.wav"),
+            output_folder: "stems".into(),
+            format: "flac".into(),
+            overwrite: false,
+        };
+        assert_eq!(
+            expected_output_directory(&job).unwrap(),
+            PathBuf::from("workspace/stems/song")
+        );
     }
 }

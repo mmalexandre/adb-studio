@@ -132,6 +132,7 @@ export component MainWindow inherits Window {
     in-out property <string> audio-spinner: "|";
     in-out property <string> active-audio-path: "";
     in-out property <string> selected-audio-path: "";
+    in-out property <bool> selected-is-lora: false;
     in-out property <string> audio-file-name: "";
     in-out property <bool> audio-playing: false;
     in-out property <int> loop-mode: 0;
@@ -177,6 +178,7 @@ export component MainWindow inherits Window {
     in-out property <string> workflow-prompt: "";
     in-out property <string> workflow-lyrics: "";
     in-out property <string> user-comments: "";
+    in-out property <string> lora-custom-tag: "";
     in-out property <[WorkflowLoraRow]> workflow-loras: [];
     in-out property <bool> workflow-modified: false;
     in-out property <bool> workflow-recreated: false;
@@ -288,6 +290,7 @@ export component MainWindow inherits Window {
     callback workflow-metadata-changed(string, string);
     callback workflow-number-changed(string, int);
     callback user-comments-changed(string);
+    callback lora-custom-tag-changed(string);
     callback lora-edit-requested(string, string);
     callback lora-save(string, string);
     callback lora-cancel();
@@ -1128,6 +1131,13 @@ export component MainWindow inherits Window {
                                     width: (parent.width - 36px) / 4;
                                     height: 100%;
                                     Text { text: "Model\n" + (root.workflow-model == "" ? "-" : root.workflow-model); color: root.light-theme ? #202833 : #e3e8ef; overflow: elide; }
+                                    if root.selected-is-lora : Text { text: "Custom Tag"; color: root.light-theme ? #202833 : #e3e8ef; }
+                                    if root.selected-is-lora : LineEdit {
+                                        width: 100%;
+                                        text <=> root.lora-custom-tag;
+                                        edited(value) => { root.lora-custom-tag-changed(value); }
+                                        changed has-focus => { root.text-input-focused = self.has-focus; }
+                                    }
                                     HorizontalLayout {
                                         Text { text: "LoRAs"; color: root.light-theme ? #202833 : #e3e8ef; horizontal-stretch: 1; }
                                         AppButton { text: "Add lora"; clicked => { root.lora-add-requested(); } }

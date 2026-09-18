@@ -107,6 +107,8 @@ pub struct AudioFileMetadata {
     pub tag_ids: Vec<u64>,
     #[serde(default)]
     pub user_comments: String,
+    #[serde(default)]
+    pub custom_tag: String,
     pub modified_date: String,
     pub waveform_cache_key: String,
     #[serde(default)]

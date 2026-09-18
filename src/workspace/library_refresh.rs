@@ -24,7 +24,7 @@ use crate::{
     AudioLoadState, AudioRow, MainWindow, TrackDifference,
 };
 
-use super::tree_nav::set_audio_breadcrumbs;
+use super::{tree_nav::set_audio_breadcrumbs, workflow::clear_workflow};
 
 struct RefreshQueue {
     next_generation: std::sync::atomic::AtomicU64,
@@ -62,6 +62,7 @@ struct PreparedEntry {
     name: String,
     depth: i32,
     is_directory: bool,
+    is_lora: bool,
     modified_date: String,
     metadata: Option<AudioFileMetadata>,
     differences: Vec<metadata::comfyui::TrackDifference>,
@@ -82,7 +83,12 @@ pub fn enqueue(
         .into_iter()
         .flat_map(|paths| paths.iter())
         .filter(|path| path.starts_with(&folder))
-        .filter(|path| file_system::FileKind::from_path(path) == file_system::FileKind::Audio)
+        .filter(|path| {
+            matches!(
+                file_system::FileKind::from_path(path),
+                file_system::FileKind::Audio | file_system::FileKind::Safetensors
+            )
+        })
         .cloned()
         .collect::<HashSet<_>>();
     let expanded = window
@@ -154,18 +160,22 @@ fn prepare_entries(
         for entry in directory_entries {
             let is_directory = entry.kind == file_system::FileKind::Directory;
             let is_audio = entry.kind == file_system::FileKind::Audio;
+            let is_lora = entry.kind == file_system::FileKind::Safetensors;
             let path = entry.path.clone();
             let name = entry.name;
-            let metadata = if is_audio && file_system::matches_audio_filter(&name, filter) {
-                let audio_metadata = metadata::load_audio_metadata(workspace, &path);
-                ((label_filter < 0 || audio_metadata.label_id == Some(label_filter as u64))
-                    && tag_filters.iter().all(|tag_id| {
-                        audio_metadata.tag_ids.contains(&(*tag_id as u64))
-                    }))
+            let metadata =
+                if (is_audio && file_system::matches_audio_filter(&name, filter)) || is_lora {
+                    let audio_metadata = metadata::load_audio_metadata(workspace, &path);
+                    ((!is_audio
+                        || label_filter < 0
+                        || audio_metadata.label_id == Some(label_filter as u64))
+                        && tag_filters.iter().all(|tag_id| {
+                            !is_audio || audio_metadata.tag_ids.contains(&(*tag_id as u64))
+                        }))
                     .then_some(audio_metadata)
-            } else {
-                None
-            };
+                } else {
+                    None
+                };
             entries.push(PreparedEntry {
                 modified_date: fs::metadata(&path)
                     .and_then(|metadata| metadata.modified())
@@ -177,6 +187,7 @@ fn prepare_entries(
                 name,
                 depth,
                 is_directory,
+                is_lora,
                 metadata,
                 differences: Vec::new(),
             });
@@ -287,7 +298,9 @@ fn apply(
             path: entry.path.to_string_lossy().into_owned().into(),
             name: entry.name.into(),
             subtitle: user_comment_subtitle(&audio_metadata.user_comments).into(),
+            custom_tag: audio_metadata.custom_tag.clone().into(),
             is_folder: false,
+            is_lora: entry.is_lora,
             depth: entry.depth,
             is_expanded: false,
             modified_date: entry.modified_date.into(),
@@ -361,8 +374,25 @@ fn apply(
         row.is_primary = row.path == selected_path;
     }
     window.set_selected_audio_path(selected_path);
+    let selected_path = PathBuf::from(window.get_selected_audio_path().as_str());
+    let selected_is_lora =
+        file_system::FileKind::from_path(&selected_path) == file_system::FileKind::Safetensors;
+    window.set_selected_is_lora(selected_is_lora);
+    if selected_is_lora {
+        let lora_metadata = metadata::load_audio_metadata(
+            &audio_folder.borrow().clone().unwrap_or_default(),
+            &selected_path,
+        );
+        clear_workflow(window);
+        window.set_workflow_loading(false);
+        window.set_user_comments(lora_metadata.user_comments.into());
+        window.set_lora_custom_tag(lora_metadata.custom_tag.into());
+    } else {
+        window.set_lora_custom_tag("".into());
+    }
     let paths = rows
         .iter()
+        .filter(|row| !row.is_folder && !row.is_lora)
         .map(|row| PathBuf::from(row.path.as_str()))
         .collect::<Vec<_>>();
     let total = paths
@@ -415,7 +445,9 @@ fn folder_row(
         path: path.to_string_lossy().into_owned().into(),
         name: name.into(),
         subtitle: "".into(),
+        custom_tag: "".into(),
         is_folder: true,
+        is_lora: false,
         depth: 0,
         is_expanded: expanded.contains(path),
         modified_date: "".into(),

@@ -326,12 +326,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             &tree_state_for_conversion,
                         );
                     }
-                    app::stem_controller::tick(
-                        &window,
-                        &stem_receiver,
-                        &stem_cancelled,
-                        &stem_job,
-                    );
+                    app::stem_controller::tick(&window, &stem_receiver, &stem_cancelled, &stem_job);
                     let mut workspace_changed = false;
                     while let Ok(paths) = workspace_change_receiver.borrow_mut().try_recv() {
                         workspace_changed = true;
@@ -419,7 +414,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 path: result.path.into(),
                                 name: row.name,
                                 subtitle: row.subtitle,
+                                custom_tag: row.custom_tag,
                                 is_folder: row.is_folder,
+                                is_lora: row.is_lora,
                                 depth: row.depth,
                                 is_expanded: row.is_expanded,
                                 modified_date: row.modified_date,

@@ -287,7 +287,10 @@ pub fn refresh_workspace(
     )));
     if changed_paths.iter().any(|path| {
         (path.parent() == Some(audio_view_folder.as_path())
-            && file_system::FileKind::from_path(path) == file_system::FileKind::Audio)
+            && matches!(
+                file_system::FileKind::from_path(path),
+                file_system::FileKind::Audio | file_system::FileKind::Safetensors
+            ))
             || workflow_change_affects_folder(path, &folder, &audio_view_folder)
     }) {
         library::refresh_audio_for_changes(
