@@ -10,6 +10,7 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tungstenite::{connect, Message};
+use chrono::Local;
 
 use crate::metadata;
 
@@ -193,8 +194,11 @@ impl ComfyUiClient {
                 .ok_or_else(|| SyncError::Response("ComfyUI returned no outputs".into()))?,
         )
         .ok_or_else(|| SyncError::Response("ComfyUI returned no audio output".into()))?;
-        let audio_path =
-            output_directory.join(format!("{output_stem}.{}", output_file_extension(&output)));
+        let audio_path = generated_audio_path(
+            output_directory,
+            output_stem,
+            &output_file_extension(&output),
+        );
         self.download_view(config, &output, &audio_path)?;
         let workflow_path = metadata::workflow_path(workspace, &audio_path)
             .ok_or_else(|| SyncError::Response("Output path is outside the workspace".into()))?;
@@ -589,6 +593,23 @@ fn temporary_download_path(destination: &Path, filename: &str) -> PathBuf {
     ))
 }
 
+fn generated_audio_path(directory: &Path, source_stem: &str, extension: &str) -> PathBuf {
+    let timestamp = Local::now().format("%Y%m%d_%H%M%S");
+    let base_name = format!("{source_stem}__generated_{timestamp}");
+    let first_path = directory.join(format!("{base_name}.{extension}"));
+    if !first_path.exists() {
+        return first_path;
+    }
+    let mut suffix = 2;
+    loop {
+        let path = directory.join(format!("{base_name}-{suffix}.{extension}"));
+        if !path.exists() {
+            return path;
+        }
+        suffix += 1;
+    }
+}
+
 fn sort_remote_files(files: &mut [RemoteFile]) {
     files.sort_by(|left, right| right.modified.cmp(&left.modified));
 }
@@ -614,7 +635,7 @@ fn validate_request_config(config: &SyncConfig) -> Result<(), SyncError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{sort_remote_files, temporary_download_path};
+    use super::{generated_audio_path, sort_remote_files, temporary_download_path};
     use crate::sync::RemoteFile;
     use std::path::Path;
 
@@ -624,6 +645,14 @@ mod tests {
         let filename = path.file_name().unwrap().to_string_lossy();
         assert!(filename.starts_with(".myfile.opus."));
         assert_ne!(filename, "myfile.opus");
+    }
+
+    #[test]
+    fn generated_audio_name_does_not_match_source_name() {
+        let path = generated_audio_path(Path::new("/workspace"), "song", "flac");
+        let filename = path.file_name().unwrap().to_string_lossy();
+        assert!(filename.starts_with("song__generated_"));
+        assert!(filename.ends_with(".flac"));
     }
 
     #[test]

@@ -1943,7 +1943,11 @@ export component MainWindow inherits Window {
                                 Rectangle {
                                     horizontal-stretch: 1;
                                     background: root.light-theme ? #e1e6ed : #303b4b;
-                                    Rectangle { width: parent.width * row.progress; background: root.light-theme ? #d46b32 : #e58a4d; }
+                                    Rectangle {
+                                        x: 0px;
+                                        width: parent.width * row.progress;
+                                        background: root.light-theme ? #d46b32 : #e58a4d;
+                                    }
                                 }
                                 Text { text: row.status; width: 180px; color: root.light-theme ? #5c6878 : #aeb8c6; font-size: 11px; vertical-alignment: center; }
                             }
@@ -1980,7 +1984,11 @@ export component MainWindow inherits Window {
                     Rectangle {
                         height: 18px;
                         background: root.light-theme ? #e1e6ed : #303b4b;
-                        Rectangle { width: parent.width * root.comfyui-run-progress; background: root.light-theme ? #d46b32 : #e58a4d; }
+                        Rectangle {
+                            x: 0px;
+                            width: parent.width * root.comfyui-run-progress;
+                            background: root.light-theme ? #d46b32 : #e58a4d;
+                        }
                     }
                     Text { text: root.comfyui-run-step; color: root.light-theme ? #5c6878 : #aeb8c6; overflow: elide; }
                     Rectangle { vertical-stretch: 1; }

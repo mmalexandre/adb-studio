@@ -10,6 +10,7 @@ description = "A cross-platform workspace for organizing and annotating generate
 display-info = "0.5"
 dirs = "6"
 include_dir = "0.7"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 image = "0.25"
 filetime = "0.2"
 lucide-icons = "1.41"

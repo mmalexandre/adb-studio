@@ -130,6 +130,7 @@ dependencies = [
 name = "adb-studio"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "dirs",
  "display-info",
  "filetime",
