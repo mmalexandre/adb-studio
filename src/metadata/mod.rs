@@ -366,20 +366,65 @@ fn save_checksum_cache(folder: &Path, cache: &ChecksumCache) -> io::Result<()> {
 }
 
 pub fn workflow_path(folder: &Path, audio_path: &Path) -> Option<PathBuf> {
-    let relative_path = audio_path.strip_prefix(folder).ok()?;
-    let file_name = relative_path.file_name()?.to_str()?;
-    let adjacent = audio_path.with_file_name(format!("{file_name}.workflow.json"));
-    if adjacent.is_file() {
-        return Some(adjacent);
+    audio_path.strip_prefix(folder).ok()?;
+    let checksum = checksum_for_file(folder, audio_path)
+        .ok()
+        .or_else(|| {
+            load_index(folder)
+                .audio_files
+                .into_iter()
+                .find(|item| item.file_path == audio_path.to_string_lossy())
+                .map(|item| item.checksum)
+        })
+        .filter(|checksum| !checksum.is_empty())?;
+    let workflow_path = folder
+        .join(".adbstudio")
+        .join("workflows")
+        .join(format!("{checksum}.workflow.json"));
+    if workflow_path.is_file() {
+        return Some(workflow_path);
     }
-    let mut workflow_relative_path = relative_path.to_path_buf();
-    workflow_relative_path.set_file_name(format!("{file_name}.workflow.json"));
-    Some(
+
+    let mut legacy_paths = vec![
+        audio_path.with_file_name(format!(
+            "{}.workflow.json",
+            audio_path.file_name()?.to_str()?
+        )),
         folder
             .join(".adbstudio")
             .join("workflows")
-            .join(workflow_relative_path),
-    )
+            .join(audio_path.strip_prefix(folder).ok()?)
+            .with_file_name(format!(
+                "{}.workflow.json",
+                audio_path.file_name()?.to_str()?
+            )),
+    ];
+    if let Some(previous_path) = load_index(folder)
+        .audio_files
+        .into_iter()
+        .find(|item| item.checksum == checksum)
+        .map(|item| PathBuf::from(item.file_path))
+    {
+        if let Some(file_name) = previous_path.file_name().and_then(|name| name.to_str()) {
+            legacy_paths.push(previous_path.with_file_name(format!("{file_name}.workflow.json")));
+            if let Ok(relative_path) = previous_path.strip_prefix(folder) {
+                legacy_paths.push(
+                    folder
+                        .join(".adbstudio")
+                        .join("workflows")
+                        .join(relative_path)
+                        .with_file_name(format!("{file_name}.workflow.json")),
+                );
+            }
+        }
+    }
+    if let Some(legacy_path) = legacy_paths.into_iter().find(|path| path.is_file()) {
+        if let Some(parent) = workflow_path.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        let _ = fs::rename(legacy_path, &workflow_path);
+    }
+    Some(workflow_path)
 }
 
 pub fn recreated_metadata_path(folder: &Path, audio_path: &Path) -> Option<PathBuf> {
@@ -504,17 +549,14 @@ pub fn rename_associated_workflow(
     let is_directory = source.is_dir() || destination.is_dir() || directory_workflow.is_dir();
     let source_workflow = if is_directory {
         directory_workflow
-    } else if source
-        .extension()
-        .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| {
-            matches!(
-                extension.to_ascii_lowercase().as_str(),
-                "flac" | "mp3" | "ogg" | "opus" | "wav"
-            )
-        })
+    } else if source.is_file()
+        || load_index(folder)
+            .audio_files
+            .iter()
+            .any(|item| item.file_path == source.to_string_lossy())
     {
-        workflow_path(folder, source).unwrap_or_default()
+        let _ = workflow_path(folder, source);
+        return Ok(());
     } else {
         return Ok(());
     };
@@ -766,17 +808,21 @@ mod tests {
     }
 
     #[test]
-    fn renames_audio_workflow_sidecar() {
+    fn renamed_audio_keeps_hash_workflow_association() {
         let folder = test_folder("workflow-file");
         let source = folder.join("old.wav");
         let destination = folder.join("new.wav");
+        fs::write(&source, b"audio").unwrap();
         let workflow = super::workflow_path(&folder, &source).unwrap();
         fs::create_dir_all(workflow.parent().unwrap()).unwrap();
         fs::write(&workflow, "{}").unwrap();
 
-        rename_associated_workflow(&folder, &source, &destination).unwrap();
+        fs::rename(&source, &destination).unwrap();
 
-        assert!(!workflow.exists());
+        assert_eq!(
+            super::workflow_path(&folder, &destination).unwrap(),
+            workflow
+        );
         assert!(super::workflow_path(&folder, &destination)
             .unwrap()
             .exists());
@@ -1069,7 +1115,9 @@ mod tests {
 
         fs::write(&audio_path, b"different audio").unwrap();
 
-        assert!(load_audio_metadata(&folder, &audio_path).comments.is_empty());
+        assert!(load_audio_metadata(&folder, &audio_path)
+            .comments
+            .is_empty());
         let _ = fs::remove_dir_all(folder);
     }
 

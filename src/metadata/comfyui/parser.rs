@@ -493,7 +493,7 @@ fn visit(
                         strength,
                     });
                 }
-                }
+            }
 
             if workflow.model.is_empty() {
                 let inputs = object

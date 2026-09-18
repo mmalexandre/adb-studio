@@ -457,7 +457,11 @@ fn record_deleted_download(
     destination: &Path,
     path: &Path,
 ) -> Result<(), SyncError> {
-    let Some(filename) = path.strip_prefix(destination).ok().and_then(Path::file_name) else {
+    let Some(filename) = path
+        .strip_prefix(destination)
+        .ok()
+        .and_then(Path::file_name)
+    else {
         return Ok(());
     };
     let filename = filename.to_string_lossy();
@@ -543,27 +547,36 @@ mod tests {
     use std::{
         collections::HashSet,
         fs,
-        path::Path,
         sync::atomic::{AtomicU64, Ordering},
         time::{SystemTime, UNIX_EPOCH},
     };
 
     #[test]
     fn workflow_path_mirrors_audio_path_inside_private_directory() {
-        let workspace = Path::new("/workspace");
+        let workspace = tempfile_directory();
+        let audio_path = workspace.join("folder1/folder2/song.mp3");
+        fs::create_dir_all(audio_path.parent().unwrap()).unwrap();
+        fs::write(&audio_path, b"audio").unwrap();
         assert_eq!(
-            workflow_local_path(workspace, Path::new("/workspace/folder1/folder2/song.mp3")),
-            workspace.join(".adbstudio/workflows/folder1/folder2/song.mp3.workflow.json")
+            workflow_local_path(&workspace, &audio_path),
+            workspace.join(format!(
+                ".adbstudio/workflows/{}.workflow.json",
+                metadata::checksum_for_file(&workspace, &audio_path).unwrap()
+            ))
         );
+        fs::remove_dir_all(workspace).unwrap();
     }
 
     #[test]
     fn workflow_path_does_not_modify_workspace_index() {
         let workspace = tempfile_directory();
         let audio_path = workspace.join("downloads/song.mp3");
+        fs::create_dir_all(audio_path.parent().unwrap()).unwrap();
+        fs::write(&audio_path, b"audio").unwrap();
+        let checksum = metadata::checksum_for_file(&workspace, &audio_path).unwrap();
         assert_eq!(
             metadata::workflow_path(&workspace, &audio_path),
-            Some(workspace.join(".adbstudio/workflows/downloads/song.mp3.workflow.json"))
+            Some(workspace.join(format!(".adbstudio/workflows/{checksum}.workflow.json")))
         );
         assert!(!workspace.join(".adbstudio/index.json").exists());
 

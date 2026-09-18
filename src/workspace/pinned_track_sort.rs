@@ -211,6 +211,8 @@ mod tests {
         let pinned = folder.join("pinned.wav");
         let known = folder.join("known.wav");
         let missing = folder.join("missing.wav");
+        fs::write(&pinned, b"pinned").unwrap();
+        fs::write(&known, b"known").unwrap();
         fs::write(
             crate::metadata::workflow_path(&folder, &known).unwrap(),
             "{}",
