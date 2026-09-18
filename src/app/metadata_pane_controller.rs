@@ -422,7 +422,8 @@ pub fn register_metadata_pane_callbacks(
             };
             let path = window.get_trash_confirm_path();
             if dont_ask {
-                if let Some(folder) = settings.borrow().last_folder.clone() {
+                let last_folder = settings.borrow().last_folder.clone();
+                if let Some(folder) = last_folder {
                     settings
                         .borrow_mut()
                         .trash_confirmation_disabled_workspaces
