@@ -124,6 +124,7 @@ pub fn register_metadata_pane_callbacks(
                                 label_known,
                                 tags: row.tags,
                                 available_tags: row.available_tags,
+                                detected_bpm: row.detected_bpm,
                             },
                         );
                         break;
@@ -281,6 +282,7 @@ pub fn register_metadata_pane_callbacks(
                                 label_known: row.label_known,
                                 tags: row.tags,
                                 available_tags: row.available_tags,
+                                detected_bpm: row.detected_bpm,
                             },
                         );
                         break;
@@ -728,6 +730,7 @@ fn update_audio_tag_assignment(
                 label_known: row.label_known,
                 tags,
                 available_tags,
+                detected_bpm: row.detected_bpm,
             },
         );
         break;

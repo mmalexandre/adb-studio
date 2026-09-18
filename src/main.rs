@@ -447,6 +447,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 label_known: row.label_known,
                                 tags: row.tags,
                                 available_tags: row.available_tags,
+                                detected_bpm: result.bpm,
                             },
                         );
                     }

@@ -32,6 +32,7 @@ pub struct Result {
     pub generation: u64,
     pub path: String,
     pub raster: Vec<u8>,
+    pub bpm: f32,
 }
 
 pub fn clear_cache(state: &Arc<Mutex<State>>) {
@@ -170,7 +171,7 @@ fn generate(state: Arc<Mutex<State>>) {
             let Ok((_index, path, result)) = worker_receiver.lock().unwrap().recv() else {
                 break;
             };
-            let Some((cache_key, raster)) = result else {
+            let Some((cache_key, raster, bpm)) = result else {
                 continue;
             };
             let mut audio_metadata = metadata::load_audio_metadata(&folder, &path);
@@ -188,6 +189,7 @@ fn generate(state: Arc<Mutex<State>>) {
                 generation,
                 path: path_string,
                 raster,
+                bpm,
             });
         }
         for worker in workers {

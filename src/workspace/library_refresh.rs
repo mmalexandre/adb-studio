@@ -348,6 +348,7 @@ fn apply(
                 &audio_metadata.tag_ids,
                 &definitions.tag_definitions,
             ),
+            detected_bpm: existing_row.map(|row| row.detected_bpm).unwrap_or(0.0),
             is_cut: result.cut_paths.contains(&entry.path),
         });
     }
@@ -457,6 +458,7 @@ fn folder_row(
         label_known: false,
         tags: ModelRc::new(VecModel::from(Vec::new())),
         available_tags: ModelRc::new(VecModel::from(Vec::new())),
+        detected_bpm: 0.0,
         is_cut: cut_paths.contains(path),
     }
 }

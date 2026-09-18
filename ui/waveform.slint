@@ -13,7 +13,8 @@ export component Waveform inherits Rectangle {
     in property <float> selected-comment-start: -1;
     in property <float> selected-comment-end: -1;
     in property <float> duration-seconds: 0;
-    in property <int> bpm: 0;
+    in property <float> bpm: 0;
+    in property <bool> show-beat-grid: false;
     in property <int> comment-quantization-index: 0;
     property <int> hovered-comment: -1;
     property <float> gesture-start: -1;
@@ -54,12 +55,24 @@ export component Waveform inherits Rectangle {
         return interval > 0 ? (position / interval).round() * interval : position;
     }
 
+    property <int> beat-count: root.bpm > 0 && root.duration-seconds > 0
+        ? (root.duration-seconds * root.bpm / 60.0).floor() + 1 : 0;
+
     Image {
         source: root.waveform;
         width: parent.width;
         height: parent.height;
         image-fit: fill;
         colorize: root.light-theme ? #b8c0ca : #566171;
+    }
+    for beat in root.beat-count : Rectangle {
+        x: (beat * 60.0 / root.bpm / root.duration-seconds) * parent.width - 1px;
+        y: -8px;
+        width: 1px;
+        height: 7px;
+        z: 4;
+        visible: root.show-beat-grid && root.bpm > 0 && root.duration-seconds > 0;
+        background: root.light-theme ? #d46b32a0 : #e58a4da0;
     }
     Rectangle {
         x: 0px;

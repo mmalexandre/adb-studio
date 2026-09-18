@@ -13,7 +13,9 @@ component AudioRowView inherits Rectangle {
     in property <color> comment-text-color: #ffffff;
     in property <float> duration-seconds: 0;
     in property <int> bpm: 0;
+    in property <float> detected-bpm: 0;
     in property <int> comment-quantization-index: 0;
+    in property <bool> show-beat-grid: false;
     in property <string> name;
     in property <string> subtitle;
     in property <string> custom-tag;
@@ -354,7 +356,8 @@ component AudioRowView inherits Rectangle {
                 selected-comment-start: root.selected-comment-start;
                 selected-comment-end: root.selected-comment-end;
                 duration-seconds: root.duration-seconds;
-                bpm: root.bpm;
+                bpm: root.detected-bpm > 0 ? root.detected-bpm : root.bpm;
+                show-beat-grid: root.show-beat-grid;
                 comment-quantization-index: root.comment-quantization-index;
                 progress: root.progress;
                 y: -15px;
@@ -532,6 +535,7 @@ export component AudioList inherits ListView {
     in property <color> comment-text-color: #ffffff;
     in property <int> bpm: 0;
     in property <int> comment-quantization-index: 0;
+    in property <bool> show-beat-grid: false;
     in property <[AudioRow]> rows;
     in property <[int]> label-ids: [];
     in property <[string]> label-names: [];
@@ -661,6 +665,8 @@ export component AudioList inherits ListView {
             selected-comment-end: row.selected-comment-end;
             duration-seconds: row.duration-seconds;
             bpm: root.bpm;
+            detected-bpm: row.detected-bpm;
+            show-beat-grid: root.show-beat-grid;
             comment-quantization-index: root.comment-quantization-index;
             label-id: row.label-id;
             label-name: row.label-name;

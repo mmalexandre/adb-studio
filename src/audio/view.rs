@@ -228,6 +228,7 @@ pub fn update_audio_rows(
                     label_known: row.label_known,
                     tags: row.tags,
                     available_tags: row.available_tags,
+                    detected_bpm: row.detected_bpm,
                 },
             );
         }
@@ -291,6 +292,7 @@ pub fn update_audio_loading_rows(
                     label_known: row.label_known,
                     tags: row.tags,
                     available_tags: row.available_tags,
+                    detected_bpm: row.detected_bpm,
                 },
             );
         }
@@ -347,6 +349,7 @@ pub fn select_comment(
                     label_known: row.label_known,
                     tags: row.tags,
                     available_tags: row.available_tags,
+                    detected_bpm: row.detected_bpm,
                 },
             );
         }
@@ -404,6 +407,7 @@ pub fn select_audio_paths(
                     label_known: row.label_known,
                     tags: row.tags,
                     available_tags: row.available_tags,
+                    detected_bpm: row.detected_bpm,
                 },
             );
         }

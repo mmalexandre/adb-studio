@@ -137,6 +137,7 @@ export component MainWindow inherits Window {
     in-out property <bool> audio-playing: false;
     in-out property <int> loop-mode: 0;
     in-out property <bool> auto-play-new-tracks: false;
+    in-out property <bool> show-beat-grid: false;
     in-out property <int> seek-seconds: 5;
     in-out property <int> shortcut-fullscreen: 0;
     in-out property <int> shortcut-metadata: 1;
@@ -921,6 +922,7 @@ export component MainWindow inherits Window {
                                 comment-text-color: root.comment-text-color;
                                 bpm: root.workflow-bpm-number;
                                 comment-quantization-index: root.comment-quantization-index;
+                                show-beat-grid: root.show-beat-grid;
                                 rows: root.audio-rows;
                                 label-ids: root.label-ids;
                                 label-names: root.label-names;
@@ -1406,6 +1408,14 @@ export component MainWindow inherits Window {
                             root.auto-play-new-tracks = !root.auto-play-new-tracks;
                             root.auto-play-new-tracks-changed(root.auto-play-new-tracks);
                         }
+                    }
+                    IconButton {
+                        y: (parent.height - self.height) / 2;
+                        light-theme: root.light-theme;
+                        icon: @image-url("../assets/icons/grid-2x2.svg");
+                        active: root.show-beat-grid;
+                        tooltip: root.show-beat-grid ? "Beat grid on" : "Beat grid off";
+                        clicked => { root.show-beat-grid = !root.show-beat-grid; }
                     }
                     Text {
                         text: root.audio-current-time + " / " + root.audio-total-duration;

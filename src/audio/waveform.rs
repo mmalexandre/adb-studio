@@ -23,6 +23,8 @@ const RASTER_MAGIC: &[u8] = b"ADB-STUDIO-WAVEFORM-RASTER-2";
 struct CacheEntry {
     checksum: String,
     peaks: Vec<f32>,
+    #[serde(default)]
+    bpm: f32,
 }
 
 pub fn aggregate_peaks(peaks: &[f32]) -> Vec<f32> {
@@ -63,7 +65,7 @@ pub fn load_or_generate_cancelable(
     path: &Path,
     workspace: &Path,
     should_cancel: impl Fn() -> bool,
-) -> Option<(String, Vec<u8>)> {
+) -> Option<(String, Vec<u8>, f32)> {
     let checksum = crate::metadata::checksum_for_file(workspace, path)
         .unwrap_or_else(|_| path.to_string_lossy().into_owned());
     let cache_key = cache_key(&checksum);
@@ -78,7 +80,9 @@ pub fn load_or_generate_cancelable(
                     write_raster_cache(&raster_path, &raster);
                     raster
                 });
-                return Some((cache_key, raster));
+                if entry.bpm > 0.0 {
+                    return Some((cache_key, raster, entry.bpm));
+                }
             }
         }
     }
@@ -86,14 +90,14 @@ pub fn load_or_generate_cancelable(
     if should_cancel() {
         return None;
     }
-    let peaks = decode_peaks(path, &should_cancel).ok()?;
+    let (peaks, bpm) = decode_peaks(path, &should_cancel).ok()?;
     if should_cancel() {
         return None;
     }
-    write_cache(&cache_path, &checksum, &peaks);
+    write_cache(&cache_path, &checksum, &peaks, bpm);
     let raster = rasterize_peaks(&aggregate_peaks(&peaks));
     write_raster_cache(&raster_cache_path(&cache_key, workspace), &raster);
-    Some((cache_key, raster))
+    Some((cache_key, raster, bpm))
 }
 
 fn cache_path(cache_key: &str, workspace: &Path) -> std::path::PathBuf {
@@ -103,7 +107,7 @@ fn cache_path(cache_key: &str, workspace: &Path) -> std::path::PathBuf {
         .join(format!("{cache_key}.json"))
 }
 
-fn write_cache(path: &Path, checksum: &str, peaks: &[f32]) {
+fn write_cache(path: &Path, checksum: &str, peaks: &[f32], bpm: f32) {
     let Some(parent) = path.parent() else {
         return;
     };
@@ -113,6 +117,7 @@ fn write_cache(path: &Path, checksum: &str, peaks: &[f32]) {
     let entry = CacheEntry {
         checksum: checksum.to_owned(),
         peaks: peaks.to_vec(),
+        bpm,
     };
     if let Ok(contents) = serde_json::to_string(&entry) {
         let temp_path = path.with_extension(format!(
@@ -209,7 +214,7 @@ fn cache_key(checksum: &str) -> String {
 fn decode_peaks(
     path: &Path,
     should_cancel: &impl Fn() -> bool,
-) -> Result<Vec<f32>, Box<dyn std::error::Error>> {
+) -> Result<(Vec<f32>, f32), Box<dyn std::error::Error>> {
     let file = fs::File::open(path)?;
     let source = MediaSourceStream::new(Box::new(file), Default::default());
     let mut hint = Hint::new();
@@ -229,6 +234,8 @@ fn decode_peaks(
     let mut decoder =
         symphonia::default::get_codecs().make(&codec_params, &DecoderOptions::default())?;
     let mut samples = Vec::new();
+    let sample_rate = codec_params.sample_rate.unwrap_or(44_100) as f32;
+    let channels = codec_params.channels.map(|value| value.count()).unwrap_or(1);
 
     while let Ok(packet) = format.next_packet() {
         if should_cancel() {
@@ -244,10 +251,12 @@ fn decode_peaks(
         samples.extend(buffer.samples().iter().copied().map(f32::abs));
     }
     if samples.is_empty() {
-        return Ok(Vec::new());
+        return Ok((Vec::new(), 0.0));
     }
     let bucket_size = (samples.len() / PEAK_COUNT).max(1);
-    Ok((0..PEAK_COUNT)
+    let bpm = estimate_bpm(&samples, sample_rate, channels);
+    Ok((
+        (0..PEAK_COUNT)
         .map(|bucket| {
             samples
                 .iter()
@@ -256,7 +265,49 @@ fn decode_peaks(
                 .copied()
                 .fold(0.0, f32::max)
         })
-        .collect())
+        .collect(),
+        bpm,
+    ))
+}
+
+fn estimate_bpm(samples: &[f32], sample_rate: f32, channels: usize) -> f32 {
+    if samples.len() < channels * 2048 || sample_rate <= 0.0 || channels == 0 {
+        return 0.0;
+    }
+    let frame_count = samples.len() / channels;
+    let frames_per_bin = 1024;
+    let envelope = (0..frame_count / frames_per_bin)
+        .map(|bin| {
+            let start = bin * frames_per_bin * channels;
+            let end = (start + frames_per_bin * channels).min(samples.len());
+            samples[start..end].iter().copied().sum::<f32>() / (end - start) as f32
+        })
+        .collect::<Vec<_>>();
+    let mean = envelope.iter().sum::<f32>() / envelope.len() as f32;
+    let envelope = envelope
+        .into_iter()
+        .map(|value| (value - mean).max(0.0))
+        .collect::<Vec<_>>();
+    let envelope_rate = sample_rate / frames_per_bin as f32;
+    let min_lag = (envelope_rate * 60.0 / 180.0).round() as usize;
+    let max_lag = (envelope_rate * 60.0 / 60.0).round() as usize;
+    let mut best_lag = 0;
+    let mut best_score = 0.0;
+    for lag in min_lag..=max_lag.min(envelope.len().saturating_sub(1)) {
+        let score = envelope
+            .iter()
+            .skip(lag)
+            .zip(envelope.iter())
+            .map(|(current, previous)| current * previous)
+            .sum::<f32>();
+        if score > best_score {
+            best_score = score;
+            best_lag = lag;
+        }
+    }
+    (best_lag > 0 && best_score > 0.0)
+        .then(|| (60.0 * envelope_rate / best_lag as f32).round())
+        .unwrap_or(0.0)
 }
 
 #[cfg(test)]

@@ -231,6 +231,7 @@ fn refresh_audio_with_changes(
         label_known: false,
         tags: ModelRc::new(VecModel::from(Vec::new())),
         available_tags: ModelRc::new(VecModel::from(Vec::new())),
+        detected_bpm: 0.0,
         is_cut: cut_paths
             .iter()
             .any(|cut_path| cut_path.as_str() == folder.to_string_lossy()),
@@ -269,6 +270,7 @@ fn refresh_audio_with_changes(
                 label_known: false,
                 tags: ModelRc::new(VecModel::from(Vec::new())),
                 available_tags: ModelRc::new(VecModel::from(Vec::new())),
+                detected_bpm: 0.0,
                 is_cut: cut_paths
                     .iter()
                     .any(|cut_path| cut_path.as_str() == entry.path.to_string_lossy()),
@@ -407,6 +409,7 @@ fn refresh_audio_with_changes(
                 &audio_metadata.tag_ids,
                 &definition_settings.tag_definitions,
             ),
+            detected_bpm: 0.0,
             is_cut: cut_paths
                 .iter()
                 .any(|cut_path| cut_path.as_str() == entry.path.to_string_lossy()),
