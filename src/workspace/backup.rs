@@ -8,8 +8,6 @@ use std::{
 };
 use zip::{write::SimpleFileOptions, ZipWriter};
 
-use crate::workspace::file_system::FileKind;
-
 const BACKUP_DIR: &str = ".adbstudio/workspace-backups";
 const MAX_BACKUPS: usize = 10;
 const BACKUP_INTERVAL: Duration = Duration::days(1);
@@ -32,8 +30,16 @@ pub fn ensure_recent_backup(workspace: &Path) -> io::Result<()> {
 
     let timestamp = DateTime::<chrono::Utc>::from(now).format("%Y%m%d-%H%M%S");
     let destination = backup_dir.join(format!("workspace-{timestamp}.zip"));
-    if let Err(error) = create_backup(workspace, &destination) {
-        let _ = fs::remove_file(&destination);
+    let temporary = backup_dir.join(format!(
+        ".workspace-{timestamp}-{}.zip.tmp",
+        std::process::id()
+    ));
+    if let Err(error) = create_backup(workspace, &temporary) {
+        let _ = fs::remove_file(&temporary);
+        return Err(error);
+    }
+    if let Err(error) = fs::rename(&temporary, &destination) {
+        let _ = fs::remove_file(&temporary);
         return Err(error);
     }
 
@@ -76,9 +82,6 @@ fn add_directory(
         if path.is_dir() {
             add_directory(workspace, &path, archive, options, checksums)?;
         } else if path.is_file() {
-            if FileKind::from_path(&path) == FileKind::Audio {
-                continue;
-            }
             let archive_path = relative.to_string_lossy().replace('\\', "/");
             let mut input = File::open(&path)?;
             let mut contents = Vec::new();
@@ -94,8 +97,14 @@ fn add_directory(
 
 fn should_skip(relative: &Path) -> bool {
     let mut components = relative.components();
-    if components.next().and_then(|component| component.as_os_str().to_str()) != Some(".adbstudio") {
+    let Some(first_component) = components
+        .next()
+        .and_then(|component| component.as_os_str().to_str())
+    else {
         return false;
+    };
+    if first_component != ".adbstudio" {
+        return true;
     }
     match components.next().and_then(|component| component.as_os_str().to_str()) {
         Some("waveforms") | Some("workspace-backups") => true,
@@ -139,9 +148,13 @@ mod tests {
     }
 
     #[test]
-    fn backup_keeps_user_data_and_excludes_caches_and_backups() {
+    fn backup_keeps_adbstudio_metadata_only() {
         let workspace = temp_workspace("contents");
         fs::write(workspace.join("song.wav"), b"audio").unwrap();
+        fs::write(workspace.join("model.safetensors"), b"model").unwrap();
+        fs::write(workspace.join("adapter.safetensors"), b"lora").unwrap();
+        fs::create_dir_all(workspace.join(".adbstudio.bak")).unwrap();
+        fs::write(workspace.join(".adbstudio.bak/old-metadata.json"), b"old").unwrap();
         fs::create_dir_all(workspace.join(".adbstudio")).unwrap();
         fs::write(workspace.join(".adbstudio/metadata.json"), b"metadata").unwrap();
         fs::create_dir_all(workspace.join("workflows")).unwrap();
@@ -160,8 +173,11 @@ mod tests {
         let file = fs::File::open(backup).unwrap();
         let mut archive = ZipArchive::new(file).unwrap();
         assert!(archive.by_name("song.wav").is_err());
+        assert!(archive.by_name("model.safetensors").is_err());
+        assert!(archive.by_name("adapter.safetensors").is_err());
+        assert!(archive.by_name(".adbstudio.bak/old-metadata.json").is_err());
         assert!(archive.by_name(".adbstudio/metadata.json").is_ok());
-        assert!(archive.by_name("workflows/song.workflow.json").is_ok());
+        assert!(archive.by_name("workflows/song.workflow.json").is_err());
         assert!(archive.by_name(".adbstudio/waveforms/cache.json").is_err());
         let mut checksums = String::new();
         archive
