@@ -160,6 +160,9 @@ export component MainWindow inherits Window {
     in-out property <bool> workflow-save-confirm-dont-ask: false;
     in-out property <bool> metadata-visible: true;
     in-out property <length> metadata-pane-height: 320px;
+    in-out property <length> metadata-first-column-width: 300px;
+    in-out property <length> metadata-second-column-width: 300px;
+    in-out property <length> metadata-right-column-width: 280px;
     property <length> metadata-drag-start-y: 0px;
     property <length> metadata-drag-start-height: 320px;
     in-out property <[WorkflowFileRow]> workflow-json-files: [];
@@ -286,6 +289,9 @@ export component MainWindow inherits Window {
     callback comment-delete(string);
     callback metadata-toggle();
     callback metadata-pane-height-changed(length);
+    callback metadata-first-column-width-changed(length);
+    callback metadata-second-column-width-changed(length);
+    callback metadata-right-column-width-changed(length);
     callback assign-workflow-requested();
     callback assign-template-workflow-requested(string);
     callback save-workflow-requested();
@@ -317,6 +323,15 @@ export component MainWindow inherits Window {
 
     changed metadata-pane-height => {
         root.metadata-pane-height-changed(root.metadata-pane-height);
+    }
+    changed metadata-first-column-width => {
+        root.metadata-first-column-width-changed(root.metadata-first-column-width);
+    }
+    changed metadata-second-column-width => {
+        root.metadata-second-column-width-changed(root.metadata-second-column-width);
+    }
+    changed metadata-right-column-width => {
+        root.metadata-right-column-width-changed(root.metadata-right-column-width);
     }
 
     init => {
@@ -670,30 +685,6 @@ export component MainWindow inherits Window {
                 if root.left-pane-visible : Rectangle {
                     width: 6px;
                     background: drag-area.has-hover ? (root.light-theme ? #aeb8c6 : #566171) : (root.light-theme ? #e0e5eb : #3b4655);
-
-                    VerticalBox {
-                        alignment: center;
-                        spacing: 2px;
-                        Rectangle {
-                            width: 3px;
-                            height: 3px;
-                            border-radius: 1.5px;
-                            background: drag-area.has-hover ? (root.light-theme ? #f5f7fa : #d7dce5) : (root.light-theme ? #8b96a7 : #8b96a7);
-                        }
-                        Rectangle {
-                            width: 3px;
-                            height: 3px;
-                            border-radius: 1.5px;
-                            background: drag-area.has-hover ? (root.light-theme ? #f5f7fa : #d7dce5) : (root.light-theme ? #8b96a7 : #8b96a7);
-                        }
-                        Rectangle {
-                            width: 3px;
-                            height: 3px;
-                            border-radius: 1.5px;
-                            background: drag-area.has-hover ? (root.light-theme ? #f5f7fa : #d7dce5) : (root.light-theme ? #8b96a7 : #8b96a7);
-                        }
-                    }
-
                     drag-area := TouchArea {
                         mouse-cursor: ew-resize;
                         pointer-event(event) => {
@@ -702,6 +693,9 @@ export component MainWindow inherits Window {
                             }
                         }
                     }
+                    Rectangle { x: 1px; y: (parent.height - 10px) / 2; width: 2px; height: 2px; z: 1; border-radius: 1px; background: drag-area.has-hover ? (root.light-theme ? #f5f7fa : #d7dce5) : (root.light-theme ? #8b96a7 : #8b96a7); }
+                    Rectangle { x: 1px; y: (parent.height - 10px) / 2 + 4px; width: 2px; height: 2px; z: 1; border-radius: 1px; background: drag-area.has-hover ? (root.light-theme ? #f5f7fa : #d7dce5) : (root.light-theme ? #8b96a7 : #8b96a7); }
+                    Rectangle { x: 1px; y: (parent.height - 10px) / 2 + 8px; width: 2px; height: 2px; z: 1; border-radius: 1px; background: drag-area.has-hover ? (root.light-theme ? #f5f7fa : #d7dce5) : (root.light-theme ? #8b96a7 : #8b96a7); }
                 }
 
                 Rectangle {
@@ -1032,6 +1026,9 @@ export component MainWindow inherits Window {
                                 }
                             }
                         }
+                        Rectangle { x: (parent.width - 10px) / 2; y: 2px; width: 2px; height: 2px; z: 1; border-radius: 1px; background: metadata-drag-area.has-hover ? (root.light-theme ? #f5f7fa : #d7dce5) : (root.light-theme ? #8b96a7 : #8b96a7); }
+                        Rectangle { x: (parent.width - 10px) / 2 + 4px; y: 2px; width: 2px; height: 2px; z: 1; border-radius: 1px; background: metadata-drag-area.has-hover ? (root.light-theme ? #f5f7fa : #d7dce5) : (root.light-theme ? #8b96a7 : #8b96a7); }
+                        Rectangle { x: (parent.width - 10px) / 2 + 8px; y: 2px; width: 2px; height: 2px; z: 1; border-radius: 1px; background: metadata-drag-area.has-hover ? (root.light-theme ? #f5f7fa : #d7dce5) : (root.light-theme ? #8b96a7 : #8b96a7); }
                     }
                     Rectangle {
                         height: root.metadata-pane-height + 20px;
@@ -1055,9 +1052,9 @@ export component MainWindow inherits Window {
                             if !root.selected-is-lora : HorizontalLayout {
                                 width: 100%;
                                 height: (root.metadata-pane-height - 58px);
-                                spacing: 12px;
+                                spacing: 4px;
                                 ScrollView {
-                                    width: (parent.width - 36px) / 4;
+                                    width: root.metadata-first-column-width;
                                     height: 100%;
                                     vertical-scrollbar-policy: always-on;
                                     VerticalBox {
@@ -1104,7 +1101,10 @@ export component MainWindow inherits Window {
                                             padding-left: 0px;
                                             padding-bottom: 6px;
                                             spacing: 0px;
-                                            Text { text: "Song"; color: root.light-theme ? #202833 : #e3e8ef; font-weight: 700; }
+                                            HorizontalLayout {
+                                                padding-top: 8px;
+                                                Text { text: "Song"; color: root.light-theme ? #202833 : #e3e8ef; font-weight: 700; }
+                                            }
                                     HorizontalLayout {
                                         spacing: 2px;
                                         VerticalBox {
@@ -1162,7 +1162,10 @@ export component MainWindow inherits Window {
                                             padding-left: 0px;
                                             padding-bottom: 6px;
                                             spacing: 0px;
-                                            Text { text: "KSampler"; color: root.light-theme ? #202833 : #e3e8ef; font-weight: 700; }
+                                            HorizontalLayout {
+                                                padding-left: 8px;
+                                                Text { text: "KSampler"; color: root.light-theme ? #202833 : #e3e8ef; font-weight: 700; }
+                                            }
                                             HorizontalLayout {
                                                 spacing: 4px;
                                                 VerticalBox {
@@ -1207,8 +1210,23 @@ export component MainWindow inherits Window {
                                     }
                                 }
                                 }
+                                Rectangle {
+                                    width: 6px;
+                                    background: metadata-first-column-resize-area.has-hover ? (root.light-theme ? #aeb8c6 : #566171) : (root.light-theme ? #e0e5eb : #3b4655);
+                                    metadata-first-column-resize-area := TouchArea {
+                                        mouse-cursor: ew-resize;
+                                        pointer-event(event) => {
+                                            if event.kind == PointerEventKind.move && self.pressed {
+                                                root.metadata-first-column-width = (parent.x + self.mouse-x - 12px).max(180px).min(600px);
+                                            }
+                                        }
+                                    }
+                                    Rectangle { x: 2px; y: (parent.height - 10px) / 2; width: 2px; height: 2px; z: 1; border-radius: 1px; background: root.light-theme ? #8b96a7 : #8b96a7; }
+                                    Rectangle { x: 2px; y: (parent.height - 10px) / 2 + 4px; width: 2px; height: 2px; z: 1; border-radius: 1px; background: root.light-theme ? #8b96a7 : #8b96a7; }
+                                    Rectangle { x: 2px; y: (parent.height - 10px) / 2 + 8px; width: 2px; height: 2px; z: 1; border-radius: 1px; background: root.light-theme ? #8b96a7 : #8b96a7; }
+                                }
                                 VerticalBox {
-                                    width: (parent.width - 36px) / 4;
+                                    width: root.metadata-second-column-width;
                                     height: 100%;
                                     Text { text: "Prompt"; color: root.light-theme ? #202833 : #e3e8ef; }
                                     TextEdit {
@@ -1220,8 +1238,23 @@ export component MainWindow inherits Window {
                                         changed has-focus => { root.text-input-focused = self.has-focus; }
                                     }
                                 }
+                                Rectangle {
+                                    width: 6px;
+                                    background: metadata-second-column-resize-area.has-hover ? (root.light-theme ? #aeb8c6 : #566171) : (root.light-theme ? #e0e5eb : #3b4655);
+                                    metadata-second-column-resize-area := TouchArea {
+                                        mouse-cursor: ew-resize;
+                                        pointer-event(event) => {
+                                            if event.kind == PointerEventKind.move && self.pressed {
+                                                root.metadata-second-column-width = (parent.x + self.mouse-x - root.metadata-first-column-width - 24px).max(180px).min(600px);
+                                            }
+                                        }
+                                    }
+                                    Rectangle { x: 2px; y: (parent.height - 10px) / 2; width: 2px; height: 2px; z: 1; border-radius: 1px; background: root.light-theme ? #8b96a7 : #8b96a7; }
+                                    Rectangle { x: 2px; y: (parent.height - 10px) / 2 + 4px; width: 2px; height: 2px; z: 1; border-radius: 1px; background: root.light-theme ? #8b96a7 : #8b96a7; }
+                                    Rectangle { x: 2px; y: (parent.height - 10px) / 2 + 8px; width: 2px; height: 2px; z: 1; border-radius: 1px; background: root.light-theme ? #8b96a7 : #8b96a7; }
+                                }
                                 VerticalBox {
-                                    width: (parent.width - 36px) / 4;
+                                    width: (parent.width - root.metadata-first-column-width - root.metadata-second-column-width - root.metadata-right-column-width - 34px).max(180px);
                                     height: 100%;
                                     Text { text: "Lyrics"; color: root.light-theme ? #202833 : #e3e8ef; }
                                     TextEdit {
@@ -1233,8 +1266,27 @@ export component MainWindow inherits Window {
                                         changed has-focus => { root.text-input-focused = self.has-focus; }
                                     }
                                 }
-                                VerticalBox {
-                                    width: (parent.width - 36px) / 4;
+                                Rectangle {
+                                    width: 6px;
+                                    background: metadata-column-resize-area.has-hover ? (root.light-theme ? #aeb8c6 : #566171) : (root.light-theme ? #e0e5eb : #3b4655);
+                                    metadata-column-resize-area := TouchArea {
+                                        mouse-cursor: ew-resize;
+                                        pointer-event(event) => {
+                                            if event.kind == PointerEventKind.move && self.pressed {
+                                                root.metadata-right-column-width = (root.width - self.absolute-position.x - self.mouse-x - 12px).max(180px).min(600px);
+                                            }
+                                        }
+                                    }
+                                    Rectangle { x: 2px; y: (parent.height - 10px) / 2; width: 2px; height: 2px; z: 1; border-radius: 1px; background: root.light-theme ? #8b96a7 : #8b96a7; }
+                                    Rectangle { x: 2px; y: (parent.height - 10px) / 2 + 4px; width: 2px; height: 2px; z: 1; border-radius: 1px; background: root.light-theme ? #8b96a7 : #8b96a7; }
+                                    Rectangle { x: 2px; y: (parent.height - 10px) / 2 + 8px; width: 2px; height: 2px; z: 1; border-radius: 1px; background: root.light-theme ? #8b96a7 : #8b96a7; }
+                                }
+                                ScrollView {
+                                    width: root.metadata-right-column-width;
+                                    height: 100%;
+                                    vertical-scrollbar-policy: always-on;
+                                    VerticalBox {
+                                    width: 100%;
                                     height: 100%;
                                     Text { text: "Inference engine"; color: root.light-theme ? #202833 : #e3e8ef; }
                                     ComboBox {
@@ -1335,6 +1387,7 @@ export component MainWindow inherits Window {
                                         edited(text) => { root.user-comments-changed(text); }
                                         changed has-focus => { root.text-input-focused = self.has-focus; }
                                     }
+                                }
                                 }
                             }
                             if root.selected-is-lora : VerticalBox {

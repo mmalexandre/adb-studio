@@ -68,6 +68,12 @@ pub struct AppSettings {
     pub left_pane_width: f32,
     #[serde(default = "default_metadata_pane_height")]
     pub metadata_pane_height: f32,
+    #[serde(default = "default_metadata_first_column_width")]
+    pub metadata_first_column_width: f32,
+    #[serde(default = "default_metadata_second_column_width")]
+    pub metadata_second_column_width: f32,
+    #[serde(default = "default_metadata_right_column_width")]
+    pub metadata_right_column_width: f32,
     #[serde(default)]
     pub metadata_visible: bool,
     #[serde(default)]
@@ -106,6 +112,18 @@ fn default_left_pane_width() -> f32 {
 
 fn default_metadata_pane_height() -> f32 {
     320.0
+}
+
+fn default_metadata_first_column_width() -> f32 {
+    300.0
+}
+
+fn default_metadata_second_column_width() -> f32 {
+    300.0
+}
+
+fn default_metadata_right_column_width() -> f32 {
+    280.0
 }
 
 fn default_seek_seconds() -> f32 {
@@ -254,6 +272,9 @@ impl Default for AppSettings {
             workflow_save_confirmation_disabled_workspaces: HashSet::new(),
             left_pane_width: default_left_pane_width(),
             metadata_pane_height: default_metadata_pane_height(),
+            metadata_first_column_width: default_metadata_first_column_width(),
+            metadata_second_column_width: default_metadata_second_column_width(),
+            metadata_right_column_width: default_metadata_right_column_width(),
             metadata_visible: true,
             hide_tips_of_the_day: false,
             comment_background_color: default_comment_background_color(),
@@ -338,6 +359,9 @@ mod tests {
         assert_eq!(settings.sort_order, 3);
         assert_eq!(settings.left_pane_width, 280.0);
         assert_eq!(settings.metadata_pane_height, 320.0);
+        assert_eq!(settings.metadata_first_column_width, 300.0);
+        assert_eq!(settings.metadata_second_column_width, 300.0);
+        assert_eq!(settings.metadata_right_column_width, 280.0);
         assert_eq!(settings.comment_background_color, "#000000");
         assert_eq!(settings.comment_text_color, "#ffffff");
         assert_eq!(settings.label_definitions.len(), 6);

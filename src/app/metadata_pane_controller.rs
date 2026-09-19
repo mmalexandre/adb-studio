@@ -683,6 +683,33 @@ pub fn register_metadata_pane_callbacks(
             settings::save(&settings_snapshot);
         });
     }
+
+    {
+        let settings = Rc::clone(settings);
+        window.on_metadata_first_column_width_changed(move |width| {
+            settings.borrow_mut().metadata_first_column_width = width;
+            let settings_snapshot = settings.borrow().clone();
+            settings::save(&settings_snapshot);
+        });
+    }
+
+    {
+        let settings = Rc::clone(settings);
+        window.on_metadata_second_column_width_changed(move |width| {
+            settings.borrow_mut().metadata_second_column_width = width;
+            let settings_snapshot = settings.borrow().clone();
+            settings::save(&settings_snapshot);
+        });
+    }
+
+    {
+        let settings = Rc::clone(settings);
+        window.on_metadata_right_column_width_changed(move |width| {
+            settings.borrow_mut().metadata_right_column_width = width;
+            let settings_snapshot = settings.borrow().clone();
+            settings::save(&settings_snapshot);
+        });
+    }
 }
 
 fn update_audio_tag_assignment(
