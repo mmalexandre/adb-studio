@@ -89,6 +89,15 @@ pub fn register_tree_callbacks(
                     clear_workflow(&window);
                     window.set_workflow_loading(false);
                     window.set_user_comments(lora_metadata.user_comments.into());
+                    window.set_lora_sources(
+                        crate::metadata::load_lora_sources(
+                            &folder,
+                            path.file_name()
+                                .and_then(|name| name.to_str())
+                                .unwrap_or_default(),
+                        )
+                        .into(),
+                    );
                     window.set_lora_custom_tag(lora_metadata.custom_tag.into());
                     window.set_lora_custom_path(
                         crate::metadata::load_lora_custom_path(
@@ -105,6 +114,7 @@ pub fn register_tree_callbacks(
                 }
                 window.set_lora_custom_tag("".into());
                 window.set_lora_custom_path("".into());
+                window.set_lora_sources("".into());
                 load_workflow_for_audio(
                     &window,
                     &folder,

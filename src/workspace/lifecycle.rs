@@ -115,33 +115,7 @@ pub fn set_workspace(
     }
 
     let mut new_tree_state = TreeState::new(folder.clone());
-    if let Some(selected_path) = settings_snapshot
-        .last_selected_path
-        .as_deref()
-        .map(PathBuf::from)
-    {
-        if selected_path != folder
-            && selected_path.exists()
-            && selected_path.strip_prefix(&folder).is_ok()
-        {
-            new_tree_state.select_and_expand(&selected_path);
-            window.set_selected_name(
-                selected_path
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .unwrap_or_default()
-                    .into(),
-            );
-        } else {
-            window.set_selected_name("".into());
-        }
-    } else {
-        window.set_selected_name("".into());
-    }
-    *tree_state.borrow_mut() = Some(new_tree_state);
-    tree_nav::refresh_tree(window, tree_state);
-    let backup_folder = folder.clone();
-    let audio_view_folder = settings_snapshot
+    let restored_selected_path = settings_snapshot
         .last_selected_path
         .as_deref()
         .map(PathBuf::from)
@@ -149,7 +123,55 @@ pub fn set_workspace(
             selected_path != &folder
                 && selected_path.exists()
                 && selected_path.strip_prefix(&folder).is_ok()
-        })
+        });
+    if let Some(selected_path) = restored_selected_path.as_ref() {
+        new_tree_state.select_and_expand(selected_path);
+        window.set_selected_name(
+            selected_path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or_default()
+                .into(),
+        );
+        window.set_selected_audio_path(selected_path.to_string_lossy().into_owned().into());
+        let is_lora = file_system::FileKind::from_path(selected_path)
+            == file_system::FileKind::Safetensors;
+        window.set_selected_is_lora(is_lora);
+        if is_lora {
+            let lora_metadata = crate::metadata::load_audio_metadata(&folder, selected_path);
+            window.set_user_comments(lora_metadata.user_comments.into());
+            window.set_lora_sources(
+                crate::metadata::load_lora_sources(
+                    &folder,
+                    selected_path
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .unwrap_or_default(),
+                )
+                .into(),
+            );
+            window.set_lora_custom_tag(lora_metadata.custom_tag.into());
+            window.set_lora_custom_path(
+                crate::metadata::load_lora_custom_path(
+                    &folder,
+                    selected_path
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .unwrap_or_default(),
+                )
+                .into(),
+            );
+        }
+    } else {
+        window.set_selected_name("".into());
+        window.set_selected_audio_path("".into());
+        window.set_selected_is_lora(false);
+        window.set_lora_sources("".into());
+    }
+    *tree_state.borrow_mut() = Some(new_tree_state);
+    tree_nav::refresh_tree(window, tree_state);
+    let backup_folder = folder.clone();
+    let audio_view_folder = restored_selected_path
         .and_then(|selected_path| {
             if selected_path.is_dir() {
                 Some(selected_path)

@@ -161,6 +161,23 @@ pub fn register_metadata_pane_callbacks(
     {
         let weak_window = window.as_weak();
         let audio_folder = Rc::clone(audio_folder);
+        window.on_lora_sources_changed(move |sources| {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            let Some(folder) = audio_folder.borrow().clone() else {
+                return;
+            };
+            let path = PathBuf::from(window.get_selected_audio_path().as_str());
+            if let Some(filename) = path.file_name().and_then(|name| name.to_str()) {
+                metadata::save_lora_sources(&folder, filename, sources.as_str());
+            }
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        let audio_folder = Rc::clone(audio_folder);
         window.on_lora_custom_path_changed(move |path_value| {
             let Some(window) = weak_window.upgrade() else {
                 return;

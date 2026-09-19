@@ -110,6 +110,8 @@ pub struct AudioFileMetadata {
     #[serde(default)]
     pub user_comments: String,
     #[serde(default)]
+    pub sources: String,
+    #[serde(default)]
     pub custom_tag: String,
     pub modified_date: String,
     pub waveform_cache_key: String,
@@ -126,6 +128,8 @@ pub struct LoraMetadata {
     pub custom_tag: String,
     #[serde(default)]
     pub custom_path: String,
+    #[serde(default)]
+    pub sources: String,
 }
 
 impl AudioFileMetadata {
@@ -261,6 +265,46 @@ pub fn load_lora_custom_path(folder: &Path, filename: &str) -> String {
         .unwrap_or_default()
 }
 
+pub fn load_lora_sources(folder: &Path, filename: &str) -> String {
+    find_lora_path(folder, filename)
+        .map(|path| load_audio_metadata(folder, &path).sources)
+        .filter(|sources| !sources.is_empty())
+        .or_else(|| {
+            load_index(folder)
+                .loras
+                .into_iter()
+                .find(|lora| {
+                    lora.filename.eq_ignore_ascii_case(filename)
+                        || comfyui::display_lora_name(&lora.filename).eq_ignore_ascii_case(filename)
+                })
+                .map(|lora| lora.sources)
+        })
+        .unwrap_or_default()
+}
+
+pub fn save_lora_sources(folder: &Path, filename: &str, sources: &str) {
+    let mut index = load_index(folder);
+    if let Some(lora) = index.loras.iter_mut().find(|lora| {
+        lora.filename.eq_ignore_ascii_case(filename)
+            || comfyui::display_lora_name(&lora.filename).eq_ignore_ascii_case(filename)
+    }) {
+        lora.sources = sources.to_owned();
+    } else {
+        index.loras.push(LoraMetadata {
+            filename: filename.to_owned(),
+            custom_tag: String::new(),
+            custom_path: String::new(),
+            sources: sources.to_owned(),
+        });
+    }
+    save_index(folder, &index);
+    if let Some(path) = find_lora_path(folder, filename) {
+        let mut metadata = load_audio_metadata(folder, &path);
+        metadata.sources = sources.to_owned();
+        save_audio_metadata(folder, &path, &metadata);
+    }
+}
+
 pub fn save_lora_custom_tag(folder: &Path, filename: &str, custom_tag: &str) {
     let mut index = load_index(folder);
     if let Some(lora) = index.loras.iter_mut().find(|lora| {
@@ -273,6 +317,7 @@ pub fn save_lora_custom_tag(folder: &Path, filename: &str, custom_tag: &str) {
             filename: filename.to_owned(),
             custom_tag: custom_tag.to_owned(),
             custom_path: String::new(),
+            sources: String::new(),
         });
     }
     save_index(folder, &index);
@@ -295,6 +340,7 @@ pub fn save_lora_custom_path(folder: &Path, filename: &str, custom_path: &str) {
             filename: filename.to_owned(),
             custom_tag: String::new(),
             custom_path: custom_path.to_owned(),
+            sources: String::new(),
         });
     }
     save_index(folder, &index);

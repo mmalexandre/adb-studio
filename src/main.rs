@@ -10,6 +10,7 @@ use std::{
 
 use audio::playback::PlaybackEngine;
 use slint::{ComponentHandle, Model, ModelRc, VecModel};
+use slint::winit_030::{winit, CustomApplicationHandler, EventResult};
 
 mod app;
 mod audio;
@@ -24,6 +25,26 @@ slint::include_modules!();
 
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 const BUILD_NUMBER: &str = env!("ADB_BUILD_NUMBER");
+
+struct FileDropHandler {
+    dropped_files: Rc<RefCell<Vec<PathBuf>>>,
+}
+
+impl CustomApplicationHandler for FileDropHandler {
+    fn window_event(
+        &mut self,
+        _event_loop: &winit::event_loop::ActiveEventLoop,
+        _window_id: winit::window::WindowId,
+        _winit_window: Option<&winit::window::Window>,
+        _slint_window: Option<&slint::Window>,
+        event: &winit::event::WindowEvent,
+    ) -> EventResult {
+        if let winit::event::WindowEvent::DroppedFile(path) = event {
+            self.dropped_files.borrow_mut().push(path.clone());
+        }
+        EventResult::Propagate
+    }
+}
 
 fn log_slow_ui_stage(name: &str, started: Instant) {
     let elapsed = started.elapsed();
@@ -40,6 +61,14 @@ use workspace::tree_nav::refresh_tree;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     app::env::sync_cursor_environment();
+    let dropped_files = Rc::new(RefCell::new(Vec::new()));
+    slint::BackendSelector::new()
+        .backend_name("winit".into())
+        .with_winit_event_loop_builder(winit::event_loop::EventLoop::with_user_event())
+        .with_winit_custom_application_handler(FileDropHandler {
+            dropped_files: Rc::clone(&dropped_files),
+        })
+        .select()?;
     let window = MainWindow::new()?;
     slint::set_xdg_app_id("com.adbstudio.AdbStudio")?;
     let state = app::AppState::new();
@@ -268,6 +297,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let workflow_run_cancelled = Rc::clone(&workflow_run_cancelled);
         let sync_test_receiver = Rc::clone(&sync_test_receiver);
         let recreate_workflow_pending = Rc::clone(&recreate_workflow_pending);
+        let dropped_files = Rc::clone(&dropped_files);
         let edited_workflow = Rc::clone(&edited_workflow);
         let edited_workflow_path = Rc::clone(&edited_workflow_path);
         let tree_state_for_conversion = Rc::clone(&tree_state);
@@ -285,6 +315,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             move || {
                 let timer_started = Instant::now();
                 if let Some(window) = weak_window.upgrade() {
+                    let dropped_paths = std::mem::take(&mut *dropped_files.borrow_mut());
+                    if !dropped_paths.is_empty() {
+                        let target = window.get_metadata_drop_target();
+                        if !target.is_empty() {
+                            let paths = dropped_paths
+                                .iter()
+                                .map(|path| path.to_string_lossy().into_owned())
+                                .collect::<Vec<_>>()
+                                .join("\n");
+                            if arboard::Clipboard::new()
+                                .and_then(|mut clipboard| clipboard.set_text(paths.clone()))
+                                .is_ok()
+                            {
+                                window.invoke_file_paths_dropped(target, paths.into());
+                            }
+                        }
+                    }
                     if let Some(receiver) = workflow_run_receiver.borrow_mut().as_mut() {
                         while let Ok(update) = receiver.try_recv() {
                             match update {
