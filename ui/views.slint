@@ -570,6 +570,11 @@ export component AudioList inherits ListView {
             self.height / 1px,
             self.viewport-y / 1px,
         );
+        // "changed" handlers below don't fire on initial creation, so request the viewport here too.
+        root.viewport-changed(
+            (0px - root.viewport-y) / 132px,
+            (root.height / 132px) + 1
+        );
     }
 
     changed absolute-position => {

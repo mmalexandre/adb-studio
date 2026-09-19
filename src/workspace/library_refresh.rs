@@ -413,11 +413,6 @@ fn apply(
     state.total = total;
     state.requested_range = None;
     drop(state);
-    loader::request(
-        audio_load_state,
-        window.get_audio_viewport_start().max(0) as usize,
-        window.get_audio_visible_rows().max(1) as usize,
-    );
 }
 
 fn folder_row(

@@ -477,9 +477,4 @@ fn refresh_audio_with_changes(
         state.total = total;
         state.requested_range = None;
     }
-    loader::request(
-        audio_load_state,
-        window.get_audio_viewport_start().max(0) as usize,
-        window.get_audio_visible_rows().max(1) as usize,
-    );
 }

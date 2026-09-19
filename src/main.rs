@@ -203,6 +203,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &stem_job,
     );
 
+    {
+        let audio_load_state = Arc::clone(&audio_load_state);
+        window.on_audio_viewport_changed(move |start_index, visible_rows| {
+            request_audio_generation(
+                &audio_load_state,
+                start_index as usize,
+                visible_rows.max(1) as usize,
+            );
+        });
+    }
+
     let last_folder = settings.borrow().last_folder.clone();
     if let Some(last_folder) = last_folder {
         let folder = PathBuf::from(last_folder);
@@ -537,37 +548,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &sync_test_sender,
     );
 
-    {
-        let audio_load_state = Arc::clone(&audio_load_state);
-        window.on_audio_viewport_changed(move |start_index, visible_rows| {
-            request_audio_generation(
-                &audio_load_state,
-                start_index as usize,
-                visible_rows.max(1) as usize,
-            );
-        });
-    }
-
     window.show()?;
-    {
-        let window_weak = window.as_weak();
-        let audio_load_state = Arc::clone(&audio_load_state);
-        let startup_viewport_timer = slint::Timer::default();
-        startup_viewport_timer.start(
-            slint::TimerMode::SingleShot,
-            Duration::from_millis(0),
-            move || {
-                if let Some(window) = window_weak.upgrade() {
-                    request_audio_generation(
-                        &audio_load_state,
-                        window.get_audio_viewport_start().max(0) as usize,
-                        window.get_audio_visible_rows().max(1) as usize,
-                    );
-                }
-            },
-        );
-        std::mem::forget(startup_viewport_timer);
-    }
     let window_weak = window.as_weak();
     let splash_timer = slint::Timer::default();
     splash_timer.start(
