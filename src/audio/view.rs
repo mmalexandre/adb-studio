@@ -487,7 +487,20 @@ pub fn scroll_to_path(
     }) else {
         return;
     };
-    window.set_audio_scroll_to_index(index as i32);
+    let offset = (0..index)
+        .filter_map(|row_index| model.row_data(row_index))
+        .map(|row| {
+            if row.is_folder {
+                30.0
+            } else if row.is_lora {
+                96.0
+            } else {
+                132.0
+            }
+        })
+        .sum::<f32>();
+    window.set_audio_scroll_to_index(-1);
+    window.set_audio_scroll_to_offset(offset.into());
 }
 
 pub fn scroll_to_path_if_needed(

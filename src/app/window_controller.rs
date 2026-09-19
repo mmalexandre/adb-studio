@@ -3,7 +3,7 @@ use std::{
     path::{Path, PathBuf},
     rc::Rc,
     sync::{mpsc, Arc, Mutex},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use notify::RecommendedWatcher;
@@ -112,6 +112,7 @@ pub fn register_window_callbacks(
     workspace_watcher: &Rc<RefCell<Option<RecommendedWatcher>>>,
     workspace_change_sender: &mpsc::Sender<Vec<PathBuf>>,
     playback: &Rc<RefCell<Option<PlaybackEngine>>>,
+    last_button_click: &Rc<RefCell<Option<(PathBuf, Instant)>>>,
     workflow_loading: &Rc<RefCell<bool>>,
     edited_workflow: &Rc<RefCell<Option<serde_json::Value>>>,
     edited_workflow_path: &Rc<RefCell<Option<PathBuf>>>,
@@ -553,11 +554,22 @@ pub fn register_window_callbacks(
         let audio_load_state = Arc::clone(audio_load_state);
         let workflow_loading = Rc::clone(workflow_loading);
         let loaded_workflow_path = Rc::clone(loaded_workflow_path);
+        let last_tree_click = Rc::new(RefCell::new(None::<(PathBuf, Instant)>));
+        let last_button_click = Rc::clone(last_button_click);
         window.on_row_clicked(move |path, shift| {
             let Some(window) = weak_window.upgrade() else {
                 return;
             };
             let path = PathBuf::from(path.as_str());
+            let double_clicked = !shift
+                && !path.is_dir()
+                && last_tree_click
+                    .borrow()
+                    .as_ref()
+                    .is_some_and(|(last_path, last_time)| {
+                        last_path == &path && last_time.elapsed() <= Duration::from_millis(350)
+                    });
+            *last_tree_click.borrow_mut() = Some((path.clone(), Instant::now()));
 
             let mut state_ref = tree_state.borrow_mut();
             let Some(state) = state_ref.as_mut() else {
@@ -595,11 +607,17 @@ pub fn register_window_callbacks(
                     &audio_load_state,
                     path,
                 );
-            } else if file_system::FileKind::from_path(&path) == file_system::FileKind::Audio {
+            } else if matches!(
+                file_system::FileKind::from_path(&path),
+                file_system::FileKind::Audio | file_system::FileKind::Safetensors
+            ) {
                 let Some(folder) = path.parent().map(Path::to_path_buf) else {
                     return;
                 };
                 window.set_selected_audio_path(path.to_string_lossy().into_owned().into());
+                window.set_selected_is_lora(
+                    file_system::FileKind::from_path(&path) == file_system::FileKind::Safetensors,
+                );
                 crate::workspace::library::refresh_audio(
                     &window,
                     &audio_folder,
@@ -607,15 +625,23 @@ pub fn register_window_callbacks(
                     &audio_load_state,
                     folder,
                 );
-                if let Some(folder) = audio_folder.borrow().clone() {
-                    crate::workspace::workflow::load_workflow_for_audio(
-                        &window,
-                        &folder,
-                        &path,
-                        &workflow_loading,
-                        &loaded_workflow_path,
-                        false,
-                    );
+                if file_system::FileKind::from_path(&path) == file_system::FileKind::Audio {
+                    if let Some(folder) = audio_folder.borrow().clone() {
+                        crate::workspace::workflow::load_workflow_for_audio(
+                            &window,
+                            &folder,
+                            &path,
+                            &workflow_loading,
+                            &loaded_workflow_path,
+                            false,
+                        );
+                    }
+                }
+                if double_clicked
+                    && file_system::FileKind::from_path(&path) == file_system::FileKind::Audio
+                {
+                    *last_button_click.borrow_mut() = Some((path.clone(), Instant::now()));
+                    window.invoke_audio_play(path.to_string_lossy().into_owned().into());
                 }
             }
         });

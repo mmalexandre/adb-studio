@@ -388,6 +388,9 @@ fn apply(
     window.set_audio_rows(ModelRc::new(model.clone()));
     crate::audio::view::set_audio_row_index(&model);
     *audio_model.borrow_mut() = Some(model);
+    if !previous_selected_path.as_os_str().is_empty() {
+        crate::audio::view::scroll_to_path(window, audio_model, &previous_selected_path);
+    }
     let mut state = audio_load_state.lock().unwrap();
     state.folder = audio_folder.borrow().clone().unwrap_or_default();
     state.paths = paths;

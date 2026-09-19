@@ -116,6 +116,7 @@ export component MainWindow inherits Window {
     property <float> audio-list-height: 0;
     property <float> audio-list-scroll-y: 0;
     in-out property <int> audio-scroll-to-index: -1;
+    in-out property <length> audio-scroll-to-offset: 0px;
     in-out property <int> audio-viewport-start: 0;
     in-out property <int> audio-visible-rows: 0;
     in-out property <string> audio-filter: "";
@@ -924,6 +925,7 @@ export component MainWindow inherits Window {
                                 label-names: root.label-names;
                                 label-colors: root.label-color-values;
                                 scroll-to-index: root.audio-scroll-to-index;
+                                scroll-to-offset: root.audio-scroll-to-offset;
                                 width: 100%;
                                 height: 100%;
                                 viewport-changed(start-index, visible-rows) => {

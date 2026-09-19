@@ -541,6 +541,7 @@ export component AudioList inherits ListView {
     in property <[string]> label-names: [];
     in property <[color]> label-colors: [];
     in property <int> scroll-to-index: -1;
+    in property <length> scroll-to-offset: 0px;
     callback row-selected(string);
     callback row-clicked(string, bool);
     callback viewport-changed(int, int);
@@ -626,6 +627,10 @@ export component AudioList inherits ListView {
         if root.scroll-to-index >= 0 {
             root.viewport-y = 0px - root.scroll-to-index * 132px;
         }
+    }
+
+    changed scroll-to-offset => {
+        root.viewport-y = 0px - root.scroll-to-offset;
     }
 
     for row[index] in root.rows : Rectangle {

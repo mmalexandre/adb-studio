@@ -534,6 +534,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &workspace_watcher,
         &workspace_change_sender,
         &playback,
+        &last_button_click,
         &workflow_loading,
         &edited_workflow,
         &edited_workflow_path,
