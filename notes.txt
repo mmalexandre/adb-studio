@@ -1,23 +1,10 @@
 TODO:
 -----
-x Song name in main play bar
-x Fix UI freeze
-x Resizing comments
-x The metadata parser doesn't work properly: it considers al LoRas as active.
-	But on garbage1_cover_0007.flac, the first lora is not.
-x Alerte quand génération terminée / nouvelle download
-x Labels should probably be stored in workspace instead of globally (they are project data)
-revious
-x Filter by tag
-x Comment quantizing
-x Stem separation
-x Template ComfyUI files
-x LoRas manager - give ratings, comment, metadata
-x Slice out function (extract audio from comment)
-x Make running in ComfyUI easier and seamless (using the API)
-x Periodic backups
-x LoRa - document training: custom tag, original files names and origin
-- Covers and repaint through API?
+
+- Make work with a custom API
+
+
+
 
 Mise en prod:
 -------------
@@ -31,6 +18,7 @@ Mise en prod:
 
 Recherche:
 ----------
+x Comment recreer les sons de synthe / kick
 - Comment recreer un morceau de facon deterministe (sauver le CPU?)
 x Repaint pour ameliorer la qualite d'un existant
 x Test stem separation on ComfyUI
@@ -41,6 +29,7 @@ Cerises sur le gâteau:
 - Easier LoRa training (my script transformed into an integrated workflow)
 - Youno = workflows and loras and audio sharing platform
 - Include track length in distance comparison + num steps
+- Covers and repaint through API?
 
 
 Avantages de cette application:
@@ -60,3 +49,8 @@ Avantages de cette application:
 	A bridge from AI to your DAW
 - Embracing AI as a new tool, but not necessarily in the traditional way
 	Fomenter de nouveaux usages
+
+Idees Youtube:
+--------------
+- Musique sous Linux
+- 

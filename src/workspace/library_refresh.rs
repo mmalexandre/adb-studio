@@ -6,6 +6,7 @@ use std::{
     rc::Rc,
     sync::{mpsc, Arc, Mutex, OnceLock},
     thread,
+    time::{Duration, Instant},
 };
 
 use slint::{Image, Model, ModelRc, VecModel};
@@ -28,17 +29,28 @@ use super::tree_nav::set_audio_breadcrumbs;
 
 struct RefreshQueue {
     next_generation: std::sync::atomic::AtomicU64,
+    // Highest generation ever applied to the UI; used to guarantee the pane never regresses to older data.
+    last_applied: std::sync::atomic::AtomicU64,
+    // (generation, requested_at) for the most recently enqueued request, used for the stall fallback below.
+    requested: Mutex<(u64, Instant)>,
     sender: mpsc::Sender<RefreshResult>,
     receiver: Mutex<mpsc::Receiver<RefreshResult>>,
 }
 
 static QUEUE: OnceLock<RefreshQueue> = OnceLock::new();
 
+// If the newest requested refresh hasn't produced a result within this long (e.g. its background
+// thread panicked or stalled), fall back to the newest result we do have instead of leaving the
+// audio pane stuck on stale data forever.
+const STALL_FALLBACK: Duration = Duration::from_millis(500);
+
 fn queue() -> &'static RefreshQueue {
     QUEUE.get_or_init(|| {
         let (sender, receiver) = mpsc::channel();
         RefreshQueue {
             next_generation: std::sync::atomic::AtomicU64::new(0),
+            last_applied: std::sync::atomic::AtomicU64::new(0),
+            requested: Mutex::new((0, Instant::now())),
             sender,
             receiver: Mutex::new(receiver),
         }
@@ -115,6 +127,7 @@ pub fn enqueue(
         .next_generation
         .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         + 1;
+    *queue().requested.lock().unwrap() = (generation, Instant::now());
     let sender = queue().sender.clone();
     let reload_all = changed_paths.is_none();
     thread::spawn(move || {
@@ -215,15 +228,24 @@ pub fn tick(
         receiver.try_iter().max_by_key(|result| result.generation)
     };
     let Some(result) = latest else { return };
-    let latest_requested = queue()
-        .next_generation
-        .load(std::sync::atomic::Ordering::Relaxed);
-    if result.generation != latest_requested {
+    // Never regress to data older than what's already on screen.
+    if result.generation <= queue().last_applied.load(std::sync::atomic::Ordering::Relaxed) {
+        return;
+    }
+    let (requested_generation, requested_at) = *queue().requested.lock().unwrap();
+    let is_newest_requested = result.generation == requested_generation;
+    let newest_request_stalled = requested_at.elapsed() >= STALL_FALLBACK;
+    if !is_newest_requested && !newest_request_stalled {
+        // A newer refresh is still in flight and hasn't stalled yet; wait for it instead of
+        // flashing intermediate results.
         return;
     }
     if audio_folder.borrow().as_ref() != Some(&result.workspace) {
         return;
     }
+    queue()
+        .last_applied
+        .store(result.generation, std::sync::atomic::Ordering::Relaxed);
     apply(window, audio_folder, audio_model, audio_load_state, result);
 }
 
