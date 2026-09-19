@@ -18,11 +18,16 @@ fn key_index(key: &str) -> i32 {
     .unwrap_or(-1)
 }
 
-fn display_model_name(model: &str) -> String {
-    match model {
-        "ace_step_1.5_turbo_aio.safetensors" => "Ace Step 1.5 Turbo Aio".to_string(),
-        _ => model.to_string(),
-    }
+fn model_index(model: &str) -> i32 {
+    [
+        "ace_step_1.5_turbo_aio.safetensors",
+        "ace_step_1.5_sft.safetensors",
+        "ace_step_1.5_base.safetensors",
+    ]
+    .iter()
+    .position(|candidate| candidate.eq_ignore_ascii_case(model))
+    .map(|index| index as i32)
+    .unwrap_or(-1)
 }
 
 pub fn scan_json_files(folder: &Path) -> Vec<(String, String)> {
@@ -56,8 +61,10 @@ pub fn clear_workflow(window: &MainWindow) {
     window.set_workflow_seed_number(0);
     window.set_workflow_ksampler_cfg("".into());
     window.set_workflow_ksampler_steps("".into());
+    window.set_workflow_ksampler_steps_number(0);
     window.set_workflow_reference_audio("".into());
     window.set_workflow_model("".into());
+    window.set_workflow_model_index(-1);
     window.set_workflow_prompt("".into());
     window.set_workflow_lyrics("".into());
     window.set_workflow_loras(ModelRc::new(VecModel::from(Vec::<WorkflowLoraRow>::new())));
@@ -92,9 +99,11 @@ pub fn apply_workflow(
     window.set_workflow_seed(workflow.seed.into());
     window.set_workflow_seed_number(seed_number);
     window.set_workflow_ksampler_cfg(workflow.ksampler_cfg.into());
+    window.set_workflow_ksampler_steps_number(workflow.ksampler_steps.parse().unwrap_or(0));
     window.set_workflow_ksampler_steps(workflow.ksampler_steps.into());
     window.set_workflow_reference_audio(workflow.reference_audio.into());
-    window.set_workflow_model(display_model_name(&workflow.model).into());
+    window.set_workflow_model_index(model_index(&workflow.model));
+    window.set_workflow_model(workflow.model.into());
     window.set_workflow_prompt(workflow.prompt.into());
     window.set_workflow_lyrics(workflow.lyrics.into());
     window.set_workflow_loras(ModelRc::new(VecModel::from(
@@ -261,12 +270,11 @@ mod tests {
     }
 
     #[test]
-    fn display_name_shortens_the_known_model_filename_only() {
-        assert_eq!(
-            display_model_name("ace_step_1.5_turbo_aio.safetensors"),
-            "Ace Step 1.5 Turbo Aio"
-        );
-        assert_eq!(display_model_name("other.safetensors"), "other.safetensors");
+    fn model_index_matches_supported_filenames() {
+        assert_eq!(model_index("ace_step_1.5_turbo_aio.safetensors"), 0);
+        assert_eq!(model_index("ace_step_1.5_sft.safetensors"), 1);
+        assert_eq!(model_index("ace_step_1.5_base.safetensors"), 2);
+        assert_eq!(model_index("other.safetensors"), -1);
     }
 
     #[test]

@@ -576,6 +576,38 @@ pub fn update_metadata(value: &mut Value, field: &str, new_value: &str) -> bool 
             .to_ascii_lowercase();
         let is_ace_step = class_type.contains("textencodeacestep")
             || class_type.contains("acestep") && class_type.contains("textencode");
+        let is_ksampler = class_type.contains("ksampler");
+        let is_model_loader = class_type.contains("checkpointloader")
+            || class_type.contains("unetloader")
+            || class_type.contains("model loader");
+        let is_load_audio = class_type.replace([' ', '_', '-'], "").contains("loadaudio");
+        let requested_field = match field {
+            "ksampler_cfg" => "cfg",
+            "ksampler_steps" => "steps",
+            _ => field,
+        };
+        if is_ksampler || is_model_loader || is_load_audio {
+            if let Some(inputs) = object.get_mut("inputs").and_then(Value::as_object_mut) {
+                let target_keys: &[&str] = if is_ksampler {
+                    &["cfg", "steps"]
+                } else if is_model_loader {
+                    &["ckpt_name", "unet_name", "model_name", "checkpoint", "checkpoint_name"]
+                } else {
+                    &["audio", "audio_name", "filename", "file_name", "name"]
+                };
+                if let Some(target) = inputs
+                    .iter_mut()
+                    .find(|(key, _)| {
+                        (field == "model" && is_model_loader && target_keys.iter().any(|candidate| key.eq_ignore_ascii_case(candidate)))
+                            || (field == "reference_audio" && is_load_audio && target_keys.iter().any(|candidate| key.eq_ignore_ascii_case(candidate)))
+                            || target_keys.iter().any(|candidate| requested_field.eq_ignore_ascii_case(candidate) && key.eq_ignore_ascii_case(candidate))
+                    })
+                    .map(|(_, value)| value)
+                {
+                    return replace(target, new_value);
+                }
+            }
+        }
         if is_ace_step {
             if let Some(inputs) = object.get_mut("inputs").and_then(Value::as_object_mut) {
                 if let Some(target) = inputs
@@ -620,8 +652,65 @@ pub fn update_metadata(value: &mut Value, field: &str, new_value: &str) -> bool 
                 .and_then(Value::as_str)
                 .unwrap_or_default()
                 .to_ascii_lowercase();
-            let is_visual_ace_step = node_type.contains("textencodeacestep")
+            let node_name = object
+                .get("properties")
+                .and_then(Value::as_object)
+                .and_then(|properties| properties.get("Node name for S&R"))
+                .map(|value| value.to_string().to_ascii_lowercase())
+                .unwrap_or_default();
+            let node_kind = format!("{node_type} {node_name}");
+            let is_visual_ace_step = node_kind.contains("textencodeacestep")
                 || node_type.contains("acestep") && node_type.contains("textencode");
+            let is_visual_ksampler = node_kind.contains("ksampler");
+            let is_visual_model_loader = node_kind.contains("checkpointloader")
+                || node_kind.contains("unetloader")
+                || node_kind.contains("model loader");
+            let is_visual_load_audio = node_kind.replace([' ', '_', '-'], "").contains("loadaudio");
+            if is_visual_ksampler || is_visual_model_loader || is_visual_load_audio {
+                let target_names: &[&str] = if is_visual_ksampler {
+                    &["cfg", "steps"]
+                } else if is_visual_model_loader {
+                    &["ckpt_name", "unet_name", "model_name", "checkpoint", "checkpoint_name"]
+                } else {
+                    &["audio", "audio_name", "filename", "file_name", "name"]
+                };
+                let target_index = keys.iter().enumerate().find_map(|(index, key)| {
+                    let matches = (field == "model" && is_visual_model_loader && target_names.iter().any(|name| key == name))
+                        || (field == "reference_audio" && is_visual_load_audio && target_names.iter().any(|name| key == name))
+                        || target_names.iter().any(|name| requested_field == *name && key == name);
+                    matches.then_some(index)
+                });
+                if let Some(target_index) = target_index {
+                    let widget_index = object
+                        .get("inputs")
+                        .and_then(Value::as_array)
+                        .and_then(|inputs| {
+                            let mut widget_index = 0;
+                            inputs.iter().find_map(|input| {
+                                let name = input.get("name").and_then(Value::as_str)?;
+                                let is_target = name.eq_ignore_ascii_case(&keys[target_index]);
+                                if input.get("widget").is_some() {
+                                    let current = widget_index;
+                                    widget_index += 1;
+                                    if name.eq_ignore_ascii_case("seed") {
+                                        widget_index += 1;
+                                    }
+                                    return is_target.then_some(current);
+                                }
+                                None
+                            })
+                        })
+                        .or_else(|| (is_visual_model_loader || is_visual_load_audio).then_some(0));
+                    if let Some(target) = widget_index.and_then(|index| {
+                        object
+                            .get_mut("widgets_values")
+                            .and_then(Value::as_array_mut)
+                            .and_then(|values| values.get_mut(index))
+                    }) {
+                        return replace(target, new_value);
+                    }
+                }
+            }
             if is_visual_ace_step {
                 let uses_positional_metadata = object
                     .get("widgets_values")
@@ -799,6 +888,21 @@ mod tests {
             value["3"]["inputs"]["lora_name"],
             json!("style.safetensors")
         );
+    }
+
+    #[test]
+    fn updates_ksampler_and_reference_audio_metadata() {
+        let mut value = json!({
+            "1": {"class_type": "KSampler", "inputs": {"steps": 8, "cfg": 1.0}},
+            "2": {"class_type": "LoadAudio", "inputs": {"audio": "old.flac"}}
+        });
+
+        assert!(super::update_metadata(&mut value, "ksampler_steps", "12"));
+        assert!(super::update_metadata(&mut value, "ksampler_cfg", "2.5"));
+        assert!(super::update_metadata(&mut value, "reference_audio", "reference.flac"));
+        assert_eq!(value["1"]["inputs"]["steps"], json!(12));
+        assert_eq!(value["1"]["inputs"]["cfg"], json!(2.5));
+        assert_eq!(value["2"]["inputs"]["audio"], json!("reference.flac"));
     }
 
     #[test]

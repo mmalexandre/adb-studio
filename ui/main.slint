@@ -177,8 +177,10 @@ export component MainWindow inherits Window {
     in-out property <int> workflow-seed-number: 0;
     in-out property <string> workflow-ksampler-cfg: "";
     in-out property <string> workflow-ksampler-steps: "";
+    in-out property <int> workflow-ksampler-steps-number: 0;
     in-out property <string> workflow-reference-audio: "";
     in-out property <string> workflow-model: "";
+    in-out property <int> workflow-model-index: -1;
     in-out property <string> workflow-prompt: "";
     in-out property <string> workflow-lyrics: "";
     in-out property <string> user-comments: "";
@@ -1054,34 +1056,60 @@ export component MainWindow inherits Window {
                                 width: 100%;
                                 height: (root.metadata-pane-height - 58px);
                                 spacing: 12px;
-                                VerticalBox {
+                                ScrollView {
                                     width: (parent.width - 36px) / 4;
                                     height: 100%;
-                                    alignment: start;
-                                    spacing: 6px;
-                                    Text { text: "Duration"; color: root.light-theme ? #202833 : #e3e8ef; }
-                                    HorizontalLayout {
+                                    vertical-scrollbar-policy: always-on;
+                                    VerticalBox {
+                                        width: 100%;
+                                        alignment: start;
                                         spacing: 6px;
-                                        SpinBox {
-                                            minimum: 0;
-                                            maximum: 2147483647;
-                                            value <=> root.workflow-duration-minutes;
-                                            edited(value) => { root.workflow-number-changed("duration-minutes", value); }
-                                            changed has-focus => { root.text-input-focused = self.has-focus; }
+                                        Rectangle {
+                                            width: 100%;
+                                            height: 68px;
+                                            border-color: root.light-theme ? #cbd2dc : #435064;
+                                            border-width: 1px;
+                                            VerticalBox {
+                                                padding: 6px;
+                                                spacing: 4px;
+                                                Text { text: "Duration"; color: root.light-theme ? #202833 : #e3e8ef; font-weight: 700; }
+                                                HorizontalLayout {
+                                                    spacing: 4px;
+                                                    SpinBox {
+                                                        minimum: 0;
+                                                        maximum: 2147483647;
+                                                        value <=> root.workflow-duration-minutes;
+                                                        edited(value) => { root.workflow-number-changed("duration-minutes", value); }
+                                                        changed has-focus => { root.text-input-focused = self.has-focus; }
+                                                    }
+                                                    Text { text: ":"; color: root.light-theme ? #202833 : #e3e8ef; vertical-alignment: center; }
+                                                    SpinBox {
+                                                        minimum: 0;
+                                                        maximum: 59;
+                                                        value <=> root.workflow-duration-seconds;
+                                                        edited(value) => { root.workflow-number-changed("duration-seconds", value); }
+                                                        changed has-focus => { root.text-input-focused = self.has-focus; }
+                                                    }
+                                                }
+                                            }
                                         }
-                                        Text { text: ":"; color: root.light-theme ? #202833 : #e3e8ef; vertical-alignment: center; }
-                                        SpinBox {
-                                            minimum: 0;
-                                            maximum: 59;
-                                            value <=> root.workflow-duration-seconds;
-                                            edited(value) => { root.workflow-number-changed("duration-seconds", value); }
-                                            changed has-focus => { root.text-input-focused = self.has-focus; }
-                                        }
-                                    }
+                                    Rectangle {
+                                        width: 100%;
+                                        height: 94px;
+                                        border-color: root.light-theme ? #cbd2dc : #435064;
+                                        border-width: 1px;
+                                        VerticalBox {
+                                            padding-top: 1px;
+                                            padding-right: 0px;
+                                            padding-left: 0px;
+                                            padding-bottom: 6px;
+                                            spacing: 0px;
+                                            Text { text: "Song"; color: root.light-theme ? #202833 : #e3e8ef; font-weight: 700; }
                                     HorizontalLayout {
-                                        spacing: 6px;
+                                        spacing: 2px;
                                         VerticalBox {
                                             horizontal-stretch: 1;
+                                            min-width: 0px;
                                             Text { text: "Seed"; color: root.light-theme ? #202833 : #e3e8ef; }
                                             SpinBox {
                                                 minimum: 0;
@@ -1093,6 +1121,7 @@ export component MainWindow inherits Window {
                                         }
                                         VerticalBox {
                                             horizontal-stretch: 1;
+                                            min-width: 0px;
                                             Text { text: "BPM"; color: root.light-theme ? #202833 : #e3e8ef; }
                                             SpinBox {
                                                 minimum: 0;
@@ -1103,9 +1132,12 @@ export component MainWindow inherits Window {
                                             }
                                         }
                                         VerticalBox {
-                                            horizontal-stretch: 2;
+                                            horizontal-stretch: 1;
+                                            min-width: 0px;
                                             Text { text: "Key"; color: root.light-theme ? #202833 : #e3e8ef; }
                                             ComboBox {
+                                                width: 100%;
+                                                min-width: 0px;
                                                 model: ["C major", "C minor", "C# major", "C# minor", "D major", "D minor", "Eb major", "Eb minor", "E major", "E minor", "F major", "F minor", "F# major", "F# minor", "G major", "G minor", "Ab major", "Ab minor", "A major", "A minor", "Bb major", "Bb minor", "B major", "B minor"];
                                                 current-index: root.workflow-key-index;
                                                 changed has-focus => { root.text-input-focused = self.has-focus; }
@@ -1117,29 +1149,65 @@ export component MainWindow inherits Window {
                                             }
                                         }
                                     }
+                                        }
+                                    }
                                     Rectangle {
                                         width: 100%;
-                                        height: 72px;
+                                        height: 104px;
+                                        border-color: root.light-theme ? #cbd2dc : #435064;
+                                        border-width: 1px;
+                                        VerticalBox {
+                                            padding-top: 1px;
+                                            padding-right: 0px;
+                                            padding-left: 0px;
+                                            padding-bottom: 6px;
+                                            spacing: 0px;
+                                            Text { text: "KSampler"; color: root.light-theme ? #202833 : #e3e8ef; font-weight: 700; }
+                                            HorizontalLayout {
+                                                spacing: 4px;
+                                                VerticalBox {
+                                                    horizontal-stretch: 1;
+                                                    Text { text: "CFG"; color: root.light-theme ? #202833 : #e3e8ef; }
+                                                    LineEdit {
+                                                        text <=> root.workflow-ksampler-cfg;
+                                                        edited(text) => { root.workflow-metadata-changed("ksampler_cfg", text); }
+                                                        changed has-focus => { root.text-input-focused = self.has-focus; }
+                                                    }
+                                                }
+                                                VerticalBox {
+                                                    horizontal-stretch: 1;
+                                                    Text { text: "Steps"; color: root.light-theme ? #202833 : #e3e8ef; }
+                                                    SpinBox {
+                                                        minimum: 0;
+                                                        maximum: 2147483647;
+                                                        value <=> root.workflow-ksampler-steps-number;
+                                                        edited(value) => { root.workflow-number-changed("ksampler_steps", value); }
+                                                        changed has-focus => { root.text-input-focused = self.has-focus; }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    Rectangle {
+                                        width: 100%;
+                                        height: 99px;
                                         border-color: root.light-theme ? #cbd2dc : #435064;
                                         border-width: 1px;
                                         VerticalBox {
                                             padding: 6px;
-                                            spacing: 4px;
-                                            Text { text: "KSampler"; color: root.light-theme ? #202833 : #e3e8ef; font-weight: 700; }
-                                            HorizontalLayout {
-                                                spacing: 8px;
-                                                Text { text: "CFG  " + (root.workflow-ksampler-cfg == "" ? "-" : root.workflow-ksampler-cfg); color: root.light-theme ? #202833 : #e3e8ef; horizontal-stretch: 1; }
-                                                Text { text: "Steps  " + (root.workflow-ksampler-steps == "" ? "-" : root.workflow-ksampler-steps); color: root.light-theme ? #202833 : #e3e8ef; horizontal-stretch: 1; }
+                                            spacing: 0px;
+                                            Text { text: "Repaint / Cover"; color: root.light-theme ? #202833 : #e3e8ef; font-weight: 700; }
+                                            Text { text: "Reference audio"; color: root.light-theme ? #202833 : #e3e8ef; }
+                                            LineEdit {
+                                                text <=> root.workflow-reference-audio;
+                                                edited(text) => { root.workflow-metadata-changed("reference_audio", text); }
+                                                changed has-focus => { root.text-input-focused = self.has-focus; }
                                             }
                                         }
                                     }
-                                    if root.workflow-reference-audio != "" : Text {
-                                        text: "Reference audio  " + root.workflow-reference-audio;
-                                        color: root.light-theme ? #687586 : #aeb8c6;
-                                        overflow: elide;
-                                    }
                                 }
-                                    VerticalBox {
+                                }
+                                VerticalBox {
                                     width: (parent.width - 36px) / 4;
                                     height: 100%;
                                     Text { text: "Prompt"; color: root.light-theme ? #202833 : #e3e8ef; }
@@ -1168,7 +1236,18 @@ export component MainWindow inherits Window {
                                 VerticalBox {
                                     width: (parent.width - 36px) / 4;
                                     height: 100%;
-                                    Text { text: "Model\n" + (root.workflow-model == "" ? "-" : root.workflow-model); color: root.light-theme ? #202833 : #e3e8ef; overflow: elide; }
+                                    Text { text: "Inference engine"; color: root.light-theme ? #202833 : #e3e8ef; }
+                                    ComboBox {
+                                        width: 100%;
+                                        model: ["Ace-step TURBO XL AIO", "Ace-step SFT", "Ace-step base"];
+                                        current-index: root.workflow-model-index;
+                                        changed has-focus => { root.text-input-focused = self.has-focus; }
+                                        changed current-index => {
+                                            if self.has-focus && !root.workflow-loading && self.current-index >= 0 {
+                                                root.workflow-metadata-changed("model", self.current-index == 0 ? "ace_step_1.5_turbo_aio.safetensors" : self.current-index == 1 ? "ace_step_1.5_sft.safetensors" : "ace_step_1.5_base.safetensors");
+                                            }
+                                        }
+                                    }
                                     HorizontalLayout {
                                         Text { text: "LoRAs"; color: root.light-theme ? #202833 : #e3e8ef; horizontal-stretch: 1; }
                                         AppButton { text: "Add lora"; clicked => { root.lora-add-requested(); } }

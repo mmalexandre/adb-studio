@@ -413,6 +413,10 @@ pub fn register_workflow_callbacks(
                     ),
                     ("key", window.get_workflow_key().to_string()),
                     ("seed", window.get_workflow_seed().to_string()),
+                    ("ksampler_cfg", window.get_workflow_ksampler_cfg().to_string()),
+                    ("ksampler_steps", window.get_workflow_ksampler_steps().to_string()),
+                    ("reference_audio", window.get_workflow_reference_audio().to_string()),
+                    ("model", window.get_workflow_model().to_string()),
                     ("prompt", window.get_workflow_prompt().to_string()),
                     ("lyrics", window.get_workflow_lyrics().to_string()),
                 ] {
@@ -584,6 +588,9 @@ pub fn register_workflow_callbacks(
             if window.get_workflow_loading() {
                 return;
             }
+            if field == "model" {
+                window.set_workflow_model(value.clone());
+            }
             let Some(folder) = audio_folder_for_edit.borrow().clone() else {
                 return;
             };
@@ -624,6 +631,9 @@ pub fn register_workflow_callbacks(
             }
             if field == "seed" {
                 window.set_workflow_seed(value.to_string().into());
+            }
+            if field == "ksampler_steps" {
+                window.set_workflow_ksampler_steps(value.to_string().into());
             }
             let workflow_value = if field == "duration-minutes" || field == "duration-seconds" {
                 (window.get_workflow_duration_minutes() * 60
