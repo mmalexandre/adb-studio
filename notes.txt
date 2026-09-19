@@ -15,9 +15,9 @@ x Template ComfyUI files
 x LoRas manager - give ratings, comment, metadata
 x Slice out function (extract audio from comment)
 x Make running in ComfyUI easier and seamless (using the API)
+o Periodic backups
 - LoRa - document training: custom tag, original files names and origin
 - Covers and repaint through API?
-- Periodic backups
 
 Mise en prod:
 -------------

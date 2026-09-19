@@ -140,6 +140,7 @@ pub fn set_workspace(
     }
     *tree_state.borrow_mut() = Some(new_tree_state);
     tree_nav::refresh_tree(window, tree_state);
+    let backup_folder = folder.clone();
     let audio_view_folder = settings_snapshot
         .last_selected_path
         .as_deref()
@@ -164,6 +165,12 @@ pub fn set_workspace(
         audio_load_state,
         audio_view_folder,
     );
+
+    std::thread::spawn(move || {
+        if let Err(error) = crate::workspace::backup::ensure_recent_backup(&backup_folder) {
+            eprintln!("Unable to create workspace backup: {error}");
+        }
+    });
 }
 
 pub fn close_workspace(
