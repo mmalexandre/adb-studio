@@ -472,6 +472,16 @@ pub fn user_comment_subtitle(user_comments: &str) -> String {
         .to_owned()
 }
 
+fn audio_row_height(row: &AudioRow) -> f32 {
+    if row.is_folder {
+        30.0
+    } else if row.is_lora {
+        96.0
+    } else {
+        132.0
+    }
+}
+
 pub fn scroll_to_path(
     window: &crate::MainWindow,
     audio_model: &Rc<RefCell<Option<Rc<VecModel<AudioRow>>>>>,
@@ -487,20 +497,28 @@ pub fn scroll_to_path(
     }) else {
         return;
     };
-    let offset = (0..index)
+    let heights = (0..model.row_count())
         .filter_map(|row_index| model.row_data(row_index))
-        .map(|row| {
-            if row.is_folder {
-                30.0
-            } else if row.is_lora {
-                96.0
-            } else {
-                132.0
-            }
-        })
-        .sum::<f32>();
+        .map(|row| audio_row_height(&row))
+        .collect::<Vec<_>>();
+    let row_top = heights[..index].iter().sum::<f32>();
+    let row_height = heights[index];
+    let content_height = heights.iter().sum::<f32>();
+    let viewport_height = window.get_audio_list_height();
+    let viewport_height = if viewport_height > 0.0 {
+        viewport_height
+    } else {
+        row_height
+    };
+    let max_scroll = (content_height - viewport_height).max(0.0);
+    // Center the row in the viewport when it fits, so it's never left flush against an edge.
+    let target = if row_height >= viewport_height {
+        row_top
+    } else {
+        (row_top - (viewport_height - row_height) / 2.0).clamp(0.0, max_scroll)
+    };
     window.set_audio_scroll_to_index(-1);
-    window.set_audio_scroll_to_offset(offset.into());
+    window.set_audio_scroll_to_offset(target.into());
 }
 
 pub fn scroll_to_path_if_needed(
