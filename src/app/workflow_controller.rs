@@ -1047,6 +1047,9 @@ fn reference_audio_is_ready(
     edited_workflow: &Rc<RefCell<Option<serde_json::Value>>>,
     edited_workflow_path: &Rc<RefCell<Option<PathBuf>>>,
 ) -> bool {
+    if window.get_workflow_reference_audio().is_empty() {
+        return true;
+    }
     if window.get_workflow_reference_audio_resolved() {
         return true;
     }
