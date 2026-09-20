@@ -935,6 +935,7 @@ fn scalar_text(value: &Value) -> String {
 fn visual_widget_names(node_type: &str) -> &'static [&'static str] {
     match node_type {
         "CheckpointLoaderSimple" => &["ckpt_name"],
+        "LoadAudio" => &["audio"],
         "LoraLoaderModelOnly" => &["lora_name", "strength_model"],
         "ModelSamplingAuraFlow" => &["shift"],
         "EmptyAceStep1.5LatentAudio" => &["seconds", "batch_size"],
@@ -1095,6 +1096,23 @@ mod tests {
         assert_eq!(prompt["2"]["class_type"], "KSampler");
         assert_eq!(prompt["2"]["inputs"]["model"], json!(["1", 0]));
         assert_eq!(prompt["2"]["inputs"]["seed"], 42);
+    }
+
+    #[test]
+    fn converts_and_rewrites_visual_load_audio_node() {
+        let mut prompt = super::workflow_to_api_prompt(&json!({
+            "nodes": [{
+                "id": 8,
+                "type": "LoadAudio",
+                "inputs": [],
+                "widgets_values": ["reference.wav", null, null]
+            }]
+        }))
+        .unwrap();
+
+        rewrite_reference_audio(&mut prompt, "uploaded/reference.wav").unwrap();
+
+        assert_eq!(prompt["8"]["inputs"]["audio"], "uploaded/reference.wav");
     }
 
     #[test]
