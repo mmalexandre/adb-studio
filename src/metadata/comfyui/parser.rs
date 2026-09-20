@@ -935,9 +935,19 @@ fn scalar_text(value: &Value) -> String {
 fn visual_widget_names(node_type: &str) -> &'static [&'static str] {
     match node_type {
         "CheckpointLoaderSimple" => &["ckpt_name"],
+        "VAELoader" => &["vae_name"],
         "LoadAudio" => &["audio"],
+        "UNETLoader" => &["unet_name", "weight_dtype"],
+        "DualCLIPLoader" => &["clip_name1", "clip_name2", "type"],
+        "Seed (rgthree)" => &["seed"],
         "LoraLoaderModelOnly" => &["lora_name", "strength_model"],
         "ModelSamplingAuraFlow" => &["shift"],
+        "ACEStep15XLRepaintAudio" => &["start_seconds", "end_seconds", "mask_value"],
+        "ACEStep15XLReferenceLatent" => &[
+            "reference_strength",
+            "reference_start_seconds",
+            "reference_max_seconds",
+        ],
         "EmptyAceStep1.5LatentAudio" => &["seconds", "batch_size"],
         "KSampler" => &[
             "seed",
@@ -948,7 +958,9 @@ fn visual_widget_names(node_type: &str) -> &'static [&'static str] {
             "scheduler",
             "denoise",
         ],
-        "TextEncodeAceStepAudio1.5" => &[
+        "TextEncodeAceStepAudio1.5"
+        | "ACEStep15XLTextEncode"
+        | "ACEStep15XLPromptLyrics" => &[
             "tags",
             "lyrics",
             "seed",
@@ -1113,6 +1125,50 @@ mod tests {
         rewrite_reference_audio(&mut prompt, "uploaded/reference.wav").unwrap();
 
         assert_eq!(prompt["8"]["inputs"]["audio"], "uploaded/reference.wav");
+    }
+
+    #[test]
+    fn converts_acestep_repaint_workflow_widget_inputs() {
+        let prompt = super::workflow_to_api_prompt(&json!({
+            "nodes": [
+                {"id": 1, "type": "UNETLoader", "inputs": [],
+                 "widgets_values": ["model.safetensors", "default"]},
+                {"id": 3, "type": "DualCLIPLoader", "inputs": [],
+                 "widgets_values": ["clip1.safetensors", "clip2.safetensors", "ace", "default"]},
+                {"id": 4, "type": "VAELoader", "inputs": [],
+                 "widgets_values": ["vae.safetensors"]},
+                {"id": 5, "type": "Seed (rgthree)", "inputs": [],
+                 "widgets_values": [31, "", "", ""]},
+                {"id": 6, "type": "ACEStep15XLPromptLyrics", "inputs": [],
+                 "widgets_values": ["tags", "lyrics"]},
+                {"id": 7, "type": "ACEStep15XLTextEncode", "inputs": [],
+                 "widgets_values": ["tags", "lyrics", 31, "fixed", 130, 8.0,
+                                     "4/4", "en", "C major", false, 2, 0.85, 0.9, 0, 0]},
+                {"id": 9, "type": "ACEStep15XLRepaintAudio", "inputs": [],
+                 "widgets_values": [0, 7, 0.7]},
+                {"id": 10, "type": "ACEStep15XLReferenceLatent", "inputs": [],
+                 "widgets_values": [0.75, 0, 30]}
+            ]
+        }))
+        .unwrap();
+
+        for (node_id, input_names) in [
+            ("1", &["unet_name", "weight_dtype"][..]),
+            ("3", &["clip_name1", "clip_name2", "type"][..]),
+            ("4", &["vae_name"][..]),
+            ("5", &["seed"][..]),
+            ("6", &["tags", "lyrics"][..]),
+            ("7", &["tags", "lyrics", "language", "keyscale", "generate_audio_codes", "cfg_scale", "temperature", "top_p", "top_k", "min_p"][..]),
+            ("9", &["start_seconds", "end_seconds", "mask_value"][..]),
+            ("10", &["reference_strength", "reference_start_seconds", "reference_max_seconds"][..]),
+        ] {
+            for input_name in input_names {
+                assert!(
+                    prompt[node_id]["inputs"].get(input_name).is_some(),
+                    "missing {input_name} on node {node_id}"
+                );
+            }
+        }
     }
 
     #[test]

@@ -4,6 +4,7 @@ use std::{
     fs,
     io::{self, Read},
     path::{Path, PathBuf},
+    sync::{Mutex, OnceLock},
     time::UNIX_EPOCH,
 };
 
@@ -21,6 +22,8 @@ struct ChecksumCacheEntry {
     modified_nanos: u128,
     checksum: String,
 }
+
+static CHECKSUM_CACHE: OnceLock<Mutex<Option<(PathBuf, ChecksumCache)>>> = OnceLock::new();
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct AudioComment {
@@ -199,6 +202,12 @@ pub fn clear_caches(folder: &Path) -> io::Result<()> {
         Err(error) if error.kind() == io::ErrorKind::NotFound => {}
         Err(error) => return Err(error),
     }
+    if let Some(cache) = CHECKSUM_CACHE.get() {
+        let mut cache = cache.lock().expect("checksum cache mutex poisoned");
+        if cache.as_ref().is_some_and(|(cached_folder, _)| cached_folder == folder) {
+            *cache = None;
+        }
+    }
     comfyui::clear_memory_cache();
     Ok(())
 }
@@ -368,11 +377,22 @@ pub fn checksum_for_file(folder: &Path, path: &Path) -> io::Result<String> {
         .duration_since(UNIX_EPOCH)
         .map_err(|error| io::Error::other(format!("file modification time is invalid: {error}")))?
         .as_nanos();
-    let cache_path = folder.join(".adbstudio").join("checksums.json");
-    let mut cache = fs::read_to_string(&cache_path)
-        .ok()
-        .and_then(|contents| serde_json::from_str::<ChecksumCache>(&contents).ok())
-        .unwrap_or_default();
+    let cache_store = CHECKSUM_CACHE.get_or_init(|| Mutex::new(None));
+    let mut cache_store = cache_store
+        .lock()
+        .expect("checksum cache mutex poisoned");
+    if cache_store
+        .as_ref()
+        .is_none_or(|(cached_folder, _)| cached_folder != folder)
+    {
+        let cache_path = folder.join(".adbstudio").join("checksums.json");
+        let cache = fs::read_to_string(&cache_path)
+            .ok()
+            .and_then(|contents| serde_json::from_str::<ChecksumCache>(&contents).ok())
+            .unwrap_or_default();
+        *cache_store = Some((folder.to_path_buf(), cache));
+    }
+    let (_, cache) = cache_store.as_mut().expect("checksum cache initialized");
     if let Some(entry) = cache.files.iter().find(|entry| {
         entry.path == relative_path
             && entry.size == file_metadata.len()
@@ -399,7 +419,7 @@ pub fn checksum_for_file(folder: &Path, path: &Path) -> io::Result<String> {
         modified_nanos,
         checksum: checksum.clone(),
     });
-    save_checksum_cache(folder, &cache)?;
+    save_checksum_cache(folder, cache)?;
     Ok(checksum)
 }
 
