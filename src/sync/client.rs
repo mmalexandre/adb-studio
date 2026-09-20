@@ -1,5 +1,5 @@
 use chrono::Local;
-use reqwest::blocking::{Client, RequestBuilder, Response};
+use reqwest::blocking::{multipart, Client, RequestBuilder, Response};
 use std::{
     collections::HashMap,
     fs,
@@ -109,6 +109,50 @@ impl ComfyUiClient {
         Ok(())
     }
 
+    fn ensure_reference_audio(
+        &self,
+        config: &SyncConfig,
+        path: &Path,
+        checksum: &str,
+    ) -> Result<String, SyncError> {
+        let filename = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| SyncError::Response("Reference audio has no usable filename".into()))?;
+        let data = fs::read(path).map_err(SyncError::Io)?;
+        let url = format!("{}/adb-music-player/reference-audio/ensure", config.url);
+        let form = multipart::Form::new()
+            .text("filename", filename.to_owned())
+            .text("checksum", checksum.to_owned())
+            .part(
+                "file",
+                multipart::Part::bytes(data).file_name(filename.to_owned()),
+            );
+        let response = self
+            .send_request("POST", &url, self.client.post(&url).multipart(form))
+            .map_err(SyncError::Request)?;
+        if !response.status().is_success() {
+            return Err(response_error(response, "ComfyUI rejected reference audio"));
+        }
+        let result: ReferenceAudioResponse = response.json().map_err(SyncError::Request)?;
+        if result.filename.trim().is_empty() {
+            return Err(SyncError::Response(
+                "ComfyUI returned no reference audio filename".into(),
+            ));
+        }
+        if result.checksum.to_ascii_lowercase() != checksum.to_ascii_lowercase() {
+            return Err(SyncError::Response(
+                "ComfyUI returned a mismatched reference audio checksum".into(),
+            ));
+        }
+        if !matches!(result.status.as_str(), "created" | "exists") {
+            return Err(SyncError::Response(
+                "ComfyUI returned an invalid reference audio status".into(),
+            ));
+        }
+        Ok(result.filename)
+    }
+
     pub fn run_workflow(
         &self,
         config: &SyncConfig,
@@ -121,8 +165,32 @@ impl ComfyUiClient {
     ) -> Result<(), SyncError> {
         validate_request_config(config)?;
         fs::create_dir_all(output_directory).map_err(SyncError::Io)?;
-        let api_prompt =
+        let mut api_prompt =
             metadata::comfyui::workflow_to_api_prompt(workflow).map_err(SyncError::Response)?;
+        let parsed_workflow = metadata::comfyui::parse_value(workflow);
+        if !parsed_workflow.reference_audio.is_empty() {
+            if cancelled.load(std::sync::atomic::Ordering::Acquire) {
+                let _ = updates.send(WorkflowRunUpdate::Cancelled);
+                return Ok(());
+            }
+            let reference_path = crate::workspace::workflow::find_reference_audio_by_hash(
+                workspace,
+                &parsed_workflow.reference_audio,
+                &parsed_workflow.reference_audio_hash,
+            )
+            .map_err(SyncError::Response)?;
+            let _ = updates.send(WorkflowRunUpdate::Progress {
+                progress: 0.02,
+                step: "Uploading reference audio to ComfyUI".into(),
+            });
+            let server_filename = self.ensure_reference_audio(
+                config,
+                &reference_path,
+                &parsed_workflow.reference_audio_hash,
+            )?;
+            metadata::comfyui::rewrite_reference_audio(&mut api_prompt, &server_filename)
+                .map_err(SyncError::Response)?;
+        }
         let node_names = workflow_node_names(workflow);
         let client_id = format!(
             "adb-studio-{}-{}",
@@ -428,6 +496,14 @@ impl ComfyUiClient {
         }
         result
     }
+}
+
+#[derive(serde::Deserialize)]
+struct ReferenceAudioResponse {
+    filename: String,
+    checksum: String,
+    #[serde(default)]
+    status: String,
 }
 
 fn spawn_progress_websocket(

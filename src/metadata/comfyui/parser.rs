@@ -345,6 +345,42 @@ pub fn workflow_to_api_prompt(value: &Value) -> Result<Value, String> {
     Ok(Value::Object(prompt))
 }
 
+pub fn rewrite_reference_audio(prompt: &mut Value, filename: &str) -> Result<(), String> {
+    let Some(nodes) = prompt.as_object_mut() else {
+        return Err("API prompt must be an object".into());
+    };
+    let mut rewritten = false;
+    for node in nodes.values_mut() {
+        let is_load_audio = node
+            .get("class_type")
+            .and_then(Value::as_str)
+            .map(|class_type| {
+                class_type
+                    .to_ascii_lowercase()
+                    .replace([' ', '_', '-'], "")
+                    .contains("loadaudio")
+            })
+            .unwrap_or(false);
+        if !is_load_audio {
+            continue;
+        }
+        let Some(inputs) = node.get_mut("inputs").and_then(Value::as_object_mut) else {
+            continue;
+        };
+        for key in ["audio", "audio_name", "filename", "file_name"] {
+            if inputs.contains_key(key) {
+                inputs.insert(key.into(), Value::String(filename.to_owned()));
+                rewritten = true;
+            }
+        }
+    }
+    if rewritten {
+        Ok(())
+    } else {
+        Err("Workflow has reference audio metadata but no LoadAudio input".into())
+    }
+}
+
 fn active_lora_ids(value: &Value) -> std::collections::HashSet<String> {
     let mut active = std::collections::HashSet::new();
     let mut pending = workflow_nodes(value)
@@ -939,6 +975,7 @@ fn visual_widget_names(node_type: &str) -> &'static [&'static str] {
 mod tests {
     use super::{
         is_runnable_audio_workflow, memory_cache, parse_file_cached_with_hash, parse_value,
+        rewrite_reference_audio,
     };
     use crate::metadata::comfyui::LoRAInfo;
     use serde_json::json;
@@ -1000,6 +1037,38 @@ mod tests {
                 strength: "0.8".into()
             }]
         );
+    }
+
+    #[test]
+    fn rewrites_all_load_audio_inputs_without_touching_other_nodes() {
+        let mut prompt = json!({
+            "1": {"class_type": "LoadAudio", "inputs": {"audio": "old.wav"}},
+            "2": {"class_type": "LoadAudio", "inputs": {"filename": "old.mp3"}},
+            "3": {"class_type": "PreviewAudio", "inputs": {"audio": ["1", 0]}}
+        });
+
+        rewrite_reference_audio(&mut prompt, "adb-studio/reference-audio/hash.wav").unwrap();
+
+        assert_eq!(
+            prompt["1"]["inputs"]["audio"],
+            "adb-studio/reference-audio/hash.wav"
+        );
+        assert_eq!(
+            prompt["2"]["inputs"]["filename"],
+            "adb-studio/reference-audio/hash.wav"
+        );
+        assert_eq!(prompt["3"]["inputs"]["audio"], json!(["1", 0]));
+    }
+
+    #[test]
+    fn rewrite_reference_audio_requires_a_load_audio_node() {
+        let mut prompt = json!({
+            "1": {"class_type": "PreviewAudio", "inputs": {"audio": ["0", 0]}}
+        });
+
+        let error = rewrite_reference_audio(&mut prompt, "reference.wav").unwrap_err();
+
+        assert!(error.contains("no LoadAudio input"));
     }
 
     #[test]

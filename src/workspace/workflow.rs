@@ -171,6 +171,30 @@ pub fn find_reference_audio_matches(folder: &Path, filename: &str) -> Vec<std::p
     matches
 }
 
+pub fn find_reference_audio_by_hash(
+    folder: &Path,
+    filename: &str,
+    expected_hash: &str,
+) -> Result<std::path::PathBuf, String> {
+    if expected_hash.is_empty() {
+        return Err("Reference audio has no checksum".into());
+    }
+    let matches = find_reference_audio_matches(folder, filename);
+    let matching = matches
+        .into_iter()
+        .filter(|path| metadata::hash_file(path).is_ok_and(|hash| hash == expected_hash))
+        .collect::<Vec<_>>();
+    match matching.as_slice() {
+        [path] => Ok(path.clone()),
+        [] => Err(format!(
+            "Could not find reference audio '{filename}' with the stored checksum"
+        )),
+        _ => Err(format!(
+            "Multiple reference audio files named '{filename}' match the stored checksum"
+        )),
+    }
+}
+
 fn resolve_reference_audio(
     folder: &Path,
     workflow: &mut serde_json::Value,
