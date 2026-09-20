@@ -1,9 +1,8 @@
 TODO:
 -----
 
+- Covers and repaint through API?
 - Make work with a custom API
-
-
 
 
 Mise en prod:
@@ -22,6 +21,8 @@ x Comment recreer les sons de synthe / kick
 - Comment recreer un morceau de facon deterministe (sauver le CPU?)
 x Repaint pour ameliorer la qualite d'un existant
 x Test stem separation on ComfyUI
+- Une AI qui, au lieu de reconstituer un preset depuis zero, part d'un preset choisit par l'utilisateur
+- Rajouter les frequences qui manquent sur une generation AI
 
 Cerises sur le gâteau:
 ----------------------
@@ -29,7 +30,6 @@ Cerises sur le gâteau:
 - Easier LoRa training (my script transformed into an integrated workflow)
 - Youno = workflows and loras and audio sharing platform
 - Include track length in distance comparison + num steps
-- Covers and repaint through API?
 
 
 Avantages de cette application:

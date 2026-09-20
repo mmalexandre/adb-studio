@@ -6,7 +6,7 @@ use std::{
     time::Duration,
 };
 
-use crate::metadata;
+use crate::{metadata, workspace::file_system::FileKind};
 
 use super::{
     ComfyUiClient, DownloadIndex, RemoteFile, SyncCommand, SyncConfig, SyncError, SyncEvent,
@@ -240,6 +240,7 @@ pub(super) fn sync_loop(
                 }
                 Ok(SyncCommand::Resume) => {}
                 Ok(SyncCommand::Delete(path)) => {
+                    let deleted_current_file = deleted_path_matches_file(&path, &destination, file);
                     if let Err(error) = record_deleted_download(
                         &workspace,
                         &mut download_index,
@@ -252,7 +253,9 @@ pub(super) fn sync_loop(
                             message: error.to_string(),
                         });
                     }
-                    continue;
+                    if deleted_current_file {
+                        continue;
+                    }
                 }
                 Ok(SyncCommand::RedownloadMissing) => {
                     if let Err(error) = clear_missing_downloads(&workspace, &mut download_index) {
@@ -471,6 +474,12 @@ fn record_deleted_download(
     Ok(())
 }
 
+fn deleted_path_matches_file(path: &Path, destination: &Path, file: &RemoteFile) -> bool {
+    Path::new(&file.name)
+        .file_name()
+        .is_some_and(|filename| path == destination.join(filename))
+}
+
 fn progress_with_index(
     files: &[RemoteFile],
     destination: &Path,
@@ -526,6 +535,9 @@ fn local_checksums(workspace: &Path) -> Result<HashSet<String>, SyncError> {
             if !file_type.is_file() {
                 continue;
             }
+            if FileKind::from_path(&path) != FileKind::Audio {
+                continue;
+            }
             checksums.insert(metadata::checksum_for_file(workspace, &path).map_err(SyncError::Io)?);
             let audio_metadata = metadata::load_audio_metadata(workspace, &path);
             if !audio_metadata.original_checksum.is_empty() {
@@ -539,7 +551,8 @@ fn local_checksums(workspace: &Path) -> Result<HashSet<String>, SyncError> {
 #[cfg(test)]
 mod tests {
     use super::{
-        load_download_index, progress_with_index, save_download_index, workflow_local_path,
+        deleted_path_matches_file, load_download_index, progress_with_index, save_download_index,
+        workflow_local_path,
     };
     use crate::metadata;
     use crate::sync::{DownloadIndex, RemoteFile, SyncConfig};
@@ -617,6 +630,28 @@ mod tests {
     }
 
     #[test]
+    fn delete_command_only_skips_the_matching_remote_file() {
+        let destination = std::path::Path::new("/workspace/downloads");
+        let file = RemoteFile {
+            name: "new-song.mp3".to_string(),
+            path: "/output/audio/new-song.mp3".to_string(),
+            modified: 2,
+            checksum: String::new(),
+        };
+
+        assert!(deleted_path_matches_file(
+            std::path::Path::new("/workspace/downloads/new-song.mp3"),
+            destination,
+            &file
+        ));
+        assert!(!deleted_path_matches_file(
+            std::path::Path::new("/workspace/downloads/old-song.mp3"),
+            destination,
+            &file
+        ));
+    }
+
+    #[test]
     fn checksum_match_survives_moving_and_renaming_file() {
         let workspace = tempfile_directory();
         let original = workspace.join("downloads/original.mp3");
@@ -631,6 +666,22 @@ mod tests {
         let checksum = format!("{:x}", digest.finalize());
 
         assert!(super::local_checksums(&workspace)
+            .unwrap()
+            .contains(&checksum));
+        fs::remove_dir_all(workspace).unwrap();
+    }
+
+    #[test]
+    fn local_checksums_ignore_non_audio_files() {
+        let workspace = tempfile_directory();
+        let unrelated = workspace.join("large-model.safetensors");
+        fs::write(&unrelated, b"not audio").unwrap();
+
+        let mut digest = Sha256::new();
+        digest.update(b"not audio");
+        let checksum = format!("{:x}", digest.finalize());
+
+        assert!(!super::local_checksums(&workspace)
             .unwrap()
             .contains(&checksum));
         fs::remove_dir_all(workspace).unwrap();
