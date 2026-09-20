@@ -63,6 +63,10 @@ pub fn clear_workflow(window: &MainWindow) {
     window.set_workflow_ksampler_steps("".into());
     window.set_workflow_ksampler_steps_number(0);
     window.set_workflow_reference_audio("".into());
+    window.set_workflow_reference_audio_hash("".into());
+    window.set_workflow_reference_audio_resolved(false);
+    window.set_workflow_reference_audio_ambiguous(false);
+    window.set_workflow_reference_audio_guess_attempted(false);
     window.set_workflow_model("".into());
     window.set_workflow_model_index(-1);
     window.set_workflow_prompt("".into());
@@ -102,6 +106,12 @@ pub fn apply_workflow(
     window.set_workflow_ksampler_steps_number(workflow.ksampler_steps.parse().unwrap_or(0));
     window.set_workflow_ksampler_steps(workflow.ksampler_steps.into());
     window.set_workflow_reference_audio(workflow.reference_audio.into());
+    window.set_workflow_reference_audio_hash(workflow.reference_audio_hash.clone().into());
+    window.set_workflow_reference_audio_resolved(
+        !workflow.reference_audio_hash.is_empty() && !workflow.reference_audio_ambiguous,
+    );
+    window.set_workflow_reference_audio_ambiguous(workflow.reference_audio_ambiguous);
+    window.set_workflow_reference_audio_guess_attempted(workflow.reference_audio_guess_attempted);
     window.set_workflow_model_index(model_index(&workflow.model));
     window.set_workflow_model(workflow.model.into());
     window.set_workflow_prompt(workflow.prompt.into());
@@ -120,6 +130,66 @@ pub fn apply_workflow(
             })
             .collect::<Vec<_>>(),
     )));
+}
+
+fn is_reference_audio(path: &Path) -> bool {
+    matches!(
+        path.extension()
+            .and_then(|extension| extension.to_str())
+            .map(|extension| extension.to_ascii_lowercase())
+            .as_deref(),
+        Some("flac" | "mp3" | "ogg" | "opus" | "wav" | "m4a" | "aiff" | "aif")
+    )
+}
+
+pub fn find_reference_audio_matches(folder: &Path, filename: &str) -> Vec<std::path::PathBuf> {
+    fn visit(folder: &Path, filename: &str, matches: &mut Vec<std::path::PathBuf>) {
+        let Ok(entries) = fs::read_dir(folder) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.file_name().and_then(|name| name.to_str()) == Some(".adbstudio") {
+                continue;
+            }
+            if path.is_dir() {
+                visit(&path, filename, matches);
+            } else if is_reference_audio(&path)
+                && path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.eq_ignore_ascii_case(filename))
+            {
+                matches.push(path);
+            }
+        }
+    }
+
+    let mut matches = Vec::new();
+    visit(folder, filename, &mut matches);
+    matches.sort();
+    matches
+}
+
+fn resolve_reference_audio(
+    folder: &Path,
+    workflow: &mut serde_json::Value,
+    parsed: &mut metadata::comfyui::ComfyUIWorkflow,
+) -> bool {
+    if parsed.reference_audio.is_empty() || parsed.reference_audio_guess_attempted {
+        return false;
+    }
+    let matches = find_reference_audio_matches(folder, &parsed.reference_audio);
+    let (hash, ambiguous) = match matches.as_slice() {
+        [path] => (metadata::hash_file(path).unwrap_or_default(), false),
+        [] => (String::new(), false),
+        _ => (String::new(), true),
+    };
+    parsed.reference_audio_hash = hash.clone();
+    parsed.reference_audio_guess_attempted = true;
+    parsed.reference_audio_ambiguous = ambiguous;
+    metadata::comfyui::set_reference_audio_metadata(workflow, &hash, true, ambiguous);
+    true
 }
 
 pub fn refresh_workflow_loras(window: &MainWindow, folder: &Path, value: &serde_json::Value) {
@@ -202,12 +272,13 @@ pub fn load_workflow_for_audio(
     {
         Some(mut value) => {
             metadata::apply_lora_custom_paths(folder, &mut value);
-            apply_workflow(
-                window,
-                folder,
-                &workflow_path.to_string_lossy(),
-                metadata::comfyui::parse_value(&value),
-            );
+            let mut parsed = metadata::comfyui::parse_value(&value);
+            if resolve_reference_audio(folder, &mut value, &mut parsed) {
+                if let Ok(contents) = serde_json::to_string_pretty(&value) {
+                    let _ = fs::write(&workflow_path, contents);
+                }
+            }
+            apply_workflow(window, folder, &workflow_path.to_string_lossy(), parsed);
             metadata::clear_workflow_recreated(folder, path);
         }
         None => window.set_audio_error("Workflow JSON is invalid".into()),
@@ -291,5 +362,57 @@ mod tests {
         assert_eq!(files.len(), 2);
         assert_eq!(files[0].0, "a.JSON");
         assert_eq!(files[1].0, "z.json");
+    }
+
+    #[test]
+    fn reference_audio_matching_is_case_insensitive_and_audio_only() {
+        let temp = TempDirectory::new();
+        fs::create_dir_all(temp.0.join("nested")).unwrap();
+        fs::write(temp.0.join("nested/reference.WAV"), b"audio").unwrap();
+        fs::write(temp.0.join("reference.txt"), b"not audio").unwrap();
+
+        let matches = find_reference_audio_matches(&temp.0, "reference.wav");
+
+        assert_eq!(matches, vec![temp.0.join("nested/reference.WAV")]);
+    }
+
+    #[test]
+    fn reference_audio_resolution_hashes_one_match_and_marks_attempted() {
+        let temp = TempDirectory::new();
+        fs::write(temp.0.join("reference.wav"), b"audio").unwrap();
+        let mut value = serde_json::json!({});
+        let mut parsed = metadata::comfyui::ComfyUIWorkflow {
+            reference_audio: "reference.wav".into(),
+            ..Default::default()
+        };
+
+        assert!(resolve_reference_audio(&temp.0, &mut value, &mut parsed));
+        assert!(parsed.reference_audio_guess_attempted);
+        assert!(!parsed.reference_audio_hash.is_empty());
+        assert_eq!(
+            value["_adb_studio"]["reference_audio_guess_attempted"],
+            true
+        );
+        assert!(!resolve_reference_audio(&temp.0, &mut value, &mut parsed));
+    }
+
+    #[test]
+    fn reference_audio_resolution_leaves_ambiguous_matches_unhashed() {
+        let temp = TempDirectory::new();
+        fs::create_dir_all(temp.0.join("nested")).unwrap();
+        fs::write(temp.0.join("reference.wav"), b"one").unwrap();
+        fs::write(temp.0.join("nested/reference.wav"), b"two").unwrap();
+        let mut value = serde_json::json!({});
+        let mut parsed = metadata::comfyui::ComfyUIWorkflow {
+            reference_audio: "reference.wav".into(),
+            ..Default::default()
+        };
+
+        resolve_reference_audio(&temp.0, &mut value, &mut parsed);
+
+        assert!(parsed.reference_audio_guess_attempted);
+        assert!(parsed.reference_audio_ambiguous);
+        assert!(parsed.reference_audio_hash.is_empty());
+        assert_eq!(value["_adb_studio"]["reference_audio_ambiguous"], true);
     }
 }

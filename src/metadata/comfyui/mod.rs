@@ -29,10 +29,36 @@ pub struct ComfyUIWorkflow {
     pub ksampler_cfg: String,
     pub ksampler_steps: String,
     pub reference_audio: String,
+    pub reference_audio_hash: String,
+    pub reference_audio_guess_attempted: bool,
+    pub reference_audio_ambiguous: bool,
     pub model: String,
     pub prompt: String,
     pub lyrics: String,
     pub loras: Vec<LoRAInfo>,
+}
+
+pub fn set_reference_audio_metadata(
+    workflow: &mut serde_json::Value,
+    hash: &str,
+    guess_attempted: bool,
+    ambiguous: bool,
+) {
+    let Some(object) = workflow.as_object_mut() else {
+        return;
+    };
+    let metadata = object
+        .entry("_adb_studio")
+        .or_insert_with(|| serde_json::json!({}));
+    let Some(metadata) = metadata.as_object_mut() else {
+        return;
+    };
+    metadata.insert("reference_audio_hash".into(), hash.into());
+    metadata.insert(
+        "reference_audio_guess_attempted".into(),
+        guess_attempted.into(),
+    );
+    metadata.insert("reference_audio_ambiguous".into(), ambiguous.into());
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]

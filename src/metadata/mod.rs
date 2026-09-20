@@ -403,6 +403,20 @@ pub fn checksum_for_file(folder: &Path, path: &Path) -> io::Result<String> {
     Ok(checksum)
 }
 
+pub fn hash_file(path: &Path) -> io::Result<String> {
+    let mut file = fs::File::open(path)?;
+    let mut digest = Sha256::new();
+    let mut buffer = [0u8; 1024 * 1024];
+    loop {
+        let bytes_read = file.read(&mut buffer)?;
+        if bytes_read == 0 {
+            break;
+        }
+        digest.update(&buffer[..bytes_read]);
+    }
+    Ok(format!("{:x}", digest.finalize()))
+}
+
 fn save_checksum_cache(folder: &Path, cache: &ChecksumCache) -> io::Result<()> {
     let directory = folder.join(".adbstudio");
     fs::create_dir_all(&directory)?;

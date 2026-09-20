@@ -134,8 +134,8 @@ pub fn set_workspace(
                 .into(),
         );
         window.set_selected_audio_path(selected_path.to_string_lossy().into_owned().into());
-        let is_lora = file_system::FileKind::from_path(selected_path)
-            == file_system::FileKind::Safetensors;
+        let is_lora =
+            file_system::FileKind::from_path(selected_path) == file_system::FileKind::Safetensors;
         window.set_selected_is_lora(is_lora);
         if is_lora {
             let lora_metadata = crate::metadata::load_audio_metadata(&folder, selected_path);

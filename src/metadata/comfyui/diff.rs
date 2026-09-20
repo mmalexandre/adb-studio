@@ -259,6 +259,7 @@ mod tests {
                 custom_path: String::new(),
                 strength: "0.50".into(),
             }],
+            ..Default::default()
         };
         let track = ComfyUIWorkflow {
             bpm: "121.5".into(),
@@ -285,6 +286,7 @@ mod tests {
                     strength: "0.25".into(),
                 },
             ],
+            ..Default::default()
         };
 
         let differences = compare_workflows(&pinned, &track);

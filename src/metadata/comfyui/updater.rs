@@ -580,7 +580,9 @@ pub fn update_metadata(value: &mut Value, field: &str, new_value: &str) -> bool 
         let is_model_loader = class_type.contains("checkpointloader")
             || class_type.contains("unetloader")
             || class_type.contains("model loader");
-        let is_load_audio = class_type.replace([' ', '_', '-'], "").contains("loadaudio");
+        let is_load_audio = class_type
+            .replace([' ', '_', '-'], "")
+            .contains("loadaudio");
         let requested_field = match field {
             "ksampler_cfg" => "cfg",
             "ksampler_steps" => "steps",
@@ -591,16 +593,33 @@ pub fn update_metadata(value: &mut Value, field: &str, new_value: &str) -> bool 
                 let target_keys: &[&str] = if is_ksampler {
                     &["cfg", "steps"]
                 } else if is_model_loader {
-                    &["ckpt_name", "unet_name", "model_name", "checkpoint", "checkpoint_name"]
+                    &[
+                        "ckpt_name",
+                        "unet_name",
+                        "model_name",
+                        "checkpoint",
+                        "checkpoint_name",
+                    ]
                 } else {
                     &["audio", "audio_name", "filename", "file_name", "name"]
                 };
                 if let Some(target) = inputs
                     .iter_mut()
                     .find(|(key, _)| {
-                        (field == "model" && is_model_loader && target_keys.iter().any(|candidate| key.eq_ignore_ascii_case(candidate)))
-                            || (field == "reference_audio" && is_load_audio && target_keys.iter().any(|candidate| key.eq_ignore_ascii_case(candidate)))
-                            || target_keys.iter().any(|candidate| requested_field.eq_ignore_ascii_case(candidate) && key.eq_ignore_ascii_case(candidate))
+                        (field == "model"
+                            && is_model_loader
+                            && target_keys
+                                .iter()
+                                .any(|candidate| key.eq_ignore_ascii_case(candidate)))
+                            || (field == "reference_audio"
+                                && is_load_audio
+                                && target_keys
+                                    .iter()
+                                    .any(|candidate| key.eq_ignore_ascii_case(candidate)))
+                            || target_keys.iter().any(|candidate| {
+                                requested_field.eq_ignore_ascii_case(candidate)
+                                    && key.eq_ignore_ascii_case(candidate)
+                            })
                     })
                     .map(|(_, value)| value)
                 {
@@ -670,14 +689,26 @@ pub fn update_metadata(value: &mut Value, field: &str, new_value: &str) -> bool 
                 let target_names: &[&str] = if is_visual_ksampler {
                     &["cfg", "steps"]
                 } else if is_visual_model_loader {
-                    &["ckpt_name", "unet_name", "model_name", "checkpoint", "checkpoint_name"]
+                    &[
+                        "ckpt_name",
+                        "unet_name",
+                        "model_name",
+                        "checkpoint",
+                        "checkpoint_name",
+                    ]
                 } else {
                     &["audio", "audio_name", "filename", "file_name", "name"]
                 };
                 let target_index = keys.iter().enumerate().find_map(|(index, key)| {
-                    let matches = (field == "model" && is_visual_model_loader && target_names.iter().any(|name| key == name))
-                        || (field == "reference_audio" && is_visual_load_audio && target_names.iter().any(|name| key == name))
-                        || target_names.iter().any(|name| requested_field == *name && key == name);
+                    let matches = (field == "model"
+                        && is_visual_model_loader
+                        && target_names.iter().any(|name| key == name))
+                        || (field == "reference_audio"
+                            && is_visual_load_audio
+                            && target_names.iter().any(|name| key == name))
+                        || target_names
+                            .iter()
+                            .any(|name| requested_field == *name && key == name);
                     matches.then_some(index)
                 });
                 if let Some(target_index) = target_index {
@@ -899,7 +930,11 @@ mod tests {
 
         assert!(super::update_metadata(&mut value, "ksampler_steps", "12"));
         assert!(super::update_metadata(&mut value, "ksampler_cfg", "2.5"));
-        assert!(super::update_metadata(&mut value, "reference_audio", "reference.flac"));
+        assert!(super::update_metadata(
+            &mut value,
+            "reference_audio",
+            "reference.flac"
+        ));
         assert_eq!(value["1"]["inputs"]["steps"], json!(12));
         assert_eq!(value["1"]["inputs"]["cfg"], json!(2.5));
         assert_eq!(value["2"]["inputs"]["audio"], json!("reference.flac"));

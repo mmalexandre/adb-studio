@@ -227,6 +227,10 @@ export component MainWindow inherits Window {
     in-out property <string> workflow-ksampler-steps: "";
     in-out property <int> workflow-ksampler-steps-number: 0;
     in-out property <string> workflow-reference-audio: "";
+    in-out property <string> workflow-reference-audio-hash: "";
+    in-out property <bool> workflow-reference-audio-resolved: false;
+    in-out property <bool> workflow-reference-audio-ambiguous: false;
+    in-out property <bool> workflow-reference-audio-guess-attempted: false;
     in-out property <string> workflow-model: "";
     in-out property <int> workflow-model-index: -1;
     in-out property <string> workflow-prompt: "";
@@ -347,6 +351,7 @@ export component MainWindow inherits Window {
     callback run-workflow-cancelled();
     callback run-workflow-closed();
     callback workflow-metadata-changed(string, string);
+    callback workflow-reference-audio-choose();
     callback workflow-number-changed(string, int);
     callback user-comments-changed(string);
     callback lora-sources-changed(string);
@@ -1447,10 +1452,20 @@ export component MainWindow inherits Window {
                                                         color: root.light-theme ? #202833 : #e3e8ef;
                                                     }
 
-                                                    LineEdit {
-                                                        text <=> root.workflow-reference-audio;
-                                                        edited(text) => { root.workflow-metadata-changed("reference_audio", text); }
-                                                        changed has-focus => { root.text-input-focused = self.has-focus; }
+                                                    HorizontalLayout {
+                                                        spacing: 6px;
+                                                        Text {
+                                                            text: root.workflow-reference-audio;
+                                                            color: root.workflow-reference-audio-resolved ? #202833 : #626b78;
+                                                            font-italic: true;
+                                                            vertical-alignment: center;
+                                                            overflow: elide;
+                                                            horizontal-stretch: 1;
+                                                        }
+                                                        AppButton {
+                                                            text: "Choose...";
+                                                            clicked => { root.workflow-reference-audio-choose(); }
+                                                        }
                                                     }
                                                 }
                                             }

@@ -51,8 +51,7 @@ pub fn ensure_recent_backup(workspace: &Path) -> io::Result<()> {
 fn create_backup(workspace: &Path, destination: &Path) -> io::Result<()> {
     let file = File::create(destination)?;
     let mut archive = ZipWriter::new(file);
-    let options =
-        SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+    let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
     let mut checksums = Vec::new();
     add_directory(workspace, workspace, &mut archive, options, &mut checksums)?;
     checksums.sort_by(|left, right| left.0.cmp(&right.0));
@@ -106,7 +105,10 @@ fn should_skip(relative: &Path) -> bool {
     if first_component != ".adbstudio" {
         return true;
     }
-    match components.next().and_then(|component| component.as_os_str().to_str()) {
+    match components
+        .next()
+        .and_then(|component| component.as_os_str().to_str())
+    {
         Some("waveforms") | Some("workspace-backups") => true,
         _ => false,
     }
@@ -138,10 +140,8 @@ mod tests {
     use zip::ZipArchive;
 
     fn temp_workspace(name: &str) -> std::path::PathBuf {
-        let path = std::env::temp_dir().join(format!(
-            "adb-studio-backup-{name}-{}",
-            std::process::id()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("adb-studio-backup-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&path);
         fs::create_dir_all(&path).unwrap();
         path

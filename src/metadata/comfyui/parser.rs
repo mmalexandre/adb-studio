@@ -150,6 +150,21 @@ fn canonical_json_hash(value: &Value) -> String {
 
 pub fn parse_value(value: &Value) -> ComfyUIWorkflow {
     let mut workflow = ComfyUIWorkflow::default();
+    if let Some(metadata) = value.get("_adb_studio").and_then(Value::as_object) {
+        workflow.reference_audio_hash = metadata
+            .get("reference_audio_hash")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned();
+        workflow.reference_audio_guess_attempted = metadata
+            .get("reference_audio_guess_attempted")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        workflow.reference_audio_ambiguous = metadata
+            .get("reference_audio_ambiguous")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+    }
     visit(value, &mut workflow, false, None);
     if value.get("nodes").is_some() {
         if let Ok(prompt) = workflow_to_api_prompt(value) {
@@ -158,11 +173,9 @@ pub fn parse_value(value: &Value) -> ComfyUIWorkflow {
     }
     let active_loras = active_lora_ids(value);
     let mut seen_loras = std::collections::HashSet::new();
-    workflow
-        .loras
-        .retain(|lora| {
-            active_loras.contains(&lora.node_id) && seen_loras.insert(lora.node_id.clone())
-        });
+    workflow.loras.retain(|lora| {
+        active_loras.contains(&lora.node_id) && seen_loras.insert(lora.node_id.clone())
+    });
     workflow
 }
 
@@ -170,7 +183,11 @@ pub fn workflow_to_api_prompt(value: &Value) -> Result<Value, String> {
     let Some(object) = value.as_object() else {
         return Err("workflow must be a JSON object".into());
     };
-    if object.values().all(|node| node.get("class_type").is_some()) {
+    if object
+        .iter()
+        .filter(|(key, _)| key.as_str() != "_adb_studio")
+        .all(|(_, node)| node.get("class_type").is_some())
+    {
         return Ok(value.clone());
     }
     let Some(nodes) = object.get("nodes").and_then(Value::as_array) else {
@@ -541,12 +558,14 @@ fn visit(
                     workflow.ksampler_cfg = find_scalar(inputs, &["cfg"]).unwrap_or_default();
                 }
                 if workflow.ksampler_steps.is_empty() {
-                    workflow.ksampler_steps =
-                        find_scalar(inputs, &["steps"]).unwrap_or_default();
+                    workflow.ksampler_steps = find_scalar(inputs, &["steps"]).unwrap_or_default();
                 }
             }
 
-            if class_lower.replace([' ', '_', '-'], "").contains("loadaudio") {
+            if class_lower
+                .replace([' ', '_', '-'], "")
+                .contains("loadaudio")
+            {
                 let inputs = object
                     .get("inputs")
                     .and_then(Value::as_object)
@@ -775,7 +794,9 @@ fn parse_visual_node(node: &Value, workflow: &mut ComfyUIWorkflow) {
         }
     }
 
-    if node_lower.replace([' ', '_', '-'], "").contains("loadaudio")
+    if node_lower
+        .replace([' ', '_', '-'], "")
+        .contains("loadaudio")
         && workflow.reference_audio.is_empty()
     {
         workflow.reference_audio = values

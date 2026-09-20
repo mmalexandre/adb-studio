@@ -229,7 +229,11 @@ pub fn tick(
     };
     let Some(result) = latest else { return };
     // Never regress to data older than what's already on screen.
-    if result.generation <= queue().last_applied.load(std::sync::atomic::Ordering::Relaxed) {
+    if result.generation
+        <= queue()
+            .last_applied
+            .load(std::sync::atomic::Ordering::Relaxed)
+    {
         return;
     }
     let (requested_generation, requested_at) = *queue().requested.lock().unwrap();

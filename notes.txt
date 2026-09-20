@@ -1,7 +1,7 @@
 TODO:
 -----
 
-- Covers and repaint through API?
+o Covers and repaint through API?
 - Make work with a custom API
 
 

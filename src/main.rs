@@ -9,8 +9,8 @@ use std::{
 };
 
 use audio::playback::PlaybackEngine;
-use slint::{ComponentHandle, Model, ModelRc, VecModel};
 use slint::winit_030::{winit, CustomApplicationHandler, EventResult};
+use slint::{ComponentHandle, Model, ModelRc, VecModel};
 
 mod app;
 mod audio;

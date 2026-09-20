@@ -100,6 +100,27 @@ pub fn register_workflow_callbacks(
     {
         let weak_window = window.as_weak();
         let audio_folder = Rc::clone(audio_folder);
+        let workflow_loading = Rc::clone(workflow_loading);
+        let edited_workflow = Rc::clone(edited_workflow);
+        let edited_workflow_path = Rc::clone(edited_workflow_path);
+        window.on_workflow_reference_audio_choose(move || {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            if *workflow_loading.borrow() {
+                return;
+            }
+            let Some(folder) = audio_folder.borrow().clone() else {
+                window.set_audio_error("Open a workspace before choosing reference audio".into());
+                return;
+            };
+            choose_reference_audio(&window, &folder, &edited_workflow, &edited_workflow_path);
+        });
+    }
+
+    {
+        let weak_window = window.as_weak();
+        let audio_folder = Rc::clone(audio_folder);
         let recreate_workflow_pending = Rc::clone(recreate_workflow_pending);
         let edited_workflow = Rc::clone(edited_workflow);
         let edited_workflow_path = Rc::clone(edited_workflow_path);
@@ -413,9 +434,18 @@ pub fn register_workflow_callbacks(
                     ),
                     ("key", window.get_workflow_key().to_string()),
                     ("seed", window.get_workflow_seed().to_string()),
-                    ("ksampler_cfg", window.get_workflow_ksampler_cfg().to_string()),
-                    ("ksampler_steps", window.get_workflow_ksampler_steps().to_string()),
-                    ("reference_audio", window.get_workflow_reference_audio().to_string()),
+                    (
+                        "ksampler_cfg",
+                        window.get_workflow_ksampler_cfg().to_string(),
+                    ),
+                    (
+                        "ksampler_steps",
+                        window.get_workflow_ksampler_steps().to_string(),
+                    ),
+                    (
+                        "reference_audio",
+                        window.get_workflow_reference_audio().to_string(),
+                    ),
                     ("model", window.get_workflow_model().to_string()),
                     ("prompt", window.get_workflow_prompt().to_string()),
                     ("lyrics", window.get_workflow_lyrics().to_string()),
@@ -446,6 +476,7 @@ pub fn register_workflow_callbacks(
         let weak_window = window.as_weak();
         let audio_folder = Rc::clone(audio_folder);
         let edited_workflow = Rc::clone(edited_workflow);
+        let edited_workflow_path = Rc::clone(edited_workflow_path);
         let cancelled_state = Rc::clone(workflow_run_cancelled);
         let sync_controller = Rc::clone(sync_controller);
         let updates = workflow_run_sender.clone();
@@ -457,6 +488,14 @@ pub fn register_workflow_callbacks(
                 window.set_audio_error("Open a workspace before running a workflow".into());
                 return;
             };
+            if !reference_audio_is_ready(
+                &window,
+                &workspace,
+                &edited_workflow,
+                &edited_workflow_path,
+            ) {
+                return;
+            }
             let audio_path = PathBuf::from(window.get_selected_audio_path().as_str());
             let Some(output_directory) = audio_path.parent().map(Path::to_path_buf) else {
                 window.set_audio_error("Select an audio file before running a workflow".into());
@@ -817,6 +856,9 @@ fn recreate_workflow(
         window.set_audio_error("Select a workflow before recreating it".into());
         return;
     }
+    if !reference_audio_is_ready(window, folder, edited_workflow, edited_workflow_path) {
+        return;
+    }
     let mut workflow = if let Some(workflow) = edited_workflow.borrow().clone() {
         workflow
     } else {
@@ -996,6 +1038,76 @@ fn ensure_edit_copy(
     };
     *edited_workflow.borrow_mut() = Some(workflow);
     *edited_workflow_path.borrow_mut() = Some(workflow_path);
+    true
+}
+
+fn reference_audio_is_ready(
+    window: &MainWindow,
+    folder: &Path,
+    edited_workflow: &Rc<RefCell<Option<serde_json::Value>>>,
+    edited_workflow_path: &Rc<RefCell<Option<PathBuf>>>,
+) -> bool {
+    if window.get_workflow_reference_audio_resolved() {
+        return true;
+    }
+    choose_reference_audio(window, folder, edited_workflow, edited_workflow_path)
+}
+
+fn choose_reference_audio(
+    window: &MainWindow,
+    folder: &Path,
+    edited_workflow: &Rc<RefCell<Option<serde_json::Value>>>,
+    edited_workflow_path: &Rc<RefCell<Option<PathBuf>>>,
+) -> bool {
+    if !ensure_edit_copy(window, folder, edited_workflow, edited_workflow_path) {
+        window.set_audio_error("Select a workflow before choosing reference audio".into());
+        return false;
+    }
+    let reference_name = window.get_workflow_reference_audio().to_string();
+    let first_match = if reference_name.is_empty() {
+        None
+    } else {
+        crate::workspace::workflow::find_reference_audio_matches(folder, &reference_name)
+            .into_iter()
+            .next()
+    };
+    let mut dialog = rfd::FileDialog::new()
+        .set_title("Choose Reference Audio")
+        .add_filter(
+            "Audio",
+            &["flac", "mp3", "ogg", "opus", "wav", "m4a", "aiff", "aif"],
+        );
+    if let Some(path) = first_match.as_ref() {
+        if let Some(parent) = path.parent() {
+            dialog = dialog.set_directory(parent);
+        }
+        if let Some(name) = path.file_name().and_then(|name| name.to_str()) {
+            dialog = dialog.set_file_name(name);
+        }
+    }
+    let Some(path) = dialog.pick_file() else {
+        return false;
+    };
+    let Some(filename) = path.file_name().and_then(|name| name.to_str()) else {
+        window.set_audio_error("Selected reference file has no usable name".into());
+        return false;
+    };
+    let Ok(hash) = metadata::hash_file(&path) else {
+        window.set_audio_error("Hash selected reference audio failed".into());
+        return false;
+    };
+    let mut workflow = edited_workflow.borrow_mut();
+    let Some(workflow) = workflow.as_mut() else {
+        return false;
+    };
+    metadata::comfyui::update_metadata(workflow, "reference_audio", filename);
+    metadata::comfyui::set_reference_audio_metadata(workflow, &hash, true, false);
+    window.set_workflow_reference_audio(filename.into());
+    window.set_workflow_reference_audio_hash(hash.into());
+    window.set_workflow_reference_audio_resolved(true);
+    window.set_workflow_reference_audio_ambiguous(false);
+    window.set_workflow_reference_audio_guess_attempted(true);
+    window.set_workflow_modified(true);
     true
 }
 
