@@ -2229,12 +2229,14 @@ export component MainWindow inherits Window {
                     text: "Open Folder...";
                     color: root.light-theme ? #202833 : #f1f4f8;
                     x: 14px;
+                    y: 0px;
                     width: parent.width - 14px;
                     height: 42px;
                     vertical-alignment: center;
                 }
 
                 TouchArea {
+                    y: 0px;
                     width: parent.width;
                     height: 42px;
                     clicked => {
