@@ -1091,7 +1091,17 @@ fn choose_reference_audio(
     let Some(path) = dialog.pick_file() else {
         return false;
     };
-    let Some(filename) = path.file_name().and_then(|name| name.to_str()) else {
+    let reference_name = path
+        .strip_prefix(folder)
+        .ok()
+        .map(|relative| relative.to_string_lossy().replace('\\', "/"))
+        .filter(|relative| !relative.is_empty())
+        .or_else(|| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .map(str::to_owned)
+        });
+    let Some(reference_name) = reference_name else {
         window.set_audio_error("Selected reference file has no usable name".into());
         return false;
     };
@@ -1103,9 +1113,9 @@ fn choose_reference_audio(
     let Some(workflow) = workflow.as_mut() else {
         return false;
     };
-    metadata::comfyui::update_metadata(workflow, "reference_audio", filename);
+    metadata::comfyui::update_metadata(workflow, "reference_audio", &reference_name);
     metadata::comfyui::set_reference_audio_metadata(workflow, &hash, true, false);
-    window.set_workflow_reference_audio(filename.into());
+    window.set_workflow_reference_audio(reference_name.into());
     window.set_workflow_reference_audio_hash(hash.into());
     window.set_workflow_reference_audio_resolved(true);
     window.set_workflow_reference_audio_ambiguous(false);

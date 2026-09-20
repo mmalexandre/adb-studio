@@ -143,6 +143,15 @@ fn is_reference_audio(path: &Path) -> bool {
 }
 
 pub fn find_reference_audio_matches(folder: &Path, filename: &str) -> Vec<std::path::PathBuf> {
+    let relative_path = Path::new(filename);
+    if relative_path.components().count() > 1 {
+        let path = folder.join(relative_path);
+        if path.is_file() && is_reference_audio(&path) {
+            return vec![path];
+        }
+        return Vec::new();
+    }
+
     fn visit(folder: &Path, filename: &str, matches: &mut Vec<std::path::PathBuf>) {
         let Ok(entries) = fs::read_dir(folder) else {
             return;
@@ -171,28 +180,42 @@ pub fn find_reference_audio_matches(folder: &Path, filename: &str) -> Vec<std::p
     matches
 }
 
+fn find_reference_audio_files(folder: &Path) -> Vec<std::path::PathBuf> {
+    fn visit(folder: &Path, files: &mut Vec<std::path::PathBuf>) {
+        let Ok(entries) = fs::read_dir(folder) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.file_name().and_then(|name| name.to_str()) == Some(".adbstudio") {
+                continue;
+            }
+            if path.is_dir() {
+                visit(&path, files);
+            } else if is_reference_audio(&path) {
+                files.push(path);
+            }
+        }
+    }
+
+    let mut files = Vec::new();
+    visit(folder, &mut files);
+    files.sort();
+    files
+}
+
 pub fn find_reference_audio_by_hash(
     folder: &Path,
-    filename: &str,
+    _filename: &str,
     expected_hash: &str,
 ) -> Result<std::path::PathBuf, String> {
     if expected_hash.is_empty() {
         return Err("Reference audio has no checksum".into());
     }
-    let matches = find_reference_audio_matches(folder, filename);
-    let matching = matches
+    find_reference_audio_files(folder)
         .into_iter()
-        .filter(|path| metadata::hash_file(path).is_ok_and(|hash| hash == expected_hash))
-        .collect::<Vec<_>>();
-    match matching.as_slice() {
-        [path] => Ok(path.clone()),
-        [] => Err(format!(
-            "Could not find reference audio '{filename}' with the stored checksum"
-        )),
-        _ => Err(format!(
-            "Multiple reference audio files named '{filename}' match the stored checksum"
-        )),
-    }
+        .find(|path| metadata::hash_file(path).is_ok_and(|hash| hash == expected_hash))
+        .ok_or_else(|| "Could not find reference audio with the stored checksum".into())
 }
 
 fn resolve_reference_audio(
@@ -438,5 +461,33 @@ mod tests {
         assert!(parsed.reference_audio_ambiguous);
         assert!(parsed.reference_audio_hash.is_empty());
         assert_eq!(value["_adb_studio"]["reference_audio_ambiguous"], true);
+    }
+
+    #[test]
+    fn reference_audio_matching_uses_relative_path_when_provided() {
+        let temp = TempDirectory::new();
+        fs::create_dir_all(temp.0.join("nested")).unwrap();
+        fs::write(temp.0.join("reference.wav"), b"same audio").unwrap();
+        fs::write(temp.0.join("nested/reference.wav"), b"same audio").unwrap();
+
+        let matches = find_reference_audio_matches(&temp.0, "nested/reference.wav");
+
+        assert_eq!(matches, vec![temp.0.join("nested/reference.wav")]);
+    }
+
+    #[test]
+    fn reference_audio_hash_matching_ignores_filename() {
+        let temp = TempDirectory::new();
+        fs::create_dir_all(temp.0.join("nested")).unwrap();
+        fs::write(temp.0.join("first.wav"), b"same audio").unwrap();
+        fs::write(temp.0.join("nested/different-name.wav"), b"same audio").unwrap();
+        let expected_hash = metadata::hash_file(&temp.0.join("first.wav")).unwrap();
+
+        let path =
+            find_reference_audio_by_hash(&temp.0, "missing-name.wav", &expected_hash).unwrap();
+
+        assert!(
+            path == temp.0.join("first.wav") || path == temp.0.join("nested/different-name.wav")
+        );
     }
 }
